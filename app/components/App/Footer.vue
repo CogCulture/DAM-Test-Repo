@@ -55,7 +55,7 @@ watch(deleting, (value) => {
       <UButton
         :loading="deleting"
         icon="lucide:trash"
-        label="Delete"
+        :label="route.path.endsWith('/trash') ? 'Delete Permanently' : 'Delete'"
         @click="deleteFiles(selected)"
       />
       <UButton

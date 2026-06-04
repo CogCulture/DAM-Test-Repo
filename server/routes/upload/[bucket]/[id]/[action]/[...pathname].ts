@@ -1,4 +1,4 @@
-import { insertUpdateFile, updateContentType } from "~~/server/utils/db";
+import { insertUpdateFile, updateContentType, getFolder } from "~~/server/utils/db";
 import { getContentType } from "~~/shared/utils/helper";
 
 export default eventHandler(async (event) => {
@@ -12,7 +12,8 @@ export default eventHandler(async (event) => {
   const dimensions = headers.get("x-amz-meta-dimensions") || null;
   const headerContentType = headers.get("x-amz-meta-content-type") || null;
   if (id !== "root") {
-    const folder = await getFolder(id);
+    // @ts-ignore
+    const folder = await getFolder(id, user.organizationId);
     if (!folder) {
       throw createError({
         status: 404,

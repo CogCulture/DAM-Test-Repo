@@ -1,0 +1,1 @@
+ALTER TABLE `org_departments` ADD `parent_id` text;

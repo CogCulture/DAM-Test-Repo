@@ -2,7 +2,10 @@
 defineProps<{
   member: Member | Invitee;
 }>();
-defineEmits(["update"]);
+const memberRoles = [
+  { value: "viewer", label: "Viewer" },
+  { value: "editor", label: "Editor" },
+];
 </script>
 <template>
   <div
@@ -25,8 +28,7 @@ defineEmits(["update"]);
     <USelect
       v-else
       :items="memberRoles"
-      :modelValue="member.role"
-      @update:modelValue="$emit('update')"
+      v-model="member.role"
       class="ml-auto min-w-36"
     />
   </div>

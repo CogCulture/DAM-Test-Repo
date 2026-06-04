@@ -2,6 +2,8 @@ export default defineEventHandler(async (event) => {
   const { user } = await verifyBucket(event);
   // @ts-ignore
   const userId = user.id;
+  // @ts-ignore
+  const orgId = user.organizationId || "org_default";
   const params = getRouterParams(event);
   const { name, type } = await readBody(event);
   if (!name) {
@@ -10,10 +12,10 @@ export default defineEventHandler(async (event) => {
       status: 400,
     });
   }
-  const parent = await getParent(params.bucket, params.id);
+  const parent = await getParent(params.bucket, params.id, orgId);
   const fullPath = cleanPath(`${parent.path}/${name}`);
   // does file exist?
-  const file = await getFile(params.bucket, fullPath);
+  const file = await getFile(params.bucket, fullPath, undefined, orgId);
   if (file) {
     throw createError({
       message: `${type} already exists`,
@@ -57,6 +59,14 @@ export default defineEventHandler(async (event) => {
       userId,
     });
   } else {
+    // @ts-ignore
+    const canCreate = user.permissions?.canCreateFolder || user.role === "admin";
+    if (!canCreate) {
+      throw createError({
+        message: "You do not have permission to create folders directly. Please submit a folder creation request.",
+        status: 403,
+      });
+    }
     return await ensurePath(params.bucket, fullPath, userId);
   }
 });

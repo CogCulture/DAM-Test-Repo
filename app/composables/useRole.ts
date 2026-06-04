@@ -1,0 +1,89 @@
+import type { UserRole } from "~~/shared/constants/roles";
+import { hasMinRole, getRoleLabel } from "~~/shared/constants/roles";
+import { getDepartmentName } from "~~/shared/constants/departments";
+
+export const useRole = () => {
+  const { user, loggedIn } = useUserSession();
+
+  const role = computed<UserRole | null>(
+    () => (user.value as any)?.role ?? null
+  );
+  const departmentId = computed<string | null>(
+    () => (user.value as any)?.departmentId ?? null
+  );
+  const approvalStatus = computed<string | null>(
+    () => (user.value as any)?.approvalStatus ?? null
+  );
+
+  const isApproved = computed(() => approvalStatus.value === "active");
+  const isPending = computed(() => approvalStatus.value === "pending");
+  const needsProfile = computed(() => approvalStatus.value === "needs_profile");
+
+  const isAdmin = computed(() => role.value === "admin");
+  const isDeptHead = computed(() => role.value === "dept_head");
+  const isTeamLead = computed(() => role.value === "team_lead");
+  const isTeamMember = computed(() => role.value === "team_member");
+  const isIntern = computed(() => role.value === "intern");
+
+  const userPermissions = computed(() => (user.value as any)?.permissions || {});
+
+  const canUpload = computed(() =>
+    isApproved.value && (userPermissions.value.canUpload ?? hasMinRole(role.value || "intern", "intern"))
+  );
+  const canDownload = computed(() =>
+    isApproved.value && (userPermissions.value.canDownload ?? hasMinRole(role.value || "intern", "intern"))
+  );
+  const canCreateFolder = computed(() =>
+    isApproved.value && (userPermissions.value.canCreateFolder ?? hasMinRole(role.value || "intern", "team_lead"))
+  );
+  const canApproveUsers = computed(() =>
+    isApproved.value && (userPermissions.value.canApproveUsers ?? (role.value === "admin" || role.value === "dept_head"))
+  );
+  const canEditNomenclature = computed(() =>
+    isApproved.value && (userPermissions.value.canEditNomenclature ?? (role.value === "admin" || role.value === "dept_head"))
+  );
+  const canManageDepts = computed(() => isAdmin.value);
+  // Team leads submit requests, dept heads create directly
+  const canCreateFolderDirectly = computed(() =>
+    isApproved.value && !!role.value && hasMinRole(role.value, "dept_head")
+  );
+
+  const canShare = computed(() =>
+    isApproved.value && (userPermissions.value.canShare ?? hasMinRole(role.value || "intern", "team_lead"))
+  );
+  const canDelete = computed(() =>
+    isApproved.value && (userPermissions.value.canDelete ?? hasMinRole(role.value || "intern", "team_lead"))
+  );
+
+  const roleLabel = computed(() =>
+    role.value ? getRoleLabel(role.value) : ""
+  );
+  const departmentLabel = computed(() =>
+    departmentId.value ? getDepartmentName(departmentId.value) : ""
+  );
+
+  return {
+    role,
+    departmentId,
+    approvalStatus,
+    isApproved,
+    isPending,
+    needsProfile,
+    isAdmin,
+    isDeptHead,
+    isTeamLead,
+    isTeamMember,
+    isIntern,
+    canUpload,
+    canDownload,
+    canDelete,
+    canShare,
+    canCreateFolder,
+    canCreateFolderDirectly,
+    canApproveUsers,
+    canEditNomenclature,
+    canManageDepts,
+    roleLabel,
+    departmentLabel,
+  };
+};

@@ -73,14 +73,17 @@ export const fileTypes: Record<string, string> = {
   // document
   "application/pdf": "pdf",
   "application/msword": "word",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "word",
   "application/vnd.ms-excel": "excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "excel",
   "application/vnd.ms-powerpoint": "powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "powerpoint",
   "application/zip": "archive",
   "application/x-sqlite3": "sqlite",
   "application/yaml": "yaml",
 };
 export const fileIcons = {
-  folder: "vscode-icons:default-folder",
+  folder: "lucide:folder",
   image: "vscode-icons:file-type-image",
   video: "vscode-icons:file-type-video",
   audio: "vscode-icons:file-type-audio",

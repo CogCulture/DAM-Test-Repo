@@ -8,17 +8,31 @@ export const useFileActions = () => {
     // TODO: ask for confirmation
     if (deleting.value) return;
     deleting.value = true;
+    const isGDrive = route.params.bucket && (route.params.bucket as string).startsWith("gdrive_");
     try {
-      const data = await $fetch(`/api/files/${route.params.bucket}/delete`, {
-        method: "POST",
-        body: JSON.stringify(files),
-      });
-      if (data?.status === "success") {
+      if (isGDrive) {
+        for (const fileId of files) {
+          await $fetch(`/api/gdrive/delete/${fileId}`, {
+            method: "DELETE",
+          });
+        }
         toast.add({
           title: "Success",
           description: "Files deleted",
           color: "success",
         });
+      } else {
+        const data = await $fetch(`/api/files/${route.params.bucket}/delete`, {
+          method: "POST",
+          body: JSON.stringify(files),
+        });
+        if (data?.status === "success") {
+          toast.add({
+            title: "Success",
+            description: "Files deleted",
+            color: "success",
+          });
+        }
       }
     } catch (err) {
       console.error("Error processing files:", err);
@@ -28,7 +42,8 @@ export const useFileActions = () => {
   };
 
   const downloadFile = (bucket: string, id: string): string => {
-    return `/api/files/${bucket}/download/${id}`;
+    const isGDrive = bucket && bucket.startsWith("gdrive_");
+    return isGDrive ? `/api/gdrive/download/${id}` : `/api/files/${bucket}/download/${id}`;
   };
 
   const setFavorite = async (file: string, add: boolean) => {

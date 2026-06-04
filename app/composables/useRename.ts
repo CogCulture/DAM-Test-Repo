@@ -6,6 +6,7 @@ export const useRename = () => {
   const overlay = useOverlay();
   const modal = overlay.create(Rename);
 
+  const refreshTrigger = useState("files-refresh-trigger", () => 0);
   const loading = ref(false);
   const error = ref("");
 
@@ -13,18 +14,29 @@ export const useRename = () => {
     if (loading.value) return;
     loading.value = true;
     try {
-      const data = (await ($fetch as any)(
-        `/api/files/${route.params.bucket}/rename`,
-        {
+      const isGDrive = route.params.bucket && (route.params.bucket as string).startsWith("gdrive_");
+      let data;
+      if (isGDrive) {
+        await $fetch(`/api/gdrive/rename/${file.id}`, {
           method: "POST",
-          body: { file, name },
-        }
-      )) as { status?: string };
+          body: { newName: name },
+        });
+        data = { status: "success" };
+      } else {
+        data = (await ($fetch as any)(
+          `/api/files/${route.params.bucket}/rename`,
+          {
+            method: "POST",
+            body: { file, name },
+          }
+        )) as { status?: string };
+      }
       if (data?.status && data?.status === "success") {
         toast.add({
           title: "Success",
           color: "success",
         });
+        refreshTrigger.value++;
         modal.close();
       }
     } catch (errors: any) {

@@ -5,6 +5,7 @@ export const useCopy = () => {
   const overlay = useOverlay();
   const modal = overlay.create(Copy);
 
+  const refreshTrigger = useState("files-refresh-trigger", () => 0);
   const open = useState("copy-open", () => false);
   const loading = ref(false);
   const error = ref("");
@@ -18,6 +19,7 @@ export const useCopy = () => {
         method: "POST",
         body: { file, name },
       });
+      refreshTrigger.value++;
       modal.close();
     } catch (errors: any) {
       if (errors?.data?.message) {

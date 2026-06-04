@@ -85,6 +85,48 @@
       "when": 1742208895580,
       "tag": "0011_demonic_the_renegades",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1780380027032,
+      "tag": "0012_condemned_ronan",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1780397624999,
+      "tag": "0013_hard_killmonger",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1780397659689,
+      "tag": "0014_pink_shiver_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1780398559242,
+      "tag": "0015_eager_blue_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1780547577303,
+      "tag": "0016_next_chamber",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1780557100158,
+      "tag": "0017_chemical_whiplash",
+      "breakpoints": true
     }
   ]
 }

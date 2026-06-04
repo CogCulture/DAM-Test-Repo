@@ -82,8 +82,8 @@ export default defineAppConfig({
     },
     navigationMenu: {
       slots: {
-        root: "space-y-2",
-        list: "space-y-2",
+        root: "",
+        list: "",
         label: "py-2",
         linkLeadingIcon: "*:stroke-[1.5px]",
         linkTrailingIcon: "*:stroke-[1px]",
@@ -96,7 +96,13 @@ export default defineAppConfig({
           },
         },
         orientation: {
+          horizontal: {
+            root: "space-y-0",
+            list: "space-y-0",
+          },
           vertical: {
+            root: "space-y-2",
+            list: "space-y-2",
             link: "py-2",
           },
         },

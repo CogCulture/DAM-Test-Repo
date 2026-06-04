@@ -1,30 +1,17 @@
-import { createBucket } from "~~/server/utils/db";
-import { getVerifiedUser } from "~~/server/utils/permission";
+import { getBucket, createBucket } from "~~/server/utils/db";
+import { requireMinRole } from "~~/server/utils/permission";
+import { ORG_BUCKET_NAME } from "~~/shared/constants/roles";
 
+// Bootstrap endpoint: creates the shared org bucket.
+// Only admins can trigger this. Called automatically on first login.
 export default defineEventHandler(async (event) => {
-  const user = await getVerifiedUser(event);
-  const { name } = await readBody(event);
-  if (!name) {
-    throw createError({
-      message: "Bucket name is required",
-      status: 400,
-    });
-  }
-  if (name.length < 6 || name.length > 20) {
-    throw createError({
-      message: "Bucket name should be between 6 to 20 characters",
-      status: 400,
-    });
-  }
+  await requireMinRole(event, "admin");
 
-  // @ts-ignore
-  const hasBuckets = await getUserBucket(user.id);
-  if (hasBuckets) {
-    throw createError({
-      message: "You already have a bucket",
-      status: 400,
-    });
+  const existing = await getBucket(ORG_BUCKET_NAME);
+  if (existing) {
+    return existing;
   }
   // @ts-ignore
-  return await createBucket(name, user.id);
+  const { user } = await requireUserSession(event);
+  return await createBucket(ORG_BUCKET_NAME, user.id);
 });

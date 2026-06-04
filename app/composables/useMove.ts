@@ -5,6 +5,7 @@ export const useMove = () => {
   const overlay = useOverlay();
   const modal = overlay.create(Move);
 
+  const refreshTrigger = useState("files-refresh-trigger", () => 0);
   const open = useState("move-open", () => false);
   const loading = ref(false);
   const error = ref("");
@@ -17,6 +18,7 @@ export const useMove = () => {
         method: "POST",
         body: { file, parentId },
       });
+      refreshTrigger.value++;
       modal.close();
     } catch (errors: any) {
       if (errors?.data?.message) {

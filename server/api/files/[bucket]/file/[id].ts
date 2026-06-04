@@ -1,11 +1,13 @@
 import { verifyBucket } from "~~/server/utils/permission";
+import { getFolder } from "~~/server/utils/db";
 
 export default defineEventHandler(async (event) => {
-  const { bucket } = await verifyBucket(event);
+  const { bucket, user } = await verifyBucket(event);
   const { id } = getRouterParams(event);
 
   if (id) {
-    const file = await getFolder(id);
+    // @ts-ignore
+    const file = await getFolder(id, user.organizationId);
     if (file && file.bucketName === bucket.name) {
       return file;
     }

@@ -12,17 +12,24 @@ export const useFolder = () => {
 
   const fetchFolder = async () => {
     if (!route.params.bucket) return;
-    if (!route.params.id) {
+    const idParam = route.params.id;
+    const resolvedId = Array.isArray(idParam) ? idParam.join("/") : (idParam || "");
+    if (!resolvedId) {
       folder.value = null;
       return;
     }
     if (loading.value) return;
     loading.value = true;
-    const { data } = await useFetch<Folder>(
-      `/api/folder/${route.params.bucket}/${route.params.id}`
-    );
-    if (data.value) folder.value = data.value;
-    loading.value = false;
+    try {
+      const data = await $fetch<Folder>(
+        `/api/folder/${route.params.bucket}/${resolvedId}`
+      );
+      if (data) folder.value = data;
+    } catch (e) {
+      console.error("Error fetching folder:", e);
+    } finally {
+      loading.value = false;
+    }
   };
 
   watch(

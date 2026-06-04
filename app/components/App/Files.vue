@@ -12,6 +12,14 @@ const { files, isEnd, loadMore, loading, onSort, onFilter, refresh } = useFiles(
 const { opened, limit } = usePreview();
 const { selected, toggleSelected } = useSelected();
 const view = useState<string>("view", () => "grid");
+const { canUpload, canCreateFolder, canShare, canDelete } = useRole();
+
+const showNomenclatureModal = ref(false);
+const droppedFiles = ref<File[]>([]);
+const onFilesDropped = (filesList: File[]) => {
+  droppedFiles.value = filesList;
+  showNomenclatureModal.value = true;
+};
 
 watch(files, () => {
   if (files.value && files.value.length >= 0) {
@@ -41,19 +49,27 @@ defineShortcuts({
   <Title v-else>{{ route.params.bucket }}</Title>
   <FilePreview v-if="files" :files="files" />
   <Share
-    v-if="selected.length > 0"
+    v-if="selected.length > 0 && canShare"
     :files="files.filter((file) => selected.includes(file.id))"
   />
   <AppMain :title="title">
     <template #actions>
-      <Upload v-if="!endpoint" type="folder" @success="refresh" />
-      <NewFile v-if="!endpoint" />
+      <Upload v-if="!endpoint && canUpload" type="folder" @success="refresh" />
+      <NewFile v-if="!endpoint && canCreateFolder" />
       <div class="ml-auto flex flex-wrap items-end gap-4">
         <SortFiles v-if="!endpoint" @update="onSort" />
         <Filter v-if="!endpoint" @update="onFilter" class="ml-auto" />
         <ToggleButton v-model="view" />
       </div>
     </template>
+    <DropFiles v-if="!endpoint && canUpload" @dropped="onFilesDropped" class="mb-6" />
+    <NomenclatureUploadModal
+      v-slot="modal"
+      v-model:open="showNomenclatureModal"
+      :files="droppedFiles"
+      :folder="folder"
+      @success="refresh"
+    />
     <AppView :name="view" v-slot="{ dir }" :loading="loading">
       <File
         v-for="(file, index) in files"

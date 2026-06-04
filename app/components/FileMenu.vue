@@ -8,8 +8,13 @@ const { openRename } = useRename();
 const { openShare } = useShare();
 const props = defineProps(["file"]);
 const emit = defineEmits(["delete"]);
-const fileMenuItems = ref([
-  [
+const { canDownload, canShare, canDelete } = useRole();
+
+const fileMenuItems = computed(() => {
+  const list = [];
+
+  // Group 1
+  list.push([
     {
       label: "Open",
       icon: "lucide:eye",
@@ -39,18 +44,24 @@ const fileMenuItems = ref([
         setFavorite(props.file.id, !props.file.isFavorite);
       },
     },
-  ],
-  [
+  ]);
+
+  // Group 2
+  list.push([
     {
       label: "Download",
       icon: "i-lucide-download",
-      href: `/api/files/${route.params.bucket}/download/${props.file.id}`,
+      href: route.params.bucket && route.params.bucket.startsWith("gdrive_")
+        ? `/api/gdrive/download/${props.file.id}`
+        : `/api/files/${route.params.bucket}/download/${props.file.id}`,
       target: "_blank",
+      disabled: !canDownload.value,
     },
     {
       label: "Rename",
       icon: "lucide:pencil",
       kbds: ["meta", "R"],
+      disabled: !canDelete.value, // renaming requires modify permission
       onSelect: () => {
         openRename(props.file);
       },
@@ -59,46 +70,61 @@ const fileMenuItems = ref([
       label: "Make a Copy",
       icon: "lucide:copy",
       kbds: ["meta", "D"],
+      disabled: !canDelete.value,
       onSelect: () => {
         openCopy(props.file);
       },
     },
-  ],
-  [
-    {
+  ]);
+
+  // Group 3
+  const actionsGroup = [];
+  if (canShare.value) {
+    actionsGroup.push({
       label: "Share",
       icon: "lucide:user-plus",
       onSelect: () => {
         openShare([props.file]);
       },
+    });
+  }
+  
+  actionsGroup.push({
+    label: "Move to",
+    icon: "lucide:folder-input",
+    disabled: !canDelete.value,
+    onSelect: () => {
+      openMove(props.file);
     },
-    {
-      label: "Move to",
-      icon: "lucide:folder-input",
-      onSelect: () => {
-        openMove(props.file);
-      },
+  });
+
+  actionsGroup.push({
+    label: "Publish",
+    icon: "lucide:globe",
+    disabled: !canShare.value,
+    onSelect: () => {
+      openPublish(props.file);
     },
-    {
-      label: "Publish",
-      icon: "lucide:globe",
-      onSelect: () => {
-        openPublish(props.file);
-      },
-    },
-    {
+  });
+
+  if (canDelete.value) {
+    actionsGroup.push({
       type: "separator",
-    },
-    {
+    });
+    actionsGroup.push({
       label: "Move to Trash",
       icon: "lucide:trash",
       kbds: ["meta", "backspace"],
       onSelect: () => {
         deleteFiles([props.file.id]);
       },
-    },
-  ],
-]);
+    });
+  }
+
+  list.push(actionsGroup);
+
+  return list;
+});
 
 watch(deleting, (value) => {
   if (!value) {

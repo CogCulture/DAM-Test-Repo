@@ -1,4 +1,4 @@
-import { getFiles } from "~~/server/utils/db";
+import { getFiles, getFolder } from "~~/server/utils/db";
 import { verifyBucket } from "~~/server/utils/permission";
 
 export default defineEventHandler(async (event) => {
@@ -6,7 +6,8 @@ export default defineEventHandler(async (event) => {
   const { bucket, id } = getRouterParams(event);
   let breadcrumb: FolderBreadcrumb[] = [];
   if (id !== "root") {
-    const folder = await getFolder(id);
+    // @ts-ignore
+    const folder = await getFolder(id, user.organizationId);
     if (folder && folder.path) {
       breadcrumb = await getBreadcrumb(bucket, folder.path);
     }

@@ -33,8 +33,9 @@ export const encodeURI = (path: string) => {
 };
 
 export const fileIcon = (type: string): string => {
+  const simpleType = fileTypes[type] || type;
   // @ts-ignore
-  return fileIcons[fileTypes[type]] || fileIcons["default"];
+  return fileIcons[simpleType] || fileIcons["default"];
 };
 
 export const getFolderPath = (path: string) => {

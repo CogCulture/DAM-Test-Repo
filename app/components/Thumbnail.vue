@@ -31,7 +31,7 @@ const gridItems = computed(() => {
         class="w-full aspect-square bg-center bg-cover bg-neutral-200 dark:bg-neutral-700"
         :style="
           preview && {
-            backgroundImage: `url(${getPreviewUrl(preview, file.deletedAt)})`,
+            backgroundImage: `url('${getPreviewUrl(preview, file.deletedAt)}')`,
           }
         "
       >
@@ -62,6 +62,6 @@ const gridItems = computed(() => {
     v-else
     class="absolute inset-0 w-full h-full flex justify-center items-center"
   >
-    <Icon :name="fileIcon(file.type)" class="size-24" />
+    <Icon :name="fileIcon(file.contentType || file.type)" class="size-24" />
   </div>
 </template>

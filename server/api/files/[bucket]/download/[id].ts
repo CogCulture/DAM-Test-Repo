@@ -1,18 +1,31 @@
 import { verifyBucket } from "~~/server/utils/permission";
+import { getFolder } from "~~/server/utils/db";
 
 export default defineEventHandler(async (event) => {
-  const { bucket } = await verifyBucket(event);
+  const { bucket, user } = await verifyBucket(event);
   const { id } = await getRouterParams(event);
 
+  const query = getQuery(event);
+  const isInline = query.inline === "true";
+
   if (id) {
-    const item = await getFolder(id);
+    // @ts-ignore
+    const item = await getFolder(id, user.organizationId);
     if (item && item.bucketName === bucket.name) {
-      // Set Content-Disposition to indicate this should be downloaded
-      setHeader(
-        event,
-        "Content-Disposition",
-        `attachment; filename="${encodeURIComponent(item.name)}"`
-      );
+      if (isInline) {
+        setHeader(
+          event,
+          "Content-Disposition",
+          `inline; filename="${encodeURIComponent(item.name)}"`
+        );
+      } else {
+        // Set Content-Disposition to indicate this should be downloaded
+        setHeader(
+          event,
+          "Content-Disposition",
+          `attachment; filename="${encodeURIComponent(item.name)}"`
+        );
+      }
 
       // Disable caching
       setHeader(event, "Cache-Control", "no-cache, no-store, must-revalidate");

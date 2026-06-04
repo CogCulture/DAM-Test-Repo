@@ -1,4 +1,4 @@
-import { createUser, getUserByEmail } from "./db";
+import { createUser, getUserByEmail, countAllUsers } from "./db";
 
 export const uuid = () => crypto.randomUUID();
 
@@ -34,6 +34,7 @@ export const authHandler = async ({
       status: 403,
     });
   }
+
   const registeredUser = await getUserByEmail(email);
   if (registeredUser) {
     if (registeredUser.status !== "active") {
@@ -50,6 +51,11 @@ export const authHandler = async ({
         status: 403,
       });
     }
+
+    // Check if this is the very first user → auto-assign as Founder
+    const totalUsers = await countAllUsers();
+    const isFirstUser = totalUsers === 0;
+
     const newUser: CreateUserType = {
       id: uuid(),
       name,
@@ -57,6 +63,11 @@ export const authHandler = async ({
       provider,
       avatar,
       createdAt: new Date(),
+      // First user gets admin role with immediate approval and no department
+      role: isFirstUser ? "admin" : "team_member",
+      departmentId: null,
+      // First user is immediately active. Others need to complete profile first.
+      approvalStatus: isFirstUser ? "active" : "needs_profile",
     };
     await createUser(newUser);
     return newUser;

@@ -5,6 +5,7 @@ export const useFiles = (endpoint: any = "root") => {
   const filters = ref<any>(null);
   const files = useState<IFile[]>("files", () => []);
   const loading = useState<boolean>("files-loading", () => false);
+  const refreshTrigger = useState("files-refresh-trigger", () => 0);
   const isEnd = ref<boolean>(true);
 
   const page = ref(1);
@@ -26,10 +27,13 @@ export const useFiles = (endpoint: any = "root") => {
         }
       });
     }
+    const isGDrive = route.params.bucket && (route.params.bucket as string).startsWith("gdrive_");
+    const idParam = route.params.id;
+    const resolvedId = Array.isArray(idParam) ? (idParam.join("/") || "root") : (idParam || "root");
     const endpoints = {
-      root: `/api/files/list/${route.params.bucket}/${
-        route.params.id || "root"
-      }`,
+      root: isGDrive
+        ? `/api/gdrive/list/${resolvedId}`
+        : `/api/files/list/${route.params.bucket}/${resolvedId}`,
       favorites: `/api/files/${route.params.bucket}/favorites`,
       shared: `/api/files/${route.params.bucket}/shared`,
       published: `/api/files/${route.params.bucket}/published`,
@@ -37,7 +41,7 @@ export const useFiles = (endpoint: any = "root") => {
       trash: `/api/files/${route.params.bucket}/trash`,
     };
     try {
-      const { data } = await useFetch<FilesFetchResponse>(
+      const data = await $fetch<FilesFetchResponse>(
         endpoints[endpoint as keyof typeof endpoints] as string,
         {
           query: {
@@ -48,9 +52,9 @@ export const useFiles = (endpoint: any = "root") => {
           },
         }
       );
-      if (data.value && data.value.data) {
-        files.value.push(...data.value.data);
-        if (data.value.nextPage) {
+      if (data && data.data) {
+        files.value.push(...data.data);
+        if (data.nextPage) {
           isEnd.value = false;
         } else {
           isEnd.value = true;
@@ -70,6 +74,12 @@ export const useFiles = (endpoint: any = "root") => {
   watch(
     () => route.params.id,
     (newId, oldId) => {
+      fetchFiles(true);
+    }
+  );
+  watch(
+    refreshTrigger,
+    () => {
       fetchFiles(true);
     }
   );

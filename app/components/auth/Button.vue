@@ -26,7 +26,7 @@ const providers = {
     block
     as-child
   >
-    <a :href="`/api/auth/${provider}`">
+    <a :href="provider === 'google' ? `/api/auth/${provider}?prompt=select_account` : `/api/auth/${provider}`">
       <Icon
         :name="providers[provider].icon"
         :class="providers[provider].class"

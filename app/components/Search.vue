@@ -17,14 +17,14 @@ const { data: files, status } = await useFetch(
     watch: [searchTerm],
     key: "command-palette-files",
     transform: (
-      data: { id: string; name: string; path: string; type: string }[]
+      data: { id: string; name: string; path: string; type: string; contentType?: string }[]
     ) => {
       return (
         data?.map((file) => ({
           id: file.id,
           label: getFolderPath(file.path) + "/",
           suffix: file.name,
-          icon: fileIcon(file.type),
+          icon: fileIcon(file.contentType || file.type),
           to:
             file.type === "folder"
               ? `/${route.params.bucket}/${file.id}`

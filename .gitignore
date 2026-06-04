@@ -26,3 +26,6 @@ wrangler.toml
 # wrangler files
 .wrangler
 .dev.vars
+
+# Temporary scratch directory
+scratch/

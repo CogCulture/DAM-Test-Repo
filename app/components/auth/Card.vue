@@ -26,6 +26,27 @@ const isDark = computed(() => colorMode.value === "dark");
           :key="provider"
           :provider="provider"
         />
+        <div class="flex items-center my-1">
+          <div class="grow border-t border-neutral-200 dark:border-neutral-800"></div>
+          <span class="mx-3 text-xs text-neutral-400 font-medium">OR</span>
+          <div class="grow border-t border-neutral-200 dark:border-neutral-800"></div>
+        </div>
+        <UButton
+          variant="outline"
+          color="neutral"
+          size="xl"
+          class="text-sm"
+          block
+          as-child
+        >
+          <a href="/api/auth/google?gdrive=true">
+            <Icon
+              name="logos:google-icon"
+              class="size-6"
+            />
+            <span class="ml-2">Host Google Drive Folder</span>
+          </a>
+        </UButton>
         <UAlert
           title="Note"
           icon="lucide:message-square-warning"

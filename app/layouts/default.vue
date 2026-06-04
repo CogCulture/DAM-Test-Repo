@@ -13,16 +13,16 @@ const { folder } = useFolder();
   >
     <AppHeader />
     <div class="flex px-4 sm:px-18 h-screen overflow-auto relative">
-      <AppAside v-if="route.params?.bucket" />
+      <AppDirectoryTree v-if="route.params?.bucket || route.path.startsWith('/admin')" />
       <div
         :class="[
-          'py-24 grow transition-all duration-200 ease-in-out',
-          aside ? 'sm:ml-48' : 'ml-0',
+          'grow transition-all duration-200 ease-in-out',
+          (route.params?.bucket || route.path.startsWith('/admin')) ? `sm:ml-64 pb-24 ${aside ? 'pt-36' : 'pt-20'}` : 'ml-0 pt-24 pb-24',
         ]"
       >
         <slot />
       </div>
     </div>
-    <AppFooter v-if="route.params?.bucket" />
+    <AppFooter v-if="route.params?.bucket || route.path.startsWith('/admin')" />
   </div>
 </template>
