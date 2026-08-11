@@ -49,3 +49,28 @@ test("normalizes nomenclature input without mutating the source", () => {
   ]);
   assert.equal(input[0].key, " Brand ");
 });
+
+test("supports an administrator-defined Brand_Project_MediaType_Version policy", () => {
+  const policy = [
+    { key: "Brand", label: "Brand", allowedValues: ["Acme"] },
+    { key: "Project", label: "Project", allowedValues: [] },
+    { key: "MediaType", label: "Media type", allowedValues: ["Video", "Image"] },
+    { key: "Version", label: "Version", allowedValues: [] },
+  ];
+
+  assert.deepEqual(
+    validateFileNomenclature("Acme_Launch_Video_v2.mp4", policy),
+    { valid: true },
+  );
+});
+
+test("rejects wrong shapes and administrator-restricted values", () => {
+  const policy = [
+    { key: "Brand", label: "Brand", allowedValues: ["Acme"] },
+    { key: "MediaType", label: "Media type", allowedValues: ["Video"] },
+  ];
+
+  assert.match(validateFileNomenclature("Acme.pdf", policy).message, /Brand_MediaType/);
+  assert.match(validateFileNomenclature("Other_Video.pdf", policy).message, /Brand/);
+  assert.match(validateFileNomenclature("Acme_Image.pdf", policy).message, /Media type/);
+});
