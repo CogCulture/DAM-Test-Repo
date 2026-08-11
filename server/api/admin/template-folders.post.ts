@@ -1,4 +1,5 @@
 import { ensurePath, getBucket, getFile, getOrgFeatures } from "~~/server/utils/db";
+import { getGDriveConnection, getGDriveAccessToken, ensureGDrivePath } from "~~/server/utils/gdrive";
 import { ORG_BUCKET_NAME } from "~~/shared/constants/roles";
 
 // Sub-folders created inside every client folder
@@ -57,6 +58,16 @@ export default defineEventHandler(async (event) => {
   }
 
   const userId = (user as any).id as string;
+  const orgType = (user as any).orgType || "s3";
+
+  let gdriveConnection = null;
+  let gdriveToken = null;
+  if (orgType === "gdrive") {
+    gdriveConnection = await getGDriveConnection(userId);
+    if (gdriveConnection && gdriveConnection.status === "approved") {
+      gdriveToken = await getGDriveAccessToken(userId);
+    }
+  }
 
   const {
     template,
@@ -101,6 +112,10 @@ export default defineEventHandler(async (event) => {
       const folderPath = `${ORG_BUCKET_NAME}/Clients/${sanitized}/${clientPrefix}_${subCamel}`;
       const result = await ensurePath(ORG_BUCKET_NAME, folderPath, userId, false);
       created.push(result.id);
+      if (gdriveToken && gdriveConnection) {
+        const gdrivePath = `Clients/${sanitized}/${clientPrefix}_${subCamel}`;
+        await ensureGDrivePath(gdriveToken, gdriveConnection.folderId, gdrivePath);
+      }
     }
     return { success: true, created, clientName: sanitized };
   }
@@ -115,6 +130,9 @@ export default defineEventHandler(async (event) => {
   const rootPath = `${ORG_BUCKET_NAME}/${tmpl.root}`;
   const rootResult = await ensurePath(ORG_BUCKET_NAME, rootPath, userId, false);
   created.push(rootResult.id);
+  if (gdriveToken && gdriveConnection) {
+    await ensureGDrivePath(gdriveToken, gdriveConnection.folderId, tmpl.root);
+  }
 
   // Create sub-folders
   if (tmpl.subFolders) {
@@ -122,6 +140,9 @@ export default defineEventHandler(async (event) => {
       const subPath = `${ORG_BUCKET_NAME}/${tmpl.root}/${sub}`;
       const subResult = await ensurePath(ORG_BUCKET_NAME, subPath, userId, false);
       created.push(subResult.id);
+      if (gdriveToken && gdriveConnection) {
+        await ensureGDrivePath(gdriveToken, gdriveConnection.folderId, `${tmpl.root}/${sub}`);
+      }
     }
   }
 

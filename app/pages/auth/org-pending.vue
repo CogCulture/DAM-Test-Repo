@@ -3,7 +3,7 @@ definePageMeta({ layout: false });
 
 const { data, refresh } = await useFetch<any>("/api/auth/org-request-status");
 
-// Auto-refresh every 30 seconds to check if approved
+// Auto-refresh every 3 seconds to check if approved
 let interval: any;
 onMounted(() => {
   interval = setInterval(async () => {
@@ -14,9 +14,10 @@ onMounted(() => {
       await $fetch("/api/auth/refresh", { method: "POST" }).catch(() => {});
       navigateTo("/");
     }
-  }, 30000);
+  }, 3000);
 });
 onUnmounted(() => clearInterval(interval));
+
 
 const { logout } = useUserSession();
 const handleLogout = async () => {
@@ -71,7 +72,7 @@ const handleLogout = async () => {
         </div>
       </div>
 
-      <p class="text-xs text-neutral-600">This page refreshes automatically every 30 seconds.</p>
+      <p class="text-xs text-neutral-600">This page updates automatically.</p>
 
       <button
         @click="handleLogout"

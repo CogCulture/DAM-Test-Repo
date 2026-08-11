@@ -1,20 +1,30 @@
-import { getBucket } from "./db";
+import { getBucket, getFolder, getOrgDepartments, isOrganizationSuspended, getUser } from "./db";
 import { hasMinRole, ORG_BUCKET_NAME } from "~~/shared/constants/roles";
 import type { UserRole } from "~~/shared/constants/roles";
-import { DEPARTMENTS } from "~~/shared/constants/departments";
+import type { FilePermissionKey } from "~~/shared/utils/access-control";
+// Removed static DEPARTMENTS
+import { users } from "~~/server/database/schema";
+import { eq } from "drizzle-orm";
 
-export const getFileDepartmentId = (filePath: string) => {
-  const parts = filePath.split("/");
-  if (parts[0] !== "org") return null;
-  const secondSegment = parts[1];
-  if (!secondSegment) return "founders";
 
-  const deptExists = DEPARTMENTS.find((d) => d.id === secondSegment);
-  if (deptExists) {
-    return deptExists.id;
+export const getFileDepartmentId = async (fileId: string, orgId: string) => {
+  if (!fileId || fileId === "root") return null;
+  const departments = await getOrgDepartments(orgId);
+  const byFolderId = new Map(
+    departments.filter((department) => department.folderId).map((department) => [department.folderId, department.id]),
+  );
+
+  let currentId: string | null = fileId;
+  const visited = new Set<string>();
+  while (currentId && currentId !== "root" && !visited.has(currentId)) {
+    visited.add(currentId);
+    const departmentId = byFolderId.get(currentId);
+    if (departmentId) return departmentId;
+    const item = await getFolder(currentId, orgId);
+    currentId = item?.parentId || null;
   }
-  return "founders";
-};
+  return null;
+ };
 
 // @ts-ignore
 export const getVerifiedUser = async (event) => {
@@ -33,17 +43,66 @@ export const getVerifiedUser = async (event) => {
  */
 // @ts-ignore
 export const getApprovedUser = async (event) => {
-  const user = await getVerifiedUser(event);
-  // @ts-ignore
-  if (user.approvalStatus !== "active") {
+  const sessionUser = await getVerifiedUser(event);
+  
+  // Verify user still exists in the database and retrieve fresh record
+  const dbUser = await getUser(sessionUser.id);
+  if (!dbUser) {
+    await clearUserSession(event);
+    throw createError({
+      status: 401,
+      message: "Session expired or user deleted. Please sign in again.",
+    });
+  }
+
+  if (dbUser.organizationId) {
+    const suspended = await isOrganizationSuspended(dbUser.organizationId);
+    if (suspended) {
+      throw createError({
+        status: 403,
+        message: "Your organization has been suspended. Access denied.",
+      });
+    }
+  }
+  if (dbUser.approvalStatus !== "active") {
     throw createError({
       status: 403,
       message: "Your account is pending approval.",
     });
   }
+  return dbUser;
+};
+
+/**
+ * Enforces a granular file-service permission from the fresh database user.
+ * Missing permissions fail closed; organization admins are resolved as allowed.
+ */
+// @ts-ignore
+export const requireFilePermission = async (event, permission: FilePermissionKey) => {
+  const user = await getApprovedUser(event);
+  if (user.permissions?.[permission] !== true) {
+    throw createError({
+      status: 403,
+      message: `You do not have permission to ${permission.replace(/^can/, "").replace(/([A-Z])/g, " $1").toLowerCase()}.`,
+    });
+  }
   return user;
 };
 
+export const requireDepartmentAccess = (user: any, departmentId?: string | null) => {
+  if (!departmentId || user.role === "admin") return;
+  if (!user.accessibleDepartmentIds?.includes(departmentId)) {
+    throw createError({
+      status: 403,
+      message: "You do not have access to this department.",
+    });
+  }
+};
+export const requireFileDepartmentAccess = async (user: any, fileId?: string | null) => {
+  if (!fileId || user.role === "admin") return;
+  const departmentId = await getFileDepartmentId(fileId, user.organizationId);
+  requireDepartmentAccess(user, departmentId);
+};
 /**
  * Require the user to have at least the specified role.
  * Also ensures the user's account is approved (active).
@@ -90,8 +149,11 @@ export const requireDeptHead = async (event, departmentId?: string) => {
  * Any approved user can access the org bucket.
  */
 // @ts-ignore
-export const verifyOrgBucket = async (event) => {
+export const verifyOrgBucket = async (event, permission?: FilePermissionKey) => {
   const user = await getApprovedUser(event);
+  if (permission && user.permissions?.[permission] !== true) {
+    throw createError({ status: 403, message: "Insufficient permissions." });
+  }
   const bucket = await getBucket(ORG_BUCKET_NAME);
   if (!bucket) {
     throw createError({
@@ -107,6 +169,6 @@ export const verifyOrgBucket = async (event) => {
  * Now routes to verifyOrgBucket (shared bucket).
  */
 // @ts-ignore
-export const verifyBucket = async (event) => {
-  return verifyOrgBucket(event);
+export const verifyBucket = async (event, permission?: FilePermissionKey) => {
+  return verifyOrgBucket(event, permission);
 };

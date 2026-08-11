@@ -10,13 +10,25 @@ if (!canEditNomenclature.value) {
 const selectedDept = ref(departmentId.value ?? "");
 const departmentsList = ref<{ id: string; name: string }[]>([]);
 const loadingDepartments = ref(false);
+const governanceRules = ref({
+  enforceNomenclature: false,
+  enforceHierarchy: false,
+  allowInterDeptVisibility: true,
+});
 
 onMounted(async () => {
   if (isAdmin.value) {
     loadingDepartments.value = true;
     try {
       const data: any = await $fetch("/api/organizations/settings");
-      departmentsList.value = data.departments || [];
+departmentsList.value = data.departments || [];
+      if (data.gdriveRules) {
+        governanceRules.value = {
+          enforceNomenclature: !!data.gdriveRules.enforceNomenclature,
+          enforceHierarchy: !!data.gdriveRules.enforceHierarchy,
+          allowInterDeptVisibility: data.gdriveRules.allowInterDeptVisibility !== false,
+        };
+      }
       if (departmentsList.value.length > 0 && !selectedDept.value) {
         selectedDept.value = departmentsList.value[0].id;
       }
@@ -41,6 +53,8 @@ const { data: nomenclature, refresh } = await useFetch(() =>
 
 const segments = ref<{ key: string; label: string; allowedValues: string[] }[]>([]);
 const newValueInputs = ref<Record<string, string>>({});
+const allowedExtensions = ref<string[]>([]);
+const newExtension = ref("");
 const saving = ref(false);
 
 watch(
@@ -51,6 +65,7 @@ watch(
     } else {
       segments.value = [];
     }
+    allowedExtensions.value = [...(val?.allowedExtensions || [])];
   },
   { immediate: true }
 );
@@ -60,8 +75,12 @@ const template = computed(() =>
 );
 
 const addValue = (segKey: string) => {
-  const val = newValueInputs.value[segKey]?.trim();
+const val = newValueInputs.value[segKey]?.trim();
   if (!val) return;
+  if (val.includes("_")) {
+    toast.add({ title: "Allowed values cannot contain underscores", color: "error" });
+    return;
+  }
   const seg = segments.value.find((s) => s.key === segKey);
   if (seg && !seg.allowedValues.includes(val)) {
     seg.allowedValues.push(val);
@@ -76,11 +95,32 @@ const removeValue = (segKey: string, val: string) => {
   }
 };
 
+const addExtension = () => {
+  const value = newExtension.value.trim().replace(/^\./, "").toLowerCase();
+  if (!/^[a-z0-9][a-z0-9+_-]{0,15}$/.test(value)) {
+    toast.add({ title: "Enter a valid extension such as pdf, jpg, or docx", color: "error" });
+    return;
+  }
+  if (!allowedExtensions.value.includes(value)) {
+    allowedExtensions.value.push(value);
+  }
+  newExtension.value = "";
+};
+
+const removeExtension = (value: string) => {
+  allowedExtensions.value = allowedExtensions.value.filter((extension) => extension !== value);
+};
+
+
 const newSegKey = ref("");
 const newSegLabel = ref("");
 
 const addSegment = () => {
-  const key = newSegKey.value.trim().replace(/\s+/g, "");
+const key = newSegKey.value.trim().replace(/s+/g, "");
+  if (key.includes("_")) {
+    toast.add({ title: "Segment keys cannot contain underscores", color: "error" });
+    return;
+  }
   const label = newSegLabel.value.trim();
   if (!key || !label) return;
 
@@ -120,9 +160,25 @@ const save = async () => {
   try {
     await $fetch(`/api/nomenclature/${selectedDept.value}`, {
       method: "PUT",
-      body: { template: template.value, segments: segments.value },
+      body: {
+        template: template.value,
+        segments: segments.value,
+        allowedExtensions: allowedExtensions.value,
+      },
     });
-    toast.add({ title: "Nomenclature saved", color: "success" });
+if (isAdmin.value) {
+      await $fetch("/api/organizations/gdrive-rules", {
+        method: "PUT",
+        body: governanceRules.value,
+      });
+    }
+    toast.add({
+      title: "Nomenclature saved",
+      description: isAdmin.value && governanceRules.value.enforceNomenclature
+        ? "The naming convention is now required for every upload."
+        : undefined,
+      color: "success",
+    });
     refresh();
   } catch (e: any) {
     toast.add({ title: e?.data?.message ?? "Error saving", color: "error" });
@@ -157,9 +213,47 @@ const save = async () => {
     <!-- Template preview -->
     <div class="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20 rounded-2xl p-5">
       <p class="text-xs text-blue-400 font-medium mb-2 uppercase tracking-wide">Current Template</p>
-      <code class="text-white font-mono text-sm break-all">{{ template }}</code>
+<code class="text-white font-mono text-sm break-all">{{ template }}</code>
+      <div v-if="isAdmin" class="mt-4 flex items-center justify-between gap-4 border-t border-blue-500/20 pt-4">
+        <div>
+          <p class="text-sm font-medium text-neutral-900 dark:text-white">Require this format on upload</p>
+          <p class="mt-1 text-xs text-neutral-500">When enabled, files are renamed in the upload wizard and invalid direct uploads are rejected.</p>
+        </div>
+        <UToggle v-model="governanceRules.enforceNomenclature" color="primary" />
+      </div>
     </div>
 
+    <div class="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 space-y-4">
+      <div>
+        <h2 class="text-lg font-medium text-neutral-900 dark:text-white">Allowed File Formats</h2>
+        <p class="mt-1 text-xs text-neutral-500">
+          Leave this empty to allow every extension. These rules apply to every uploader, including administrators.
+        </p>
+      </div>
+      <div class="flex flex-wrap gap-2" v-if="allowedExtensions.length">
+        <UBadge
+          v-for="extension in allowedExtensions"
+          :key="extension"
+          color="primary"
+          variant="soft"
+          class="gap-1"
+        >
+          .{{ extension }}
+          <button type="button" :aria-label="`Remove .${extension}`" @click="removeExtension(extension)">
+            <UIcon name="lucide:x" class="size-3" />
+          </button>
+        </UBadge>
+      </div>
+      <div class="flex gap-2">
+        <UInput
+          v-model="newExtension"
+          placeholder="pdf, jpg, docx"
+          class="flex-1"
+          @keyup.enter="addExtension"
+        />
+        <UButton icon="lucide:plus" label="Add format" variant="outline" @click="addExtension" />
+      </div>
+    </div>
     <!-- Configure Naming Segments Panel -->
     <div class="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 space-y-4">
       <h2 class="text-lg font-medium text-neutral-900 dark:text-white">Configure Naming Segments</h2>

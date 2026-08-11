@@ -22,13 +22,15 @@ export default defineEventHandler(async (event) => {
     throw createError({ status: 400, message: "Invalid department." });
   }
 
-  const nomenclature = await getNomenclature(dept);
+  const nomenclature = await getNomenclature(dept) as any;
 
   // Return default if none set
-  if (!nomenclature) {
+  if (!nomenclature?.segments?.length) {
     return {
+      ...nomenclature,
       departmentId: dept,
       template: "Brand_Campaign_Channel_Asset_Format_Version_Date",
+      allowedExtensions: null,
       segments: [
         { key: "Brand", label: "Brand", allowedValues: [] },
         { key: "Campaign", label: "Campaign", allowedValues: [] },

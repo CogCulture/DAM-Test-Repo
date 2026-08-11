@@ -1,9 +1,9 @@
 export const moveBlob = async (source: string, target: string) => {
   try {
-    const blob = await hubBlob().get(source);
+    const blob = await localBlob().get(source);
     if (blob) {
-      await hubBlob().put(target, blob);
-      await hubBlob().del(source);
+      await localBlob().put(target, blob);
+      await localBlob().del(source);
     }
   } catch (err) {
     throw createError({
@@ -15,11 +15,13 @@ export const moveBlob = async (source: string, target: string) => {
 
 export const copyBlob = async (source: string, target: string) => {
   try {
-    const blob = await hubBlob().get(source);
-    if (blob) {
-      return hubBlob().put(target, blob);
+    const blob = await localBlob().get(source);
+    if (!blob) {
+      throw createError({ status: 404, message: "Source file is missing from storage." });
     }
-  } catch (err) {
+    return await localBlob().put(target, blob);
+  } catch (err: any) {
+    if (err?.statusCode === 404) throw err;
     throw createError({
       status: 500,
       message: "Can't make copy",
@@ -29,10 +31,10 @@ export const copyBlob = async (source: string, target: string) => {
 
 export const deleteBlob = async (path: string, timestamp: number) => {
   try {
-    const blob = await hubBlob().get(path);
+    const blob = await localBlob().get(path);
     if (blob) {
-      await hubBlob().put(`_trash/${timestamp}/${path}`, blob);
-      await hubBlob().del(path);
+      await localBlob().put(`_trash/${timestamp}/${path}`, blob);
+      await localBlob().del(path);
     }
   } catch (err) {
     throw createError({

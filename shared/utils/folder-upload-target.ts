@@ -32,10 +32,29 @@ export const resolveSelectedFolderId = ({
   selectedFolderId?: string | null;
   routeFolderId?: string | null;
   rootFolderId: string;
-}) => selectedFolderId || routeFolderId || rootFolderId;
+}) => selectedFolderId?.trim() || routeFolderId?.trim() || rootFolderId;
+
+export const resolveAuthorizedFolderId = ({
+  requestedId,
+  allowedIds,
+}: {
+  requestedId: string;
+  allowedIds: Set<string>;
+}) => {
+  if (!allowedIds.has(requestedId)) {
+    throw new Error("Upload folder is not authorized.");
+  }
+  return requestedId;
+};
 
 export const sortDirectoryChildren = <T extends { type: string; name: string }>(items: T[]) =>
   [...items].sort((a, b) =>
     Number(b.type === "folder") - Number(a.type === "folder")
     || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
   );
+
+export const replaceDirectoryBranch = <T extends { type: string; name: string }>(
+  current: T[],
+  incoming: T[],
+  responseReady: boolean,
+) => responseReady ? sortDirectoryChildren(incoming) : current;

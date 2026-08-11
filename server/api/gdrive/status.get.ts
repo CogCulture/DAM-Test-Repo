@@ -11,10 +11,11 @@ export default defineEventHandler(async (event) => {
     .where(eq(gdriveFolders.userId, user.id));
 
   if (!connections || connections.length === 0) {
-    return { status: "not_connected" };
+    return { connected: false, status: "not_connected", folderName: null, folderId: null };
   }
 
   return {
+    connected: true,
     status: connections[0].status,
     folderName: connections[0].folderName,
     folderId: connections[0].folderId,

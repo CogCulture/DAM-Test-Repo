@@ -10,6 +10,9 @@ export default defineEventHandler(async (event) => {
   const updatedUser = await getUser(session.user.id);
   if (updatedUser) {
     await setUserSession(event, { user: updatedUser });
+  } else {
+    await clearUserSession(event);
+    return { loggedIn: false };
   }
 
   return { loggedIn: true, user: updatedUser };

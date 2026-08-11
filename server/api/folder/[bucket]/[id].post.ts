@@ -1,3 +1,6 @@
+import { requireFileDepartmentAccess, verifyBucket } from "~~/server/utils/permission";
+import { resolveFolderCreationMode } from "~~/shared/utils/folder-creation-policy";
+
 export default defineEventHandler(async (event) => {
   const { user } = await verifyBucket(event);
   // @ts-ignore
@@ -6,6 +9,11 @@ export default defineEventHandler(async (event) => {
   const orgId = user.organizationId || "org_default";
   const params = getRouterParams(event);
   const { name, type } = await readBody(event);
+  const requiredPermission = type === "file" ? "canUpload" : "canCreateFolder";
+  if (user.permissions?.[requiredPermission] !== true) {
+    throw createError({ status: 403, message: "Insufficient permissions." });
+  }
+  await requireFileDepartmentAccess(user, params.id);
   if (!name) {
     throw createError({
       message: `${type} name is required`,
@@ -49,8 +57,7 @@ export default defineEventHandler(async (event) => {
       });
     }
     const contentType = validTextFiles[ext];
-    const emptyFile = new Blob([""], { type: contentType });
-    hubBlob().put(fullPath, emptyFile);
+    await localBlob().put(fullPath, Buffer.alloc(0));
     return insertUpdateFile(params.bucket, parent.id, {
       name: fileName,
       fullPath,
@@ -59,11 +66,12 @@ export default defineEventHandler(async (event) => {
       userId,
     });
   } else {
-    // @ts-ignore
-    const canCreate = user.permissions?.canCreateFolder || user.role === "admin";
-    if (!canCreate) {
+    if (resolveFolderCreationMode({
+      role: user.role,
+      canCreateFolder: user.permissions?.canCreateFolder === true,
+    }) !== "direct") {
       throw createError({
-        message: "You do not have permission to create folders directly. Please submit a folder creation request.",
+        message: "Folder creation requires administrator or Department Head approval. Submit a folder request instead.",
         status: 403,
       });
     }

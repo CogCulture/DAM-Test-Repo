@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useToast } from "~/composables/useToast";
+
 definePageMeta({ layout: "superadmin", middleware: "superadmin" });
 
 const { data: orgs, refresh } = await useFetch<any[]>("/api/superadmin/organizations");
@@ -26,6 +28,24 @@ const toggleStatus = async (org: any) => {
     refresh();
   } catch (e: any) {
     toast.add({ title: e?.data?.message ?? "Error", color: "error" });
+  } finally {
+    actionLoading.value = null;
+  }
+};
+
+const deleteOrg = async (org: any) => {
+  const message = `Are you absolutely sure you want to delete "${org.name}"?\n\nThis will permanently delete the organization, all departments, permissions, nomenclatures, and buckets.\n\nAll users belonging to this organization will be DELETED, resetting them to fresh signups. This action CANNOT be undone.`;
+  if (!confirm(message)) return;
+
+  actionLoading.value = org.id;
+  try {
+    await $fetch(`/api/superadmin/organizations/${org.id}`, {
+      method: "DELETE",
+    });
+    toast.add({ title: `Organization "${org.name}" deleted successfully`, color: "success" });
+    refresh();
+  } catch (e: any) {
+    toast.add({ title: e?.data?.message ?? "Error deleting organization", color: "error" });
   } finally {
     actionLoading.value = null;
   }
@@ -136,12 +156,20 @@ const filteredOrgs = computed(() => {
               :disabled="actionLoading === org.id"
               @click="toggleStatus(org)"
               :class="org.status === 'active'
-                ? 'text-red-400 hover:bg-red-500/10'
+                ? 'text-[#ea580c] hover:bg-[#ea580c]/10'
                 : 'text-emerald-400 hover:bg-emerald-500/10'"
               class="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-xl transition-all disabled:opacity-50"
             >
               <Icon :name="org.status === 'active' ? 'lucide:pause-circle' : 'lucide:play-circle'" class="w-3.5 h-3.5" />
               {{ org.status === "active" ? "Suspend" : "Activate" }}
+            </button>
+            <button
+              :disabled="actionLoading === org.id"
+              @click="deleteOrg(org)"
+              class="flex items-center gap-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 px-3 py-2 rounded-xl transition-all disabled:opacity-50"
+            >
+              <Icon name="lucide:trash-2" class="w-3.5 h-3.5" />
+              Delete
             </button>
           </div>
         </div>

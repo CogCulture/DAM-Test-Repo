@@ -1,4 +1,4 @@
-export const useSelected = () => {
+export function useSelected() {
   const route = useRoute();
   const selected = useState<string[]>("selected", () => []);
 

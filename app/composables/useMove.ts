@@ -1,6 +1,7 @@
 import Move from "~/components/Move.vue";
+import { useOverlay } from "./useOverlay";
 
-export const useMove = () => {
+export function useMove() {
   const route = useRoute();
   const overlay = useOverlay();
   const modal = overlay.create(Move);

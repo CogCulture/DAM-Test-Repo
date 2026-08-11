@@ -1,65 +1,74 @@
+import { isGoogleDriveAsset } from "~/utils/damModal";
 import Rename from "~/components/Rename.vue";
+import { useToast } from "./useToast";
+import { useOverlay } from "./useOverlay";
 
-export const useRename = () => {
+export function useRename() {
   const route = useRoute();
   const toast = useToast();
   const overlay = useOverlay();
   const modal = overlay.create(Rename);
-
   const refreshTrigger = useState("files-refresh-trigger", () => 0);
-  const loading = ref(false);
-  const error = ref("");
+  const visibleFiles = useState<IFile[]>("files", () => []);
 
   const renameFile = async (file: IFile, name: string) => {
-    if (loading.value) return;
-    loading.value = true;
     try {
-      const isGDrive = route.params.bucket && (route.params.bucket as string).startsWith("gdrive_");
-      let data;
+      const bucket = String(route.params.bucket || "");
+      const newName = name.trim();
+      const isGDrive = isGoogleDriveAsset(file);
+
       if (isGDrive) {
-        await $fetch(`/api/gdrive/rename/${file.id}`, {
+        await $fetch("/api/gdrive/rename", {
           method: "POST",
-          body: { newName: name },
+          body: { fileId: file.id, newName },
+          timeout: 30000,
         });
-        data = { status: "success" };
       } else {
-        data = (await ($fetch as any)(
-          `/api/files/${route.params.bucket}/rename`,
-          {
-            method: "POST",
-            body: { file, name },
-          }
-        )) as { status?: string };
-      }
-      if (data?.status && data?.status === "success") {
-        toast.add({
-          title: "Success",
-          color: "success",
+        const response = await $fetch<{ status?: string }>(`/api/files/${bucket}/rename`, {
+          method: "POST",
+          body: { file: { id: file.id }, name: newName },
+          timeout: 30000,
         });
-        refreshTrigger.value++;
-        modal.close();
+        if (response?.status !== "success") {
+          throw new Error("The server did not confirm the rename.");
+        }
       }
-    } catch (errors: any) {
-      if (errors?.data?.message) {
-        console.error(errors?.data.message);
-        error.value = errors.data.message;
-      } else {
-        error.value = "An error occurred. Please try again.";
+
+      toast.add({
+        title: "Asset renamed",
+        description: `Renamed to ${newName}`,
+        color: "success",
+      });
+      const visibleIndex = visibleFiles.value.findIndex((item) => item.id === file.id);
+      if (visibleIndex >= 0) {
+        visibleFiles.value[visibleIndex] = {
+          ...visibleFiles.value[visibleIndex],
+          name: newName,
+          updatedAt: new Date(),
+        };
       }
-    } finally {
-      loading.value = false;
+      refreshTrigger.value++;
+    } catch (error: any) {
+      const message = error?.data?.message
+        || error?.data?.statusMessage
+        || (error?.name === "TimeoutError" || error?.name === "AbortError"
+          ? "The rename took too long. Please try again."
+          : error?.message)
+        || "The asset could not be renamed. Please try again.";
+      throw new Error(message);
     }
   };
 
   const openRename = (file: IFile) => {
     modal.open({
       file,
-      loading,
-      error,
-      onSubmit: (value: string) => {
-        renameFile(file, value);
+      submitRename: async (value: string) => {
+        await renameFile(file, value);
+        modal.close();
       },
+      onClose: () => modal.close(),
     });
   };
+
   return { openRename };
-};
+}

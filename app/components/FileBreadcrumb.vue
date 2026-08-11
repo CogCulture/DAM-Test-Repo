@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useFolder } from "~/composables/useFolder";
 type BreadcrumbItem = {
   label: string;
   href: string;

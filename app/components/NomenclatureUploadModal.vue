@@ -1,22 +1,46 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { useRoute } from "vue-router";
+import { uploadFileToLocalStorage } from "~/composables/useLocalUpload";
+import { useRole } from "~/composables/useRole";
+import { resolveDriveRouteFolderId, resolveUploadStorageTarget } from "~~/shared/utils/drive-storage";
+import { buildDriveUploadUrl } from "~~/shared/utils/department-upload";
 
 const props = defineProps<{
   open: boolean;
   files: File[];
   folder: any;
+  destinationId?: string | null;
+  destinationName?: string;
+  folderId?: string | null;
 }>();
 
 const emit = defineEmits(["update:open", "success", "close"]);
 
 const route = useRoute();
-const { departmentId, isAdmin, isDeptHead } = useRole();
-
-// Fetch the department's nomenclature
-const { data: nomenclature } = await useFetch<any>(
-  () => departmentId.value ? `/api/nomenclature/${departmentId.value}` : null
+const { orgType } = useRole();
+const { user } = useUserSession();
+const storageTarget = useState<"local" | "gdrive">("upload-storage-target", () =>
+  resolveUploadStorageTarget({ orgType: orgType.value }),
 );
+
+watch(orgType, (value) => {
+  storageTarget.value = resolveUploadStorageTarget({ orgType: value });
+}, { immediate: true });
+
+// Resolve the uploader's effective department template, including admin fallback.
+const policyQuery = computed(() => props.destinationId && props.destinationId !== "root"
+  ? { departmentId: props.destinationId }
+  : {});
+const { data: policy, refresh: refreshPolicy } = await useFetch<any>(
+  "/api/nomenclature/effective",
+  { query: policyQuery },
+);
+const nomenclature = computed(() => policy.value?.nomenclature || null);
+
+watch(() => props.open, (open) => {
+  if (open) refreshPolicy();
+});
 
 // Configuration state for each file: index -> { [segmentKey]: value }
 const fileConfigs = ref<Record<number, Record<string, string>>>({});
@@ -79,6 +103,17 @@ const getExtension = (fileName: string) => {
   return lastDot >= 0 ? fileName.slice(lastDot) : "";
 };
 
+const allowedExtensions = computed<string[]>(() =>
+  Array.isArray(nomenclature.value?.allowedExtensions)
+    ? nomenclature.value.allowedExtensions.map((value: string) => value.toLowerCase())
+    : []
+);
+
+const isExtensionAllowed = (fileName: string) => {
+  if (!allowedExtensions.value.length) return true;
+  return allowedExtensions.value.includes(getExtension(fileName).replace(/^\./, "").toLowerCase());
+};
+
 const getTargetFileName = (file: File, index: number) => {
   if (!segments.value.length) return file.name;
   
@@ -96,6 +131,7 @@ const getTargetFileName = (file: File, index: number) => {
 const isFormValid = computed(() => {
   if (!segments.value.length) return true;
   for (let i = 0; i < props.files.length; i++) {
+    if (!isExtensionAllowed(props.files[i]!.name)) return false;
     for (const seg of segments.value) {
       const val = fileConfigs.value[i]?.[seg.key];
       if (!val || !val.trim()) return false;
@@ -110,11 +146,8 @@ const handleUpload = async () => {
   errorMessage.value = "";
   uploadedCount.value = 0;
 
-  const currentFolderPath = props.folder?.path
-    ? "/" + props.folder.path
-    : (route.params.bucket as string);
-
   try {
+    let uploadResult: any = null;
     const uploadPromises = props.files.map(async (file, index) => {
       const finalName = getTargetFileName(file, index);
       const renamedFile = new File([file], finalName, { type: file.type });
@@ -135,43 +168,84 @@ const handleUpload = async () => {
 
       uploadProgress.value[finalName] = 0;
 
-      const partSize = chunkSize(renamedFile.size);
-      const upload = useMultipartUpload(
-        `/upload/${route.params.bucket}/${route.params.id || "root"}`,
-        {
-          partSize,
-          concurrent: 5,
-          prefix: currentFolderPath,
-          fetchOptions: {
-            headers: {
-              "x-amz-meta-dimensions": dimensions,
-              "x-amz-meta-content-type": renamedFile.type,
-            },
-          },
+      const isGDrive = orgType.value === "gdrive" && storageTarget.value === "gdrive";
+
+      if (isGDrive) {
+        const resolvedId = resolveDriveRouteFolderId({
+          idParam: route.params.id as string | string[] | undefined,
+          organizationId: (user.value as any)?.organizationId,
+        });
+        const originalPath = (file as any).customPath || file.webkitRelativePath || file.name;
+        const originalParts = originalPath.split("/");
+        originalParts.pop();
+        const targetRelativePath = originalParts.length ? `${originalParts.join("/")}/${finalName}` : finalName;
+        const formData = new FormData();
+        formData.append("files", renamedFile, finalName);
+        uploadProgress.value[finalName] = 10;
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 120000);
+          const res = await fetch(buildDriveUploadUrl({
+            parentId: resolvedId,
+            folderId: props.folderId,
+            relativePath: targetRelativePath,
+            departmentId: props.destinationId,
+          }), {
+            method: "POST",
+            body: formData,
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          if (!res.ok) {
+            const errText = await res.text().catch(() => "Unknown error");
+            let parsedMessage = errText;
+            try {
+              const json = JSON.parse(errText);
+              if (json.message) parsedMessage = json.message;
+            } catch {}
+            throw new Error(parsedMessage);
+          }
+          uploadResult = await res.json().catch(() => ({ success: true }));
+        } catch (err: any) {
+          console.error("GDrive upload failed for", finalName, err);
+          errorMessage.value = err?.message || "Upload failed.";
+          uploadProgress.value[finalName] = 100;
+          uploadedCount.value++;
+          throw err;
         }
-      );
+        uploadProgress.value[finalName] = 100;
+        uploadedCount.value++;
+        return;
+      }
 
-      const { progress, completed } = upload(renamedFile);
-      watch(progress, (val) => {
-        uploadProgress.value[finalName] = val;
+      const pathForFolder = (file as any).customPath || file.webkitRelativePath;
+      const pathParts = pathForFolder ? pathForFolder.split("/") : [];
+      pathParts.pop();
+      const relativePath = pathParts.length > 0
+        ? `${pathParts.join("/")}/${finalName}`
+        : finalName;
+
+      await uploadFileToLocalStorage({
+        file: renamedFile,
+        bucket: String(route.params.bucket || "org"),
+        parentId: props.folder?.id || "root",
+        relativePath,
+        dimensions,
+        onProgress: (value) => {
+          uploadProgress.value[finalName] = value;
+        },
       });
-
-      await completed;
       uploadedCount.value++;
       uploadProgress.value[finalName] = 100;
     });
 
     await Promise.all(uploadPromises);
-    
-    setTimeout(() => {
-      isUploading.value = false;
-      emit("success");
-      emit("update:open", false);
-    }, 1000);
-
+    emit("success", uploadResult);
+    emit("update:open", false);
   } catch (error: any) {
     console.error("Upload failed:", error);
     errorMessage.value = error?.message || "An error occurred during upload. Please try again.";
+  } finally {
     isUploading.value = false;
   }
 };
@@ -182,10 +256,19 @@ const overallProgress = computed(() => {
   const sum = keys.reduce((acc, key) => acc + uploadProgress.value[key], 0);
   return Math.round(sum / keys.length);
 });
+
+const handleClose = () => {
+  isUploading.value = false;
+  errorMessage.value = "";
+  uploadProgress.value = {};
+  uploadedCount.value = 0;
+  emit("update:open", false);
+  emit("close");
+};
 </script>
 
 <template>
-  <UModal :open="open" @update:open="$emit('update:open', $event)" :dismissible="!isUploading" size="xl">
+  <UModal :open="open" @update:open="handleClose" :dismissible="true" size="xl">
     <template #title>
       <div class="flex items-center gap-2">
         <Icon name="lucide:file-signature" class="size-5 text-primary" />
@@ -211,10 +294,10 @@ const overallProgress = computed(() => {
         <div v-if="isUploading" class="space-y-4">
           <div class="bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
             <div class="flex justify-between items-center mb-2">
-              <span class="font-semibold text-sm">Overall Progress</span>
+              <span class="font-semibold text-sm">Uploading to {{ destinationName || "Google Drive" }}</span>
               <span class="text-xs font-mono">{{ uploadedCount }} / {{ totalCount }} files done</span>
             </div>
-            <UProgress :value="overallProgress" color="primary" />
+            <UProgress :model-value="overallProgress" :max="100" color="primary" />
           </div>
 
           <div class="space-y-3 max-h-60 overflow-y-auto">
@@ -227,12 +310,21 @@ const overallProgress = computed(() => {
                 <span class="truncate font-mono font-medium">{{ getTargetFileName(file, files.indexOf(file)) }}</span>
                 <span class="font-mono text-neutral-500 shrink-0">{{ (uploadProgress[getTargetFileName(file, files.indexOf(file))] || 0).toFixed(0) }}%</span>
               </div>
-              <UProgress :value="uploadProgress[getTargetFileName(file, files.indexOf(file))] || 0" size="sm" color="primary" />
+              <UProgress :model-value="uploadProgress[getTargetFileName(file, files.indexOf(file))] || 0" :max="100" size="sm" color="primary" />
             </div>
           </div>
         </div>
 
         <div v-else class="space-y-4">
+          <UAlert
+            v-if="allowedExtensions.length"
+            title="Allowed file formats"
+            :description="`Only ${allowedExtensions.map(ext => '.' + ext).join(', ')} files can be stored for this department. This rule also applies to administrators and Department Heads.`"
+            color="info"
+            variant="soft"
+            icon="lucide:file-check-2"
+          />
+
           <div
             v-for="(file, index) in files"
             :key="index"
@@ -249,6 +341,14 @@ const overallProgress = computed(() => {
                 {{ (file.size / 1024 / 1024).toFixed(2) }} MB
               </span>
             </div>
+            <UAlert
+              v-if="!isExtensionAllowed(file.name)"
+              title="File format not allowed"
+              :description="`The .${getExtension(file.name).replace(/^\./, '') || '(none)'} extension is not permitted by the department policy.`"
+              color="error"
+              variant="soft"
+              icon="lucide:shield-x"
+            />
 
             <div class="bg-primary-50/50 dark:bg-primary-950/20 border border-primary-500/10 rounded-lg p-3">
               <span class="text-xs text-primary-500 dark:text-primary-400 font-semibold block mb-1">Target Filename Preview</span>
@@ -287,8 +387,7 @@ const overallProgress = computed(() => {
         <UButton
           color="neutral"
           variant="ghost"
-          @click="$emit('update:open', false)"
-          :disabled="isUploading"
+          @click="handleClose"
         >
           Cancel
         </UButton>

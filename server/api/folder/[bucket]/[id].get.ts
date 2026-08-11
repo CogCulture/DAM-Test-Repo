@@ -2,7 +2,7 @@ import { getFolder, getBreadcrumb, getOrgDepartments } from "~~/server/utils/db"
 import { verifyBucket } from "~~/server/utils/permission";
 
 export default defineEventHandler(async (event) => {
-  const { user } = await verifyBucket(event);
+  const { user } = await verifyBucket(event, "canView");
   const params = getRouterParams(event);
   const orgId = user?.organizationId || "org_default";
 

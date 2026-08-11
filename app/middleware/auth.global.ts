@@ -2,7 +2,7 @@ export default defineNuxtRouteMiddleware((to) => {
   const { loggedIn, user, fetch: fetchSession } = useUserSession();
 
   // Public routes: auth pages + superadmin (handled by its own middleware)
-  const publicRoutes = ["/auth/signin", "/auth/complete-profile", "/auth/pending", "/auth/org-pending", "/superadmin"];
+  const publicRoutes = ["/auth/signin", "/auth/complete-profile", "/auth/pending", "/auth/org-pending", "/auth/suspended", "/superadmin", "/admin/gdrive-setup"];
   if (publicRoutes.some((r) => to.path.startsWith(r))) return;
 
   if (!loggedIn.value) {
@@ -12,8 +12,29 @@ export default defineNuxtRouteMiddleware((to) => {
   // Trigger background session refresh client-side to ensure permissions update dynamically
   if (import.meta.client) {
     $fetch("/api/auth/refresh", { method: "POST" })
-      .then(() => fetchSession())
-      .catch((e) => console.error("Error refreshing session:", e));
+      .then(async () => {
+        await fetchSession();
+        if (!loggedIn.value) {
+          window.location.href = "/auth/signin";
+        }
+      })
+      .catch((e) => {
+        console.error("Error refreshing session:", e);
+      });
+  }
+
+
+  const organizationStatus = (user.value as any)?.organizationStatus;
+  if (organizationStatus === "suspended") {
+    return navigateTo("/auth/suspended");
+  }
+
+  const role = user.value?.role;
+  const orgType = (user.value as any)?.orgType;
+  const setupComplete = (user.value as any)?.setupComplete;
+
+  if (role === "admin" && orgType === "gdrive" && setupComplete === false) {
+    return navigateTo("/admin/gdrive-setup");
   }
 
   const approvalStatus = (user.value as any)?.approvalStatus;
@@ -29,5 +50,10 @@ export default defineNuxtRouteMiddleware((to) => {
   }
   if (approvalStatus === "rejected") {
     return navigateTo("/auth/signin");
+  }
+
+  // Active users must have an organization. If they don't, redirect them to complete their profile.
+  if (!user.value?.organizationId) {
+    return navigateTo("/auth/complete-profile");
   }
 });

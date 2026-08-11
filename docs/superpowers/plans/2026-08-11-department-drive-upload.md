@@ -156,9 +156,9 @@ Expected: all tests pass, including the new destination cases.
 - Consumes: `GET /api/gdrive/upload-destinations` and Task 2 upload query/response.
 - Produces: selected `departmentId`, visible destination/progress labels, and post-success navigation.
 
-- [ ] **Step 1: Add a failing source contract test**
+- [ ] **Step 1: Add a failing upload URL contract test**
 
-Add assertions to `tests/department-upload.test.mjs` that read both Vue files and require `departmentId` to be passed in each Google Drive upload URL and a destination prop to be declared by the nomenclature modal. The production change that makes the test fail is removing either upload path's department forwarding.
+Add a real behavior assertion for `buildDriveUploadUrl({ parentId, relativePath, departmentId })`. Require the returned URL to encode and include all three values. Both Vue upload paths must consume this tested builder so removing department forwarding breaks their shared boundary contract.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 

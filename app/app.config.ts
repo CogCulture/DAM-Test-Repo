@@ -6,11 +6,11 @@ export default defineAppConfig({
   ui: {
     colors: {
       primary: "blue",
-      neutral: "stone",
+      neutral: "slate",
     },
     button: {
       slots: {
-        label: "text-sm font-light",
+        label: "text-sm font-semibold tracking-[-0.01em]",
         leadingIcon: "*:stroke-[1px]",
         trailingIcon: "*:stroke-[1px]",
       },
@@ -18,7 +18,7 @@ export default defineAppConfig({
         {
           color: "neutral",
           variant: "ghost",
-          class: "hover:bg-(--ui-primary) hover:text-white",
+          class: "rounded-xl hover:bg-[var(--dam-panel-raised)] hover:text-[var(--dam-ink)]",
         },
       ],
       defaultVariants: {
@@ -29,7 +29,7 @@ export default defineAppConfig({
     },
     input: {
       slots: {
-        label: "text-sm font-light",
+        label: "text-sm font-semibold tracking-[-0.01em]",
         leadingIcon: "*:stroke-[1.5px]",
         trailingIcon: "*:stroke-[1px]",
       },
@@ -39,21 +39,21 @@ export default defineAppConfig({
     },
     select: {
       slots: {
-        value: "text-sm font-light",
+        value: "text-sm font-medium",
         leadingIcon: "*:stroke-[1px]",
         trailingIcon: "*:stroke-[1px] text-inherit",
         itemLeadingIcon: "*:stroke-[1px]",
         itemTrailingIcon: "*:stroke-[1px]",
-        itemLabel: "text-sm font-light",
+        itemLabel: "text-sm font-medium",
         placeholder:
-          "truncate text-neutral-600 dark:text-neutral-400 text-sm font-light",
+          "truncate text-neutral-600 dark:text-neutral-400 text-sm font-medium",
       },
       compoundVariants: [
         {
           color: "neutral",
           variant: "ghost",
           class:
-            "hover:bg-(--ui-primary) hover:text-white focus:bg-(--ui-primary) focus:text-white",
+            "rounded-xl hover:bg-[var(--dam-panel-raised)] hover:text-[var(--dam-ink)] focus:bg-[var(--dam-panel-raised)]",
         },
       ],
       defaultVariants: {
@@ -64,10 +64,10 @@ export default defineAppConfig({
     },
     dropdownMenu: {
       slots: {
-        label: "text-sm font-light",
+        label: "text-sm font-semibold tracking-[-0.01em]",
         itemLeadingIcon: "*:stroke-[1px]",
         itemTrailingIcon: "*:stroke-[1px]",
-        itemLabel: "text-sm font-light",
+        itemLabel: "text-sm font-medium",
       },
       defaultVariants: {
         color: "neutral",
@@ -77,7 +77,7 @@ export default defineAppConfig({
     },
     breadcrumb: {
       slots: {
-        linkLabel: "text-sm font-light",
+        linkLabel: "text-sm font-medium",
       },
     },
     navigationMenu: {
@@ -87,7 +87,7 @@ export default defineAppConfig({
         label: "py-2",
         linkLeadingIcon: "*:stroke-[1.5px]",
         linkTrailingIcon: "*:stroke-[1px]",
-        linkLabel: "text-sm font-light",
+        linkLabel: "text-sm font-medium",
       },
       variants: {
         active: {
@@ -110,7 +110,7 @@ export default defineAppConfig({
     },
     tabs: {
       slots: {
-        tab: "text-sm font-light",
+        tab: "text-sm font-medium",
       },
     },
     tooltip: {

@@ -1,9 +1,36 @@
+import { fileURLToPath } from "node:url";
+
+const isGcpRuntime = process.env.NITRO_PRESET === "node-server" || Boolean(process.env.DATABASE_PATH);
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-  devtools: { enabled: true }, // triggered refresh to clear route cache
+  srcDir: "app",
+  devtools: { enabled: process.env.NODE_ENV !== "production" },
   // ssr: false,
   nitro: {
-    preset: "cloudflare_module",
+    preset: process.env.NITRO_PRESET || "cloudflare_module",
+    imports: {
+      presets: [
+        {
+          from: fileURLToPath(new URL("./node_modules/nuxt-auth-utils/dist/runtime/server/utils/session.js", import.meta.url)).replace(/\\/g, "/"),
+          imports: [
+            "clearUserSession",
+            "getUserSession",
+            "requireUserSession",
+            "replaceUserSession",
+            "setUserSession",
+          ],
+        },
+        {
+          from: fileURLToPath(new URL("./node_modules/nuxt-auth-utils/dist/runtime/server/lib/oauth/github.js", import.meta.url)).replace(/\\/g, "/"),
+          imports: ["defineOAuthGitHubEventHandler"],
+        },
+        {
+          from: fileURLToPath(new URL("./node_modules/nuxt-auth-utils/dist/runtime/server/lib/oauth/google.js", import.meta.url)).replace(/\\/g, "/"),
+          imports: ["defineOAuthGoogleEventHandler"],
+        },
+      ],
+    },
   },
   routeRules: {
     "/**": { ssr: false },
@@ -13,15 +40,15 @@ export default defineNuxtConfig({
   },
   modules: [
     "@nuxt/ui",
-    "@nuxthub/core",
+    ...(!isGcpRuntime ? ["@nuxthub/core"] : []),
     "nuxt-auth-utils",
     "@formkit/auto-animate/nuxt",
   ],
 
   css: ["~/assets/css/main.css"],
   hub: {
-    blob: true,
-    database: true,
+    blob: !isGcpRuntime,
+    database: !isGcpRuntime,
   },
   icon: {
     mode: "svg",

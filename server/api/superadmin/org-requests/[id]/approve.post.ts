@@ -1,6 +1,6 @@
 import { requireSuperAdmin } from "~~/server/utils/superadmin";
 import { useDrizzle } from "~~/server/utils/drizzle";
-import { organizationRequests, users } from "~~/server/database/schema";
+import { organizationRequests, users, gdriveFolders } from "~~/server/database/schema";
 import { createOrganization } from "~~/server/utils/db";
 import { eq } from "drizzle-orm";
 
@@ -43,6 +43,18 @@ export default defineEventHandler(async (event) => {
         approvalStatus: "active",
       })
       .where(eq(users.id, request.userId));
+
+    // If this is a GDrive org, link the pre-selected folder to the new org
+    if (request.orgType === "gdrive") {
+      await db
+        .update(gdriveFolders)
+        .set({
+          organizationId: orgId,
+          status: "approved",
+          updatedAt: new Date(),
+        })
+        .where(eq(gdriveFolders.userId, request.userId));
+    }
   }
 
   // Mark request as processed
@@ -57,3 +69,5 @@ export default defineEventHandler(async (event) => {
 
   return { success: true, action };
 });
+
+

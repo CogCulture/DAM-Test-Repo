@@ -1,7 +1,13 @@
 <script setup lang="ts">
-const route = useRoute();
-const bucket = route.params.bucket;
+definePageMeta({
+  validate: async (route) => {
+    const reserved = ["admin", "superadmin", "auth", "dept-head", "gdrive"];
+    const bucket = route.params.bucket;
+    return typeof bucket === "string" && !reserved.includes(bucket);
+  },
+});
 </script>
+
 <template>
-  <AppFiles v-if="bucket" title="Trash" endpoint="trash" />
+  <AppLibraryLanding kind="trash" />
 </template>

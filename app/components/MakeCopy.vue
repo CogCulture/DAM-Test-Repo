@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { damModalUi } from "~/utils/damModal";
 const props = defineProps<{
   file: IFile;
   loading: boolean;
@@ -6,17 +7,15 @@ const props = defineProps<{
 }>();
 const name = ref<string>("duplicate-" + props.file.name);
 const emit = defineEmits(["submit"]);
-const onSelect = (folder: IFile) => {
-  parent.value = folder;
-};
 const onSubmit = () => {
   emit("submit", name.value);
 };
 </script>
 <template>
   <UModal
-    :title="`Copy ${file.name} ${file.type}`"
-    :description="`Make a copy of ${file.type}`"
+    :title="`Copy ${file.name}`"
+    :description="`Create a duplicate of this ${file.type}`"
+    :ui="damModalUi"
   >
     <template #body>
       <UAlert

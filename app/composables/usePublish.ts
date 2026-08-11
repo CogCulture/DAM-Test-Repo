@@ -1,10 +1,12 @@
 import Publish from "~/components/Publish.vue";
+import { useOverlay } from "./useOverlay";
+
 type PublishProps = {
   public: true;
   domain: string;
 };
 
-export const usePublish = () => {
+export function usePublish() {
   const route = useRoute();
   const overlay = useOverlay();
   const modal = overlay.create(Publish);

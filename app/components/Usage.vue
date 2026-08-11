@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useBucket } from "~/composables/useBucket";
 const { bucket } = useBucket();
 const limit = 10 * 1000 * 1000 * 1000; // 10GB
 const used = computed(() => {

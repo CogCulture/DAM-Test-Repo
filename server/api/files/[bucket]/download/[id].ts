@@ -1,8 +1,8 @@
-import { verifyBucket } from "~~/server/utils/permission";
+import { requireFileDepartmentAccess, verifyBucket } from "~~/server/utils/permission";
 import { getFolder } from "~~/server/utils/db";
 
 export default defineEventHandler(async (event) => {
-  const { bucket, user } = await verifyBucket(event);
+  const { bucket, user } = await verifyBucket(event, "canDownload");
   const { id } = await getRouterParams(event);
 
   const query = getQuery(event);
@@ -12,6 +12,7 @@ export default defineEventHandler(async (event) => {
     // @ts-ignore
     const item = await getFolder(id, user.organizationId);
     if (item && item.bucketName === bucket.name) {
+      await requireFileDepartmentAccess(user, item.id);
       if (isInline) {
         setHeader(
           event,
@@ -33,7 +34,7 @@ export default defineEventHandler(async (event) => {
       setHeader(event, "Expires", "0");
 
       //   setHeader(event, "Content-Security-Policy", "default-src 'none';");
-      return hubBlob().serve(event, item.path);
+      return localBlob().serve(event, item.storagePath || item.path);
     }
   } else {
     throw createError({

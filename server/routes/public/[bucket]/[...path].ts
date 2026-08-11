@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
   }
   // check if the file is public.
   if (file.visibility === "public") {
-    return await hubBlob().serve(event, `${params.bucket}/${params.path}`);
+    return await localBlob().serve(event, file.storagePath || `${params.bucket}/${params.path}`);
   }
   const isPublic = await isParentPublic(params.bucket, params.path);
   if (!isPublic) {
@@ -31,12 +31,12 @@ export default defineEventHandler(async (event) => {
     // Create Index if has index.html
     const indexFile = await getFile(params.bucket, `${params.path}/index.html`);
     if (indexFile) {
-      return await hubBlob().serve(
+      return await localBlob().serve(
         event,
-        `${params.bucket}/${params.path}/index.html`
+        indexFile.storagePath || `${params.bucket}/${params.path}/index.html`
       );
     }
   } else {
-    return await hubBlob().serve(event, `${params.bucket}/${params.path}`);
+    return await localBlob().serve(event, file.storagePath || `${params.bucket}/${params.path}`);
   }
 });

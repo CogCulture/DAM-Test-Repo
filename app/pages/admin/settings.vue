@@ -11,6 +11,7 @@ const { fetch: fetchSession } = useUserSession();
 const toast = useToast();
 const loading = ref(false);
 const saving = ref(false);
+const savingGDrive = ref(false);
 
 // Feature flags from Super Admin
 const features = ref({
@@ -21,6 +22,13 @@ const features = ref({
 });
 const orgType = ref<"s3" | "gdrive">("s3");
 
+// GDrive governance rules (only relevant when orgType === 'gdrive')
+const gdriveRules = ref({
+  enforceNomenclature: false,
+  enforceHierarchy: false,
+  allowInterDeptVisibility: true,
+});
+
 // Form state
 const orgName = ref("");
 const departments = ref<{ id: string; name: string; parentId: string | null }[]>([]);
@@ -29,6 +37,7 @@ const permissions = ref<{
   departmentId?: string;
   role: string;
   maxCount: number | null;
+  canView: boolean;
   canUpload: boolean;
   canDownload: boolean;
   canDelete: boolean;
@@ -36,6 +45,9 @@ const permissions = ref<{
   canApproveUsers: boolean;
   canEditNomenclature: boolean;
   canShare: boolean;
+  canRename: boolean;
+  canEditMetadata: boolean;
+  canUseRag: boolean;
 }[]>([]);
 
 // Selection for permissions override
@@ -54,6 +66,13 @@ const fetchSettings = async () => {
     permissions.value = data.permissions;
     features.value = data.features ?? features.value;
     orgType.value = data.orgType ?? "s3";
+    if (data.gdriveRules) {
+      gdriveRules.value = {
+        enforceNomenclature: !!data.gdriveRules.enforceNomenclature,
+        enforceHierarchy: !!data.gdriveRules.enforceHierarchy,
+        allowInterDeptVisibility: data.gdriveRules.allowInterDeptVisibility !== false,
+      };
+    }
 
     // Extract custom roles
     const defaults = ["admin", "dept_head", "team_lead", "team_member", "intern"];
@@ -110,6 +129,7 @@ const getRolePermissionsForSelected = (role: string) => {
       role,
       departmentId: selectedDeptId.value,
       maxCount: null,
+      canView: globalP ? globalP.canView : true,
       canUpload: globalP ? globalP.canUpload : true,
       canDownload: globalP ? globalP.canDownload : true,
       canDelete: globalP ? globalP.canDelete : false,
@@ -117,6 +137,9 @@ const getRolePermissionsForSelected = (role: string) => {
       canApproveUsers: globalP ? globalP.canApproveUsers : false,
       canEditNomenclature: globalP ? globalP.canEditNomenclature : false,
       canShare: globalP ? globalP.canShare : false,
+      canRename: globalP ? globalP.canRename : false,
+      canEditMetadata: globalP ? globalP.canEditMetadata : false,
+      canUseRag: globalP ? globalP.canUseRag : false,
     };
     permissions.value.push(p);
   }
@@ -143,6 +166,7 @@ const addCustomRole = () => {
     role: roleName,
     departmentId: "global",
     maxCount: null,
+    canView: true,
     canUpload: true,
     canDownload: true,
     canDelete: false,
@@ -150,6 +174,9 @@ const addCustomRole = () => {
     canApproveUsers: false,
     canEditNomenclature: false,
     canShare: false,
+    canRename: false,
+    canEditMetadata: false,
+    canUseRag: false,
   });
 
   newRoleName.value = "";
@@ -180,6 +207,8 @@ const saveSettings = async () => {
       },
     });
     toast.add({ title: "Settings saved successfully", color: "success" });
+    const refreshTrigger = useState("files-refresh-trigger", () => 0);
+    refreshTrigger.value++;
     try {
       await $fetch("/api/auth/refresh", { method: "POST" });
       await fetchSession();
@@ -191,6 +220,21 @@ const saveSettings = async () => {
     toast.add({ title: e?.data?.message ?? "Error saving settings", color: "error" });
   } finally {
     saving.value = false;
+  }
+};
+
+const saveGDriveRules = async () => {
+  savingGDrive.value = true;
+  try {
+    await $fetch("/api/organizations/gdrive-rules", {
+      method: "PUT",
+      body: gdriveRules.value,
+    });
+    toast.add({ title: "Google Drive governance rules saved", color: "success" });
+  } catch (e: any) {
+    toast.add({ title: e?.data?.message ?? "Error saving GDrive rules", color: "error" });
+  } finally {
+    savingGDrive.value = false;
   }
 };
 
@@ -364,6 +408,7 @@ const roleLabelMap: Record<string, string> = {
               <tr>
                 <th class="px-4 py-3">Role</th>
                 <th class="px-4 py-3 text-center w-28">Max Capacity</th>
+                <th class="px-4 py-3 text-center">View</th>
                 <th class="px-4 py-3 text-center">Upload</th>
                 <th class="px-4 py-3 text-center">Download</th>
                 <th class="px-4 py-3 text-center">Delete</th>
@@ -371,6 +416,9 @@ const roleLabelMap: Record<string, string> = {
                 <th class="px-4 py-3 text-center">Approve Users</th>
                 <th class="px-4 py-3 text-center">Nomenclature</th>
                 <th class="px-4 py-3 text-center">Share</th>
+                <th class="px-4 py-3 text-center">Rename</th>
+                <th class="px-4 py-3 text-center">Metadata</th>
+                <th class="px-4 py-3 text-center">RAG</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-neutral-200 dark:divide-neutral-800">
@@ -396,6 +444,8 @@ const roleLabelMap: Record<string, string> = {
                   />
                 </td>
                 <td class="px-4 py-3.5 text-center">
+                  <UCheckbox v-model="getRolePermissionsForSelected(roleKey).canView" class="inline-block" />
+                </td>                <td class="px-4 py-3.5 text-center">
                   <UCheckbox v-model="getRolePermissionsForSelected(roleKey).canUpload" class="inline-block" />
                 </td>
                 <td class="px-4 py-3.5 text-center">
@@ -415,6 +465,14 @@ const roleLabelMap: Record<string, string> = {
                 </td>
                 <td class="px-4 py-3.5 text-center">
                   <UCheckbox v-model="getRolePermissionsForSelected(roleKey).canShare" class="inline-block" />
+                </td>                <td class="px-4 py-3.5 text-center">
+                  <UCheckbox v-model="getRolePermissionsForSelected(roleKey).canRename" class="inline-block" />
+                </td>
+                <td class="px-4 py-3.5 text-center">
+                  <UCheckbox v-model="getRolePermissionsForSelected(roleKey).canEditMetadata" class="inline-block" />
+                </td>
+                <td class="px-4 py-3.5 text-center">
+                  <UCheckbox v-model="getRolePermissionsForSelected(roleKey).canUseRag" class="inline-block" />
                 </td>
               </tr>
             </tbody>
@@ -428,6 +486,98 @@ const roleLabelMap: Record<string, string> = {
           Save Settings
         </UButton>
       </div>
+
+      <!-- GDrive Governance Section (only shown for GDrive orgs) -->
+      <section v-if="orgType === 'gdrive'" class="bg-white dark:bg-neutral-900 border border-blue-200 dark:border-blue-900/50 rounded-xl p-6 space-y-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-semibold text-neutral-800 dark:text-neutral-200 flex items-center gap-2">
+              <Icon name="lucide:hard-drive" class="text-blue-500 size-5" />
+              Google Drive Governance
+            </h2>
+            <p class="text-sm text-neutral-500 mt-1">
+              Enforce organization-wide rules on top of your Google Drive storage.
+            </p>
+          </div>
+          <span class="text-xs font-medium text-blue-400 bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-full">
+            GDrive Org
+          </span>
+        </div>
+
+        <div class="space-y-4">
+          <!-- Nomenclature Enforcement -->
+          <div class="flex items-start justify-between gap-4 p-4 bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 rounded-lg">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-1">
+                <Icon name="lucide:text-cursor-input" class="text-violet-400 size-4" />
+                <h3 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Enforce Nomenclature</h3>
+              </div>
+              <p class="text-xs text-neutral-500">
+                When enabled, all uploaded files must follow the department's nomenclature template (e.g. <span class="font-mono">Brand_Campaign_Channel</span>). Files with non-conforming names will be rejected.
+              </p>
+              <p v-if="!features.nomenclature" class="text-xs text-amber-500 mt-1 flex items-center gap-1">
+                <Icon name="lucide:lock" class="size-3" /> Nomenclature feature is disabled by Super Admin.
+              </p>
+            </div>
+            <UToggle
+              v-model="gdriveRules.enforceNomenclature"
+              :disabled="!features.nomenclature"
+              color="primary"
+            />
+          </div>
+
+          <!-- Hierarchy Enforcement -->
+          <div class="flex items-start justify-between gap-4 p-4 bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 rounded-lg">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-1">
+                <Icon name="lucide:network" class="text-green-400 size-4" />
+                <h3 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Enforce Folder Hierarchy</h3>
+              </div>
+              <p class="text-xs text-neutral-500">
+                When enabled, non-admin users cannot create top-level department folders. Only organization admins can create department-level folders at the root. All other users must create folders inside their assigned department.
+              </p>
+              <p v-if="!features.hierarchy" class="text-xs text-amber-500 mt-1 flex items-center gap-1">
+                <Icon name="lucide:lock" class="size-3" /> Hierarchy feature is disabled by Super Admin.
+              </p>
+            </div>
+            <UToggle
+              v-model="gdriveRules.enforceHierarchy"
+              :disabled="!features.hierarchy"
+              color="primary"
+            />
+          </div>
+
+          <!-- Inter-Department Visibility -->
+          <div class="flex items-start justify-between gap-4 p-4 bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 rounded-lg">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-1">
+                <Icon name="lucide:eye" class="text-amber-400 size-4" />
+                <h3 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Allow Inter-Department Visibility</h3>
+              </div>
+              <p class="text-xs text-neutral-500">
+                When enabled (default), all users can see all department folders at the root. When disabled, users only see their own department's folder, keeping cross-team files private.
+              </p>
+            </div>
+            <UToggle
+              v-model="gdriveRules.allowInterDeptVisibility"
+              color="primary"
+            />
+          </div>
+        </div>
+
+        <!-- Save GDrive Rules -->
+        <div class="flex justify-end pt-2">
+          <UButton
+            color="primary"
+            variant="solid"
+            :loading="savingGDrive"
+            @click="saveGDriveRules"
+            icon="lucide:shield-check"
+          >
+            Save Governance Rules
+          </UButton>
+        </div>
+      </section>
     </div>
   </AppMain>
 </template>

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-const { isAdmin } = useRole();
+const { isAdmin, orgType } = useRole();
 const toast = useToast();
 
-if (!isAdmin.value) {
+if (!isAdmin.value || orgType.value !== "gdrive") {
   navigateTo("/");
 }
+
 
 const { data: requests, refresh } = await useFetch<any[]>("/api/admin/gdrive-requests");
 

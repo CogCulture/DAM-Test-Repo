@@ -1,3 +1,5 @@
+import { verifyBucket } from "~~/server/utils/permission";
+
 export default defineEventHandler(async (event) => {
   await verifyBucket(event);
   const params = getRouterParams(event);
@@ -23,8 +25,8 @@ export default defineEventHandler(async (event) => {
   if (file.type !== "folder") {
     const filePath = deletedAt
       ? `.trash/${params.bucket}/${deletedAt.toISOString()}/${fullPath}`
-      : fullPath;
-    return await hubBlob().serve(event, filePath);
+      : (file.storagePath || fullPath);
+    return await localBlob().serve(event, filePath);
   } else {
     throw createError({
       status: 404,

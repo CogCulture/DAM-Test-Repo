@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   normalizeUploadRelativePath,
+  resolveAuthorizedFolderId,
   resolveSelectedFolderId,
+  replaceDirectoryBranch,
   sortDirectoryChildren,
 } from "../shared/utils/folder-upload-target.ts";
 
@@ -23,6 +25,7 @@ test("unsafe or empty relative paths are rejected", () => {
 test("an explicit folder selection wins over route and root defaults", () => {
   assert.equal(resolveSelectedFolderId({ selectedFolderId: "chosen", routeFolderId: "route", rootFolderId: "root" }), "chosen");
   assert.equal(resolveSelectedFolderId({ routeFolderId: "route", rootFolderId: "root" }), "route");
+  assert.equal(resolveSelectedFolderId({ selectedFolderId: "   ", routeFolderId: "route", rootFolderId: "root" }), "route");
 });
 
 test("directory children list folders first and then files by name", () => {
@@ -34,3 +37,18 @@ test("directory children list folders first and then files by name", () => {
   ]).map(item => item.name), ["Alpha", "Beta", "a.pdf", "z.pdf"]);
 });
 
+test("a selected nested folder must belong to the authorized Drive hierarchy", () => {
+  const allowed = new Set(["drive-root", "marketing", "campaigns"]);
+  assert.equal(resolveAuthorizedFolderId({ requestedId: "campaigns", allowedIds: allowed }), "campaigns");
+  assert.throws(
+    () => resolveAuthorizedFolderId({ requestedId: "foreign", allowedIds: allowed }),
+    /not authorized/i,
+  );
+});
+
+test("tree refresh retains a loaded branch until replacement data is ready", () => {
+  const current = [{ id: "folder-a", type: "folder", name: "A" }];
+  const next = [{ id: "folder-b", type: "folder", name: "B" }];
+  assert.deepEqual(replaceDirectoryBranch(current, next, false), current);
+  assert.deepEqual(replaceDirectoryBranch(current, next, true), next);
+});

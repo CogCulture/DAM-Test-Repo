@@ -1,6 +1,7 @@
 import { upsertNomenclature, getOrgDepartments, getOrgFeatures } from "~~/server/utils/db";
 import { requireDeptHead } from "~~/server/utils/permission";
 import { DEPARTMENT_MAP } from "~~/shared/constants/departments";
+import { normalizeAllowedExtensions, normalizeNomenclatureSegments } from "~~/shared/utils/file-nomenclature";
 
 export default defineEventHandler(async (event) => {
   const { dept } = getRouterParams(event);
@@ -30,17 +31,44 @@ export default defineEventHandler(async (event) => {
     throw createError({ status: 400, message: "Invalid department." });
   }
 
-  const { template, segments } = await readBody<{
+  const { template, segments, allowedExtensions } = await readBody<{
     template: string;
     segments: { key: string; label: string; allowedValues: string[] }[];
+    allowedExtensions?: string[] | null;
   }>(event);
 
   if (!template || !segments?.length) {
     throw createError({ status: 400, message: "template and segments are required." });
   }
 
+  const normalizedSegments = normalizeNomenclatureSegments(segments);
+  if (normalizedSegments.some((segment) => !segment.key || !segment.label)) {
+    throw createError({ status: 400, message: "Every nomenclature segment needs a key and label." });
+  }
+  if (normalizedSegments.some((segment) => segment.key.includes("_") || segment.allowedValues.some((value) => value.includes("_")))) {
+    throw createError({ status: 400, message: "Segment keys and allowed values cannot contain underscores." });
+  }
+  const uniqueKeys = new Set(normalizedSegments.map((segment) => segment.key.toLowerCase()));
+  if (uniqueKeys.size !== normalizedSegments.length) {
+    throw createError({ status: 400, message: "Nomenclature segment keys must be unique." });
+  }
+  let normalizedExtensions: string[] | null;
+  try {
+    normalizedExtensions = normalizeAllowedExtensions(allowedExtensions);
+  } catch (error: any) {
+    throw createError({ status: 400, message: error?.message || "Invalid allowed file extensions." });
+  }
+
+
   // @ts-ignore
-  await upsertNomenclature(dept, template, segments, user.id);
+  await upsertNomenclature(
+    dept,
+    orgId,
+    normalizedSegments.map((segment) => segment.key).join("_"),
+    normalizedSegments,
+    normalizedExtensions,
+    user.id,
+  );
   return { success: true };
 });
 

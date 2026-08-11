@@ -1,0 +1,23 @@
+.git
+.github
+.nuxt
+.output
+.data
+.cache
+.pnpm-store
+node_modules
+dist
+logs
+*.log
+.env
+.env.*
+!.env.example
+!.env.gcp.example
+local dam storage
+uploads
+.codex-*
+*.pid
+*.png
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
