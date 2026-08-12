@@ -10,6 +10,8 @@ This production profile runs one Docker container on one Compute Engine VM. Goog
 
 The VM's RAM runs the application and document-processing jobs. RAM is not used for durable storage. Keep exactly one application replica while this deployment uses SQLite and an attached filesystem.
 
+The recommended layout mounts a separate Persistent Disk at `/var/lib/dam`. If company policy permits only the VM boot Persistent Disk, create `/var/lib/dam` on that disk instead and keep the same container bind mount. This reduced layout preserves data across container restarts and VM reboots, but the operating system, Docker images, database, and assets share capacity. Configure boot-disk snapshots, retain the boot disk when deleting the VM, and monitor free space closely.
+
 ## 1. Prepare Google Cloud and company login
 
 1. Create or select a company-owned Google Cloud project with billing enabled.
@@ -110,6 +112,7 @@ Required storage values are already set correctly in the example:
 ```dotenv
 DATABASE_PATH=/var/lib/dam/database.sqlite
 LOCAL_DAM_STORAGE_DIR=/var/lib/dam/files
+DAM_MEMORY_LIMIT=3g
 NUXT_PUBLIC_ENABLE_GDRIVE_STORAGE=false
 ```
 
@@ -173,7 +176,7 @@ Startup performs these operations in order:
 4. applies idempotent SQLite migrations;
 5. starts Nuxt on port 8080.
 
-The container runs as UID/GID `10001`, has a 6 GB memory limit, and receives 30 seconds for graceful shutdown. Compose binds port 8080 only to `127.0.0.1`.
+The container runs as UID/GID `10001`, defaults to a 3 GB memory limit through `DAM_MEMORY_LIMIT`, and receives 30 seconds for graceful shutdown. This leaves capacity for Ubuntu, Docker, and the reverse proxy on a 4 GB VM. Compose binds port 8080 only to `127.0.0.1`.
 
 ## 8. Configure HTTPS
 
@@ -248,6 +251,7 @@ Rollback by stopping the service, restoring the matching data snapshot/backup if
 
 - Keep one application replica while using SQLite and a directly attached disk.
 - Use GCE Persistent Disk, not RAM or Local SSD, for durable assets.
-- The 6 GB container limit assumes an 8 GB VM; use a larger VM for concurrent RAG jobs.
+- The default 3 GB container limit supports the current 4 GB VM. Large or concurrent RAG jobs require more VM RAM.
+- After resizing the VM, raise `DAM_MEMORY_LIMIT` in `.env.gcp` and recreate the container; keep capacity available for Ubuntu, Docker, and the reverse proxy.
 - Expand Persistent Disk capacity independently as the asset library grows.
 - Move to a network database and shared object/file storage before horizontal scaling.

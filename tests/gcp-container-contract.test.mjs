@@ -9,7 +9,8 @@ test('GCP Compose binds the persistent disk and keeps the SQLite deployment sing
   assert.match(compose, /replicas:\s*1/);
   assert.match(compose, /init:\s*true/);
   assert.match(compose, /stop_grace_period:\s*30s/);
-  assert.match(compose, /mem_limit:\s*6g/);
+  assert.equal((compose.match(/\$\{DAM_MEMORY_LIMIT:-3g\}/g) || []).length, 2);
+  assert.doesNotMatch(compose, /mem_limit:\s*6g/);
   assert.match(compose, /127\.0\.0\.1:8080:8080/);
   assert.doesNotMatch(compose, /dam_data:/);
 });
@@ -19,6 +20,7 @@ test('production environment example places SQLite and assets on the persistent 
 
   assert.match(environment, /^DATABASE_PATH=\/var\/lib\/dam\/database\.sqlite$/m);
   assert.match(environment, /^LOCAL_DAM_STORAGE_DIR=\/var\/lib\/dam\/files$/m);
+  assert.match(environment, /^DAM_MEMORY_LIMIT=3g$/m);
 });
 
 test('Docker image excludes local databases, uploads, backups, and production secrets', async () => {
