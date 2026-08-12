@@ -37,6 +37,7 @@ brain/
 .codex-*.pid
 .codex-*.png
 .pnpm-store/
+.worktrees/
 
 # Generated Python bytecode and local RAG working files
 __pycache__/
