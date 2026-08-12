@@ -5,6 +5,9 @@ services:
       target: runtime
     image: dam-portal:gcp
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    mem_limit: ${DAM_MEMORY_LIMIT:-3g}
     env_file:
       - ${DAM_ENV_FILE:-.env.gcp}
     environment:
@@ -12,14 +15,15 @@ services:
       NITRO_PRESET: node-server
       HOST: 0.0.0.0
       PORT: "8080"
+      DAM_DATA_ROOT: /var/lib/dam
       DATABASE_PATH: /var/lib/dam/database.sqlite
       DATABASE_MIGRATIONS_DIR: /app/server/database/migrations
       LOCAL_DAM_STORAGE_DIR: /var/lib/dam/files
       PYTHON_CMD: /opt/dam-python/bin/python
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
-      - dam_data:/var/lib/dam
+      - /var/lib/dam:/var/lib/dam
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/api/health"]
       interval: 30s
@@ -28,6 +32,6 @@ services:
       retries: 3
     deploy:
       replicas: 1
-
-volumes:
-  dam_data:
+      resources:
+        limits:
+          memory: ${DAM_MEMORY_LIMIT:-3g}

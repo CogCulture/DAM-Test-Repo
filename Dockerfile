@@ -45,8 +45,8 @@ COPY scripts ./scripts
 COPY server/database/migrations ./server/database/migrations
 COPY server/utils/rag_parsers ./server/utils/rag_parsers
 
-RUN groupadd --system dam \
-  && useradd --system --gid dam --home-dir /app dam \
+RUN groupadd --system --gid 10001 dam \
+  && useradd --system --uid 10001 --gid dam --home-dir /app dam \
   && mkdir -p /var/lib/dam \
   && chown -R dam:dam /app /var/lib/dam
 
@@ -55,6 +55,7 @@ ENV NITRO_PRESET=node-server
 ENV HOST=0.0.0.0
 ENV PORT=8080
 ENV PYTHON_CMD=/opt/dam-python/bin/python
+ENV DAM_DATA_ROOT=/var/lib/dam
 ENV DATABASE_PATH=/var/lib/dam/database.sqlite
 ENV DATABASE_MIGRATIONS_DIR=/app/server/database/migrations
 ENV LOCAL_DAM_STORAGE_DIR=/var/lib/dam/files
@@ -65,4 +66,5 @@ VOLUME ["/var/lib/dam"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
   CMD curl --fail --silent http://127.0.0.1:8080/api/health || exit 1
 
+STOPSIGNAL SIGTERM
 CMD ["pnpm", "run", "start:gcp"]

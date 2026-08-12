@@ -3,28 +3,22 @@ param(
   [string] $Zone = "asia-south1-a",
   [string] $VmName = "dam-portal",
   [string] $MachineType = "e2-standard-2",
+  [string] $DataDiskName = "dam-portal-data",
+  [ValidateRange(10, 65536)] [int] $DataDiskSizeGb = 100,
   [switch] $Execute
 )
 
 $ErrorActionPreference = "Stop"
-$commands = @(
-  "gcloud config set project $ProjectId",
-  "gcloud services enable compute.googleapis.com drive.googleapis.com",
-  "gcloud compute instances create $VmName --zone=$Zone --machine-type=$MachineType --boot-disk-size=30GB --image-family=debian-12 --image-project=debian-cloud --tags=dam-web",
-  "gcloud compute firewall-rules create dam-allow-web --allow=tcp:80,tcp:443,tcp:8080 --target-tags=dam-web --description=`"DAM web traffic`"",
-  "gcloud compute ssh $VmName --zone=$Zone"
+$arguments = @(
+  "scripts/gce-deployment-plan.mjs",
+  "--project-id", $ProjectId,
+  "--zone", $Zone,
+  "--vm-name", $VmName,
+  "--machine-type", $MachineType,
+  "--data-disk-name", $DataDiskName,
+  "--data-disk-size-gb", "$DataDiskSizeGb"
 )
+if ($Execute) { $arguments += "--execute" }
 
-if (-not $Execute) {
-  Write-Host "Plan only. Re-run with -Execute after reviewing these commands:"
-  $commands | ForEach-Object { Write-Host $_ }
-  exit 0
-}
-
-foreach ($command in $commands) {
-  Write-Host "> $command"
-  & cmd.exe /d /c $command
-  if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code $LASTEXITCODE" }
-}
-
-Write-Host "VM created. Follow docs/GCP_DEPLOYMENT.md to install Docker, copy .env.gcp, start the container, and configure HTTPS."
+& node @arguments
+if ($LASTEXITCODE -ne 0) { throw "Deployment planner failed with exit code $LASTEXITCODE" }

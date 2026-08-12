@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "nuxt build",
-    "build:gcp": "nuxt build --preset node-server",
+    "build:gcp": "node scripts/build-gcp.mjs",
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
@@ -16,7 +16,10 @@
     "db:migrate:gcp": "node scripts/migrate-sqlite.mjs",
     "db:migrate:prod": "wrangler d1 migrations apply folder-demo --remote",
     "deploy": "npm run build && wrangler deploy && npm run db:migrate:prod",
-    "start:gcp": "node scripts/validate-gcp-env.mjs && node scripts/migrate-sqlite.mjs && node .output/server/index.mjs",
+    "start:gcp": "node scripts/validate-gcp-env.mjs && node scripts/prepare-persistent-storage.mjs && node scripts/migrate-sqlite.mjs && node .output/server/index.mjs",
+    "storage:set": "node scripts/set-organization-storage.mjs",
+    "storage:backup": "node scripts/backup-local-storage.mjs",
+    "storage:restore": "node scripts/restore-local-storage.mjs",
     "verify:gcp": "node --test --test-isolation=none tests/*.test.mjs"
   },
   "dependencies": {
