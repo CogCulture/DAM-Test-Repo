@@ -1,10 +1,16 @@
 import { fileURLToPath } from "node:url";
+import { parsePublicBooleanFlag } from "./shared/utils/public-feature-flags";
 
 const isGcpRuntime = process.env.NITRO_PRESET === "node-server" || Boolean(process.env.DATABASE_PATH);
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   srcDir: "app",
+  runtimeConfig: {
+    public: {
+      enableGDriveStorage: parsePublicBooleanFlag(process.env.NUXT_PUBLIC_ENABLE_GDRIVE_STORAGE),
+    },
+  },
   devtools: { enabled: process.env.NODE_ENV !== "production" },
   // ssr: false,
   nitro: {
