@@ -16,7 +16,7 @@
     "db:migrate:gcp": "node scripts/migrate-sqlite.mjs",
     "db:migrate:prod": "wrangler d1 migrations apply folder-demo --remote",
     "deploy": "npm run build && wrangler deploy && npm run db:migrate:prod",
-    "start:gcp": "node scripts/validate-gcp-env.mjs && node scripts/migrate-sqlite.mjs && node .output/server/index.mjs",
+    "start:gcp": "node scripts/validate-gcp-env.mjs && node scripts/prepare-persistent-storage.mjs && node scripts/migrate-sqlite.mjs && node .output/server/index.mjs",
     "verify:gcp": "node --test --test-isolation=none tests/*.test.mjs"
   },
   "dependencies": {
