@@ -55,6 +55,7 @@ ENV NITRO_PRESET=node-server
 ENV HOST=0.0.0.0
 ENV PORT=8080
 ENV PYTHON_CMD=/opt/dam-python/bin/python
+ENV DAM_DATA_ROOT=/var/lib/dam
 ENV DATABASE_PATH=/var/lib/dam/database.sqlite
 ENV DATABASE_MIGRATIONS_DIR=/app/server/database/migrations
 ENV LOCAL_DAM_STORAGE_DIR=/var/lib/dam/files

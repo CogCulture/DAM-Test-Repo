@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 export const REQUIRED_GCP_ENVIRONMENT = [
   'DATABASE_PATH',
+  'DAM_DATA_ROOT',
   'LOCAL_DAM_STORAGE_DIR',
   'NUXT_PUBLIC_SITE_URL',
   'NUXT_SESSION_PASSWORD',

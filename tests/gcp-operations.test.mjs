@@ -66,3 +66,70 @@ test('backup destination cannot be inside the live data root', async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('restore replaces existing live data only after staging a valid backup', async () => {
+  const { backupLocalStorage } = await import('../scripts/backup-local-storage.mjs');
+  const { restoreLocalStorage } = await import('../scripts/restore-local-storage.mjs');
+  const root = await mkdtemp(join(tmpdir(), 'dam-restore-existing-'));
+  const source = join(root, 'source');
+  const live = join(root, 'live');
+  const backups = join(root, 'backups');
+  await mkdir(join(source, 'files'), { recursive: true });
+  await mkdir(join(live, 'files'), { recursive: true });
+  await writeFile(join(source, 'files', 'asset.txt'), 'restored-asset');
+  await writeFile(join(live, 'files', 'asset.txt'), 'old-asset');
+  for (const [directory, value] of [[source, 'restored'], [live, 'old']]) {
+    const sqlite = new Database(join(directory, 'database.sqlite'));
+    sqlite.exec(`CREATE TABLE marker (value TEXT); INSERT INTO marker VALUES ('${value}');`);
+    sqlite.close();
+  }
+
+  try {
+    const backup = await backupLocalStorage({ dataRoot: source, destinationRoot: backups });
+    await restoreLocalStorage({
+      backupDirectory: backup.backupDirectory,
+      dataRoot: live,
+      confirmation: 'RESTORE_STOPPED_DAM',
+    });
+    assert.equal(await readFile(join(live, 'files', 'asset.txt'), 'utf8'), 'restored-asset');
+    const restored = new Database(join(live, 'database.sqlite'), { readonly: true });
+    assert.equal(restored.prepare('SELECT value FROM marker').pluck().get(), 'restored');
+    restored.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('restore rejects overlapping and corrupt backups before changing live data', async () => {
+  const { restoreLocalStorage } = await import('../scripts/restore-local-storage.mjs');
+  const root = await mkdtemp(join(tmpdir(), 'dam-restore-reject-'));
+  const live = join(root, 'live');
+  const corrupt = join(root, 'corrupt');
+  await mkdir(join(live, 'files', 'nested-backup', 'files'), { recursive: true });
+  await mkdir(join(corrupt, 'files'), { recursive: true });
+  await writeFile(join(live, 'files', 'asset.txt'), 'live-asset');
+  await writeFile(join(live, 'files', 'nested-backup', 'database.sqlite'), 'not-sqlite');
+  await writeFile(join(corrupt, 'database.sqlite'), 'not-sqlite');
+  const sqlite = new Database(join(live, 'database.sqlite'));
+  sqlite.exec("CREATE TABLE marker (value TEXT); INSERT INTO marker VALUES ('live');");
+  sqlite.close();
+
+  try {
+    await assert.rejects(restoreLocalStorage({
+      backupDirectory: join(live, 'files', 'nested-backup'),
+      dataRoot: live,
+      confirmation: 'RESTORE_STOPPED_DAM',
+    }), /must not overlap/);
+    await assert.rejects(restoreLocalStorage({
+      backupDirectory: corrupt,
+      dataRoot: live,
+      confirmation: 'RESTORE_STOPPED_DAM',
+    }), /integrity check|not a database/i);
+    assert.equal(await readFile(join(live, 'files', 'asset.txt'), 'utf8'), 'live-asset');
+    const unchanged = new Database(join(live, 'database.sqlite'), { readonly: true });
+    assert.equal(unchanged.prepare('SELECT value FROM marker').pluck().get(), 'live');
+    unchanged.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -18,6 +18,7 @@ test('GCP startup validation identifies every missing required setting', async (
 
   assert.deepEqual(result, [
     'DATABASE_PATH',
+    'DAM_DATA_ROOT',
     'LOCAL_DAM_STORAGE_DIR',
     'NUXT_PUBLIC_SITE_URL',
     'NUXT_SESSION_PASSWORD',
@@ -34,6 +35,7 @@ test('GCP startup validation accepts a complete production environment', async (
   const { validateGcpEnvironment } = await import('../scripts/validate-gcp-env.mjs');
   const complete = Object.fromEntries([
     'DATABASE_PATH',
+    'DAM_DATA_ROOT',
     'LOCAL_DAM_STORAGE_DIR',
     'NUXT_PUBLIC_SITE_URL',
     'NUXT_SESSION_PASSWORD',
@@ -52,6 +54,7 @@ test('production persistence requires absolute separate database and asset paths
   const { validatePersistentStoragePaths } = await import('../scripts/prepare-persistent-storage.mjs');
 
   assert.deepEqual(validatePersistentStoragePaths({
+    dataRoot: '/var/lib/dam',
     databasePath: 'db.sqlite',
     storageDirectory: 'files',
   }), [
@@ -59,10 +62,17 @@ test('production persistence requires absolute separate database and asset paths
     'LOCAL_DAM_STORAGE_DIR must be absolute.',
   ]);
   assert.deepEqual(validatePersistentStoragePaths({
+    dataRoot: '/var/lib/dam',
     databasePath: '/var/lib/dam/database.sqlite',
     storageDirectory: '/var/lib/dam/database.sqlite',
-  }), ['DATABASE_PATH and LOCAL_DAM_STORAGE_DIR must be different paths.']);
+  }), ['LOCAL_DAM_STORAGE_DIR must equal <DAM_DATA_ROOT>/files.']);
   assert.deepEqual(validatePersistentStoragePaths({
+    dataRoot: '/var/lib/dam',
+    databasePath: '/tmp/database.sqlite',
+    storageDirectory: '/var/lib/dam/files',
+  }), ['DATABASE_PATH must equal <DAM_DATA_ROOT>/database.sqlite.']);
+  assert.deepEqual(validatePersistentStoragePaths({
+    dataRoot: '/var/lib/dam',
     databasePath: '/var/lib/dam/database.sqlite',
     storageDirectory: '/var/lib/dam/files',
   }), []);
@@ -76,7 +86,7 @@ test('preparing persistent storage preserves an existing database', async () => 
 
   try {
     await writeFile(databasePath, 'existing-database-bytes');
-    const result = await preparePersistentStorage({ databasePath, storageDirectory });
+    const result = await preparePersistentStorage({ dataRoot: root, databasePath, storageDirectory });
 
     assert.equal(await readFile(databasePath, 'utf8'), 'existing-database-bytes');
     assert.deepEqual(result, { databasePath, storageDirectory });

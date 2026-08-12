@@ -3,22 +3,31 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const validatePersistentStoragePaths = ({ databasePath, storageDirectory }) => {
+export const validatePersistentStoragePaths = ({ dataRoot, databasePath, storageDirectory }) => {
   const errors = [];
+  const root = String(dataRoot || '').trim();
   const database = String(databasePath || '').trim();
   const storage = String(storageDirectory || '').trim();
 
+  if (root && !isAbsolute(root)) errors.push('DAM_DATA_ROOT must be absolute.');
   if (database && !isAbsolute(database)) errors.push('DATABASE_PATH must be absolute.');
   if (storage && !isAbsolute(storage)) errors.push('LOCAL_DAM_STORAGE_DIR must be absolute.');
-  if (database && storage && isAbsolute(database) && isAbsolute(storage) && resolve(database) === resolve(storage)) {
-    errors.push('DATABASE_PATH and LOCAL_DAM_STORAGE_DIR must be different paths.');
+  if (errors.length) return errors;
+
+  if (root && database) {
+    const expectedDatabase = resolve(root, 'database.sqlite');
+    if (resolve(database) !== expectedDatabase) errors.push('DATABASE_PATH must equal <DAM_DATA_ROOT>/database.sqlite.');
+  }
+  if (root && storage) {
+    const expectedStorage = resolve(root, 'files');
+    if (resolve(storage) !== expectedStorage) errors.push('LOCAL_DAM_STORAGE_DIR must equal <DAM_DATA_ROOT>/files.');
   }
 
   return errors;
 };
 
-export const preparePersistentStorage = async ({ databasePath, storageDirectory }) => {
-  const errors = validatePersistentStoragePaths({ databasePath, storageDirectory });
+export const preparePersistentStorage = async ({ dataRoot, databasePath, storageDirectory }) => {
+  const errors = validatePersistentStoragePaths({ dataRoot, databasePath, storageDirectory });
   if (errors.length) throw new Error(errors.join(' '));
 
   const resolvedDatabasePath = resolve(databasePath);
@@ -44,6 +53,7 @@ const isDirectRun = process.argv[1]
 
 if (isDirectRun) {
   preparePersistentStorage({
+    dataRoot: process.env.DAM_DATA_ROOT,
     databasePath: process.env.DATABASE_PATH,
     storageDirectory: process.env.LOCAL_DAM_STORAGE_DIR,
   })

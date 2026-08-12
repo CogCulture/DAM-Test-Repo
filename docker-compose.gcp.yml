@@ -15,6 +15,7 @@ services:
       NITRO_PRESET: node-server
       HOST: 0.0.0.0
       PORT: "8080"
+      DAM_DATA_ROOT: /var/lib/dam
       DATABASE_PATH: /var/lib/dam/database.sqlite
       DATABASE_MIGRATIONS_DIR: /app/server/database/migrations
       LOCAL_DAM_STORAGE_DIR: /var/lib/dam/files
