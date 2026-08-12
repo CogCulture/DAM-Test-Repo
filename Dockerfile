@@ -16,9 +16,7 @@ FROM dependencies AS build
 COPY . .
 ENV NODE_ENV=production
 ENV NITRO_PRESET=node-server
-RUN rm -rf node_modules/.cache/nuxt .nuxt \
-  && pnpm exec nuxt prepare \
-  && pnpm run build:gcp
+RUN pnpm run build:gcp
 
 FROM dependencies AS production-dependencies
 RUN pnpm prune --prod
