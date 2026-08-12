@@ -45,8 +45,8 @@ COPY scripts ./scripts
 COPY server/database/migrations ./server/database/migrations
 COPY server/utils/rag_parsers ./server/utils/rag_parsers
 
-RUN groupadd --system dam \
-  && useradd --system --gid dam --home-dir /app dam \
+RUN groupadd --system --gid 10001 dam \
+  && useradd --system --uid 10001 --gid dam --home-dir /app dam \
   && mkdir -p /var/lib/dam \
   && chown -R dam:dam /app /var/lib/dam
 

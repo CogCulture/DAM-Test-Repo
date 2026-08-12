@@ -18,6 +18,8 @@
     "deploy": "npm run build && wrangler deploy && npm run db:migrate:prod",
     "start:gcp": "node scripts/validate-gcp-env.mjs && node scripts/prepare-persistent-storage.mjs && node scripts/migrate-sqlite.mjs && node .output/server/index.mjs",
     "storage:set": "node scripts/set-organization-storage.mjs",
+    "storage:backup": "node scripts/backup-local-storage.mjs",
+    "storage:restore": "node scripts/restore-local-storage.mjs",
     "verify:gcp": "node --test --test-isolation=none tests/*.test.mjs"
   },
   "dependencies": {

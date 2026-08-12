@@ -28,3 +28,11 @@ test('Docker image excludes local databases, uploads, backups, and production se
     assert.match(dockerignore, new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
   }
 });
+
+test('runtime container uses a stable non-root identity for persistent disk ownership', async () => {
+  const dockerfile = await readFile(new URL('../Dockerfile', import.meta.url), 'utf8');
+
+  assert.match(dockerfile, /groupadd --system --gid 10001 dam/);
+  assert.match(dockerfile, /useradd --system --uid 10001 --gid dam/);
+  assert.match(dockerfile, /^USER dam$/m);
+});
