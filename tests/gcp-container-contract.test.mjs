@@ -42,7 +42,21 @@ test('runtime container uses a stable non-root identity for persistent disk owne
 test('Docker build lets the production Nuxt build own generated cache lifecycle', async () => {
   const dockerfile = await readFile(new URL('../Dockerfile', import.meta.url), 'utf8');
 
-  assert.match(dockerfile, /^RUN pnpm run build:gcp$/m);
+  assert.match(dockerfile, /^RUN npm run build:gcp$/m);
   assert.doesNotMatch(dockerfile, /rm -rf node_modules\/\.cache\/nuxt/);
   assert.doesNotMatch(dockerfile, /pnpm exec nuxt prepare/);
+});
+
+test('Docker installs the application from its npm lockfile without re-resolving Nuxt peers', async () => {
+  const dockerfile = await readFile(new URL('../Dockerfile', import.meta.url), 'utf8');
+  const packageLock = JSON.parse(await readFile(new URL('../package-lock.json', import.meta.url), 'utf8'));
+
+  assert.equal(packageLock.packages['node_modules/@nuxt/ui'].version, '3.0.0');
+  assert.equal(packageLock.packages['node_modules/nuxt'].version, '3.16.0');
+  assert.equal(packageLock.packages['node_modules/vite'].version, '6.2.2');
+  assert.equal(packageLock.packages['node_modules/vue'].version, '3.5.13');
+  assert.equal(packageLock.packages['node_modules/reka-ui'].version, '2.0.2');
+  assert.match(dockerfile, /COPY package\.json package-lock\.json \.\//);
+  assert.match(dockerfile, /^RUN npm ci --legacy-peer-deps$/m);
+  assert.doesNotMatch(dockerfile, /pnpm (?:install|prune|run)/);
 });

@@ -148,7 +148,7 @@ The application never changes an organization's storage type automatically. Afte
 sudo mkdir -p /var/backups/dam
 docker compose -f docker-compose.gcp.yml run --rm \
   -v /var/backups/dam:/backup \
-  dam pnpm storage:set -- \
+  dam npm run storage:set -- \
   --organization YOUR_ORGANIZATION_ID \
   --target local \
   --database /var/lib/dam/database.sqlite \
