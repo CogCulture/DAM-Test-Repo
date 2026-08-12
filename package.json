@@ -29,7 +29,7 @@
     "@google-cloud/storage": "^7.21.0",
     "@iconify-json/lucide": "^1.2.26",
     "@iconify-json/simple-icons": "^1.2.26",
-    "@nuxt/ui": "^3.0.0",
+    "@nuxt/ui": "3.0.0",
     "@nuxthub/core": "^0.8.17",
     "@vue-office/docx": "^1.6.3",
     "@vue-office/excel": "^1.7.14",
@@ -53,6 +53,7 @@
     "wrangler": "^3.112.0"
   },
   "overrides": {
+    "vite": "6.2.2",
     "tailwindcss": "4.0.7",
     "@tailwindcss/node": "4.0.7",
     "@tailwindcss/postcss": "4.0.7",
