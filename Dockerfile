@@ -65,4 +65,5 @@ VOLUME ["/var/lib/dam"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
   CMD curl --fail --silent http://127.0.0.1:8080/api/health || exit 1
 
+STOPSIGNAL SIGTERM
 CMD ["pnpm", "run", "start:gcp"]
