@@ -38,3 +38,11 @@ test('runtime container uses a stable non-root identity for persistent disk owne
   assert.match(dockerfile, /useradd --system --uid 10001 --gid dam/);
   assert.match(dockerfile, /^USER dam$/m);
 });
+
+test('Docker build lets the production Nuxt build own generated cache lifecycle', async () => {
+  const dockerfile = await readFile(new URL('../Dockerfile', import.meta.url), 'utf8');
+
+  assert.match(dockerfile, /^RUN pnpm run build:gcp$/m);
+  assert.doesNotMatch(dockerfile, /rm -rf node_modules\/\.cache\/nuxt/);
+  assert.doesNotMatch(dockerfile, /pnpm exec nuxt prepare/);
+});
