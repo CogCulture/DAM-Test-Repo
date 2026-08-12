@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { rename as fsRename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
 
@@ -129,6 +130,81 @@ test('restore rejects overlapping and corrupt backups before changing live data'
     const unchanged = new Database(join(live, 'database.sqlite'), { readonly: true });
     assert.equal(unchanged.prepare('SELECT value FROM marker').pluck().get(), 'live');
     unchanged.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('restore rolls back every prior move when moving live data fails partway', async () => {
+  const { backupLocalStorage } = await import('../scripts/backup-local-storage.mjs');
+  const { restoreLocalStorage } = await import('../scripts/restore-local-storage.mjs');
+  const root = await mkdtemp(join(tmpdir(), 'dam-restore-move-failure-'));
+  const source = join(root, 'source');
+  const live = join(root, 'live');
+  const backups = join(root, 'backups');
+  await mkdir(join(source, 'files'), { recursive: true });
+  await mkdir(join(live, 'files'), { recursive: true });
+  await writeFile(join(source, 'files', 'asset.txt'), 'replacement-asset');
+  await writeFile(join(live, 'files', 'asset.txt'), 'original-asset');
+  for (const [directory, value] of [[source, 'replacement'], [live, 'original']]) {
+    const sqlite = new Database(join(directory, 'database.sqlite'));
+    sqlite.exec(`CREATE TABLE marker (value TEXT); INSERT INTO marker VALUES ('${value}');`);
+    sqlite.close();
+  }
+
+  try {
+    const backup = await backupLocalStorage({ dataRoot: source, destinationRoot: backups });
+    await assert.rejects(restoreLocalStorage({
+      backupDirectory: backup.backupDirectory,
+      dataRoot: live,
+      confirmation: 'RESTORE_STOPPED_DAM',
+      renamePath: async (from, to) => {
+        if (basename(from) === 'files' && basename(to).startsWith('.restore-rollback-')) {
+          throw new Error('simulated move failure');
+        }
+        await fsRename(from, to);
+      },
+    }), /simulated move failure/);
+
+    assert.equal(await readFile(join(live, 'files', 'asset.txt'), 'utf8'), 'original-asset');
+    const unchanged = new Database(join(live, 'database.sqlite'), { readonly: true });
+    assert.equal(unchanged.prepare('SELECT value FROM marker').pluck().get(), 'original');
+    unchanged.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('startup recovers live data from an interrupted restore marker', async () => {
+  const { preparePersistentStorage } = await import('../scripts/prepare-persistent-storage.mjs');
+  const root = await mkdtemp(join(tmpdir(), 'dam-restore-recovery-'));
+  const operationId = '12345678-1234-4234-8234-123456789abc';
+  const databasePath = join(root, 'database.sqlite');
+  const rollbackDatabase = join(root, `.restore-rollback-${operationId}.sqlite`);
+  const storageDirectory = join(root, 'files');
+  await mkdir(storageDirectory, { recursive: true });
+  await writeFile(join(storageDirectory, 'asset.txt'), 'original-asset');
+  const sqlite = new Database(databasePath);
+  sqlite.exec("CREATE TABLE marker (value TEXT); INSERT INTO marker VALUES ('original');");
+  sqlite.close();
+  await fsRename(databasePath, rollbackDatabase);
+  await writeFile(join(root, '.restore-recovery.json'), JSON.stringify({
+    version: 1,
+    operationId,
+    hadLive: { database: true, files: true, wal: false, shm: false },
+  }));
+
+  try {
+    await preparePersistentStorage({
+      dataRoot: root,
+      databasePath,
+      storageDirectory,
+      expectedDataRoot: root,
+    });
+    const recovered = new Database(databasePath, { readonly: true });
+    assert.equal(recovered.prepare('SELECT value FROM marker').pluck().get(), 'original');
+    recovered.close();
+    assert.equal(await readFile(join(storageDirectory, 'asset.txt'), 'utf8'), 'original-asset');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

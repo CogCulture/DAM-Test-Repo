@@ -72,6 +72,11 @@ test('production persistence requires absolute separate database and asset paths
     storageDirectory: '/var/lib/dam/files',
   }), ['DATABASE_PATH must equal <DAM_DATA_ROOT>/database.sqlite.']);
   assert.deepEqual(validatePersistentStoragePaths({
+    dataRoot: '/tmp/dam',
+    databasePath: '/tmp/dam/database.sqlite',
+    storageDirectory: '/tmp/dam/files',
+  }), ['DAM_DATA_ROOT must equal /var/lib/dam in production.']);
+  assert.deepEqual(validatePersistentStoragePaths({
     dataRoot: '/var/lib/dam',
     databasePath: '/var/lib/dam/database.sqlite',
     storageDirectory: '/var/lib/dam/files',
@@ -86,7 +91,12 @@ test('preparing persistent storage preserves an existing database', async () => 
 
   try {
     await writeFile(databasePath, 'existing-database-bytes');
-    const result = await preparePersistentStorage({ dataRoot: root, databasePath, storageDirectory });
+    const result = await preparePersistentStorage({
+      dataRoot: root,
+      databasePath,
+      storageDirectory,
+      expectedDataRoot: root,
+    });
 
     assert.equal(await readFile(databasePath, 'utf8'), 'existing-database-bytes');
     assert.deepEqual(result, { databasePath, storageDirectory });

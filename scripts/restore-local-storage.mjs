@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
-import { cp, mkdir, rename, rm, stat } from 'node:fs/promises';
+import { cp, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,7 +31,90 @@ const verifySqlite = (databasePath) => {
   }
 };
 
-export const restoreLocalStorage = async ({ backupDirectory, dataRoot, confirmation }) => {
+const recoveryPaths = (destination, operationId) => ({
+  manifest: resolve(destination, '.restore-recovery.json'),
+  stage: resolve(destination, `.restore-stage-${operationId}`),
+  entries: [
+    {
+      key: 'database',
+      live: resolve(destination, 'database.sqlite'),
+      rollback: resolve(destination, `.restore-rollback-${operationId}.sqlite`),
+      recursive: false,
+    },
+    {
+      key: 'files',
+      live: resolve(destination, 'files'),
+      rollback: resolve(destination, `.restore-rollback-${operationId}-files`),
+      recursive: true,
+    },
+    {
+      key: 'wal',
+      live: resolve(destination, 'database.sqlite-wal'),
+      rollback: resolve(destination, `.restore-rollback-${operationId}.sqlite-wal`),
+      recursive: false,
+    },
+    {
+      key: 'shm',
+      live: resolve(destination, 'database.sqlite-shm'),
+      rollback: resolve(destination, `.restore-rollback-${operationId}.sqlite-shm`),
+      recursive: false,
+    },
+  ],
+});
+
+const syncDirectory = async (directory) => {
+  if (process.platform === 'win32') return;
+  const handle = await open(directory, 'r');
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+};
+
+const writeRecoveryManifest = async ({ pathname, temporaryPath, value, renamePath }) => {
+  const handle = await open(temporaryPath, 'wx');
+  try {
+    await handle.writeFile(JSON.stringify(value));
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await renamePath(temporaryPath, pathname);
+  await syncDirectory(resolve(pathname, '..'));
+};
+
+export const recoverInterruptedRestore = async ({ dataRoot, renamePath = rename }) => {
+  const destination = resolve(dataRoot || '/var/lib/dam');
+  const manifestPath = resolve(destination, '.restore-recovery.json');
+  if (!await exists(manifestPath)) return false;
+
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  if (manifest?.version !== 1 || !/^[0-9a-f-]{36}$/i.test(manifest?.operationId || '')) {
+    throw new Error('Restore recovery manifest is invalid; manual recovery is required.');
+  }
+
+  const paths = recoveryPaths(destination, manifest.operationId);
+  for (const entry of [...paths.entries].reverse()) {
+    if (await exists(entry.rollback)) {
+      await rm(entry.live, { recursive: entry.recursive, force: true });
+      await renamePath(entry.rollback, entry.live);
+    } else if (manifest.hadLive?.[entry.key] === false) {
+      await rm(entry.live, { recursive: entry.recursive, force: true });
+    }
+  }
+  await rm(paths.stage, { recursive: true, force: true });
+  await rm(paths.manifest, { force: true });
+  await syncDirectory(destination);
+  return true;
+};
+
+export const restoreLocalStorage = async ({
+  backupDirectory,
+  dataRoot,
+  confirmation,
+  renamePath = rename,
+}) => {
   if (confirmation !== 'RESTORE_STOPPED_DAM') {
     throw new Error('Restore requires confirmation RESTORE_STOPPED_DAM after the DAM service is stopped.');
   }
@@ -49,17 +132,13 @@ export const restoreLocalStorage = async ({ backupDirectory, dataRoot, confirmat
   verifySqlite(sourceDatabase);
 
   await mkdir(destination, { recursive: true });
+  await recoverInterruptedRestore({ dataRoot: destination, renamePath });
   const operationId = randomUUID();
-  const stage = resolve(destination, `.restore-stage-${operationId}`);
-  const rollbackDatabase = resolve(destination, `.restore-rollback-${operationId}.sqlite`);
-  const rollbackFiles = resolve(destination, `.restore-rollback-${operationId}-files`);
-  const rollbackWal = resolve(destination, `.restore-rollback-${operationId}.sqlite-wal`);
-  const rollbackShm = resolve(destination, `.restore-rollback-${operationId}.sqlite-shm`);
+  const paths = recoveryPaths(destination, operationId);
+  const stage = paths.stage;
+  const manifestTemp = `${paths.manifest}.${operationId}.tmp`;
   const liveDatabase = resolve(destination, 'database.sqlite');
   const liveFiles = resolve(destination, 'files');
-  const liveWal = resolve(destination, 'database.sqlite-wal');
-  const liveShm = resolve(destination, 'database.sqlite-shm');
-  const moved = [];
 
   try {
     await mkdir(stage, { recursive: false });
@@ -69,35 +148,37 @@ export const restoreLocalStorage = async ({ backupDirectory, dataRoot, confirmat
     await cp(sourceFiles, stagedFiles, { recursive: true, errorOnExist: true });
     verifySqlite(stagedDatabase);
 
-    for (const [livePath, rollbackPath] of [
-      [liveDatabase, rollbackDatabase],
-      [liveFiles, rollbackFiles],
-      [liveWal, rollbackWal],
-      [liveShm, rollbackShm],
-    ]) {
-      if (await exists(livePath)) {
-        await rename(livePath, rollbackPath);
-        moved.push([livePath, rollbackPath]);
-      }
-    }
+    const hadLive = Object.fromEntries(await Promise.all(paths.entries.map(async (entry) => [
+      entry.key,
+      await exists(entry.live),
+    ])));
+    await writeRecoveryManifest({
+      pathname: paths.manifest,
+      temporaryPath: manifestTemp,
+      value: { version: 1, operationId, hadLive },
+      renamePath,
+    });
 
     try {
-      await rename(stagedDatabase, liveDatabase);
-      await rename(stagedFiles, liveFiles);
-    } catch (error) {
-      await rm(liveDatabase, { force: true });
-      await rm(liveFiles, { recursive: true, force: true });
-      for (const [livePath, rollbackPath] of [...moved].reverse()) {
-        if (await exists(rollbackPath)) await rename(rollbackPath, livePath);
+      for (const entry of paths.entries) {
+        if (hadLive[entry.key]) await renamePath(entry.live, entry.rollback);
       }
+
+      await renamePath(stagedDatabase, liveDatabase);
+      await renamePath(stagedFiles, liveFiles);
+    } catch (error) {
+      await recoverInterruptedRestore({ dataRoot: destination, renamePath });
       throw error;
     }
 
-    for (const [, rollbackPath] of moved) {
-      await rm(rollbackPath, { recursive: true, force: true });
+    await rm(paths.manifest, { force: true });
+    await syncDirectory(destination);
+    for (const entry of paths.entries) {
+      await rm(entry.rollback, { recursive: entry.recursive, force: true });
     }
     return { dataRoot: destination };
   } finally {
+    await rm(manifestTemp, { force: true });
     await rm(stage, { recursive: true, force: true });
   }
 };

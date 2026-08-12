@@ -2,8 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { recoverInterruptedRestore } from './restore-local-storage.mjs';
 
-export const validatePersistentStoragePaths = ({ dataRoot, databasePath, storageDirectory }) => {
+export const validatePersistentStoragePaths = ({
+  dataRoot,
+  databasePath,
+  storageDirectory,
+  expectedDataRoot = '/var/lib/dam',
+}) => {
   const errors = [];
   const root = String(dataRoot || '').trim();
   const database = String(databasePath || '').trim();
@@ -13,6 +19,10 @@ export const validatePersistentStoragePaths = ({ dataRoot, databasePath, storage
   if (database && !isAbsolute(database)) errors.push('DATABASE_PATH must be absolute.');
   if (storage && !isAbsolute(storage)) errors.push('LOCAL_DAM_STORAGE_DIR must be absolute.');
   if (errors.length) return errors;
+
+  if (root && resolve(root) !== resolve(expectedDataRoot)) {
+    errors.push(`DAM_DATA_ROOT must equal ${expectedDataRoot} in production.`);
+  }
 
   if (root && database) {
     const expectedDatabase = resolve(root, 'database.sqlite');
@@ -26,12 +36,24 @@ export const validatePersistentStoragePaths = ({ dataRoot, databasePath, storage
   return errors;
 };
 
-export const preparePersistentStorage = async ({ dataRoot, databasePath, storageDirectory }) => {
-  const errors = validatePersistentStoragePaths({ dataRoot, databasePath, storageDirectory });
+export const preparePersistentStorage = async ({
+  dataRoot,
+  databasePath,
+  storageDirectory,
+  expectedDataRoot = '/var/lib/dam',
+}) => {
+  const errors = validatePersistentStoragePaths({
+    dataRoot,
+    databasePath,
+    storageDirectory,
+    expectedDataRoot,
+  });
   if (errors.length) throw new Error(errors.join(' '));
 
   const resolvedDatabasePath = resolve(databasePath);
   const resolvedStorageDirectory = resolve(storageDirectory);
+  await mkdir(resolve(dataRoot), { recursive: true });
+  await recoverInterruptedRestore({ dataRoot });
   await mkdir(dirname(resolvedDatabasePath), { recursive: true });
   await mkdir(resolvedStorageDirectory, { recursive: true });
 
