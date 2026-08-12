@@ -84,3 +84,10 @@ test('preparing persistent storage preserves an existing database', async () => 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('GCP build selects the node-server preset before Nuxt configuration loads', async () => {
+  const { createGcpBuildEnvironment } = await import('../scripts/build-gcp.mjs');
+
+  assert.equal(createGcpBuildEnvironment({ NODE_ENV: 'test' }).NITRO_PRESET, 'node-server');
+  assert.equal(createGcpBuildEnvironment({ NODE_ENV: 'test' }).NODE_ENV, 'test');
+});
