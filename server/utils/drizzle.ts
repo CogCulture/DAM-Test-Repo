@@ -1,8 +1,8 @@
 import { drizzle } from "drizzle-orm/d1";
-// @ts-ignore
-import { hubDatabase } from "~~/node_modules/@nuxthub/core/dist/runtime/database/server/utils/database.js";
 import * as schema from "../database/schema";
 import { useSqliteDrizzle } from "./sqlite";
+
+declare const hubDatabase: () => Parameters<typeof drizzle>[0];
 
 export { sql, eq, and, or } from "drizzle-orm";
 export const tables = schema;
