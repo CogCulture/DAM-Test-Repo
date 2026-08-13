@@ -1,4 +1,11 @@
 export type UploadStorageTarget = "local" | "gdrive";
+export type RuntimeStorageTarget = "local" | "hub";
+
+export const resolveRuntimeStorageTarget = (environment: {
+  DATABASE_PATH?: string;
+  LOCAL_DAM_STORAGE_DIR?: string;
+}): RuntimeStorageTarget =>
+  environment.DATABASE_PATH || environment.LOCAL_DAM_STORAGE_DIR ? "local" : "hub";
 
 export const resolveUploadStorageTarget = ({
   orgType,
