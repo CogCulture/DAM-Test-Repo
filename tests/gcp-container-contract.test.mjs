@@ -60,3 +60,11 @@ test('Docker installs the application from its npm lockfile without re-resolving
   assert.match(dockerfile, /^RUN npm ci --legacy-peer-deps$/m);
   assert.doesNotMatch(dockerfile, /pnpm (?:install|prune|run)/);
 });
+
+test('GCP database selection does not eagerly load the NuxtHub runtime', async () => {
+  const drizzleAdapter = await readFile(new URL('../server/utils/drizzle.ts', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(drizzleAdapter, /^import .*@nuxthub\/core.*database/m);
+  assert.match(drizzleAdapter, /if \(process\.env\.DATABASE_PATH\)/);
+  assert.match(drizzleAdapter, /useSqliteDrizzle\(process\.env\.DATABASE_PATH\)/);
+});
