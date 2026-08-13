@@ -14,6 +14,7 @@ import {
   getRagArtifactPath,
   resolveRagArtifactState,
 } from "~~/shared/utils/rag-artifact";
+import { resolveRuntimeStorageTarget } from "~~/shared/utils/drive-storage";
 
 // RAGPush parsers path
 const RAGPUSH_DIR = join(process.cwd(), "server", "utils");
@@ -38,6 +39,7 @@ export default defineEventHandler(async (event) => {
 
   try {
     const { bucket, user } = await verifyBucket(event, "canUseRag");
+    const storageTarget = resolveRuntimeStorageTarget(process.env);
     const query = getQuery(event);
     const fileId = query.fileId as string;
     await requireFileDepartmentAccess(user, fileId);
@@ -70,7 +72,7 @@ export default defineEventHandler(async (event) => {
 
     if (existingArtifact.canonical && existingArtifact.canReuseContent) {
       const storagePath = existingArtifact.canonical.storagePath || existingArtifact.canonical.path;
-      const storedArtifact = bucket.name === "local"
+      const storedArtifact = storageTarget === "local"
         ? await localBlob().head(storagePath)
         : await hubBlob().get(storagePath);
 
@@ -103,7 +105,7 @@ export default defineEventHandler(async (event) => {
     // Define the local path of the file
     let localFilePath = "";
     let tempDir = "";
-    if (bucket.name === "local") {
+    if (storageTarget === "local") {
       localFilePath = getLocalDamStoragePath(item.storagePath || item.path);
     } else {
       // For BYOS, download to temp
@@ -308,7 +310,7 @@ export default defineEventHandler(async (event) => {
           };
 
           const blobData = new Blob([mdContent], { type: "text/markdown" });
-          if (bucket.name === "local") {
+          if (storageTarget === "local") {
             await localBlob().put(targetPath, mdContent);
           } else {
             await hubBlob().put(targetPath, blobData);
