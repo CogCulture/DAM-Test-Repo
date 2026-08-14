@@ -31,6 +31,8 @@ export default defineEventHandler(async (event) => {
       departmentId: dept,
       template: "Brand_Campaign_Channel_Asset_Format_Version_Date",
       allowedExtensions: null,
+      folderTemplate: nomenclature?.folderTemplate ?? null,
+      folderSegments: Array.isArray(nomenclature?.folderSegments) ? nomenclature.folderSegments : [],
       segments: [
         { key: "Brand", label: "Brand", allowedValues: [] },
         { key: "Campaign", label: "Campaign", allowedValues: [] },
@@ -42,6 +44,10 @@ export default defineEventHandler(async (event) => {
       ],
     };
   }
-  return nomenclature;
+  return {
+    ...nomenclature,
+    folderTemplate: nomenclature.folderTemplate ?? null,
+    folderSegments: Array.isArray(nomenclature.folderSegments) ? nomenclature.folderSegments : [],
+  };
 });
 

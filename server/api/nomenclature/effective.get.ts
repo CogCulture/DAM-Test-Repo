@@ -30,6 +30,14 @@ export default defineEventHandler(async (event) => {
   return {
     enabled: features.nomenclature !== false,
     enforced: features.nomenclature !== false && !!rules.enforceNomenclature,
-    nomenclature,
+    nomenclature: nomenclature
+      ? {
+          ...nomenclature,
+          folderTemplate: nomenclature.folderTemplate ?? null,
+          folderSegments: Array.isArray(nomenclature.folderSegments) ? nomenclature.folderSegments : [],
+        }
+      : null,
+    folderTemplate: nomenclature?.folderTemplate ?? null,
+    folderSegments: Array.isArray(nomenclature?.folderSegments) ? nomenclature.folderSegments : [],
   };
 });
