@@ -1,5 +1,6 @@
 import { requireFileDepartmentAccess, verifyBucket } from "~~/server/utils/permission";
 import { resolveFolderCreationMode } from "~~/shared/utils/folder-creation-policy";
+import { requireValidFolderName } from "~~/server/utils/folderNomenclature";
 
 export default defineEventHandler(async (event) => {
   const { user } = await verifyBucket(event);
@@ -75,6 +76,7 @@ export default defineEventHandler(async (event) => {
         status: 403,
       });
     }
+    await requireValidFolderName({ user, folderName: name });
     return await ensurePath(params.bucket, fullPath, userId);
   }
 });

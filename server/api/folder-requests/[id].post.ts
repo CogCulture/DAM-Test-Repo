@@ -11,6 +11,7 @@ import { useDrizzle } from "~~/server/utils/drizzle";
 import { eq, and, isNull } from "drizzle-orm";
 import { canReviewFolderRequest } from "~~/shared/utils/folder-creation-policy";
 import { resolveFileCollision } from "~~/shared/utils/file-collision";
+import { requireValidFolderName } from "~~/server/utils/folderNomenclature";
 
 export default defineEventHandler(async (event) => {
   const user = await requireDeptHead(event);
@@ -82,6 +83,12 @@ export default defineEventHandler(async (event) => {
       });
       finalFolderName = collision.finalName;
 
+      await requireValidFolderName({
+        user,
+        folderName: finalFolderName,
+        departmentId: request.departmentId,
+      });
+
       await createGDriveFolder(token, parentFolderId, finalFolderName);
     } else {
       const siblingRows = await db
@@ -98,6 +105,11 @@ export default defineEventHandler(async (event) => {
         existingNames: siblingRows.map((item) => item.name),
       });
       finalFolderName = collision.finalName;
+      await requireValidFolderName({
+        user,
+        folderName: finalFolderName,
+        departmentId: request.departmentId,
+      });
       let folderPath = `${request.bucketName}/${finalFolderName}`;
       if (request.parentId && request.parentId !== "root") {
         const parentFolder = await getFolder(request.parentId, request.organizationId);

@@ -5,6 +5,7 @@ import { useDrizzle } from "~~/server/utils/drizzle";
 import { users, orgDepartments } from "~~/server/database/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveFolderCreationMode } from "~~/shared/utils/folder-creation-policy";
+import { requireValidFolderName } from "~~/server/utils/folderNomenclature";
 
 export default defineEventHandler(async (event) => {
   const user = await requireFilePermission(event, "canCreateFolder");
@@ -19,6 +20,8 @@ export default defineEventHandler(async (event) => {
   if (!folderName || !parentId) {
     throw createError({ status: 400, message: "Parent ID and Folder name are required." });
   }
+
+  await requireValidFolderName({ user, folderName });
 
   const orgId = (user as any).organizationId;
   const db = useDrizzle();
