@@ -67,10 +67,14 @@ def route_file(file_path: str, file_type: str = "") -> dict:
         )
 
     elif ext == ".docx":
-        # parse_docx.py uses Batch API internally and returns usage
-        from parse_docx import main as docx_main
-        # parse_docx exposes analyze_with_claude; call it directly
-        from parse_docx import extract_text_from_docx, extract_images_from_docx, analyze_with_claude
+        try:
+            from parse_docx import extract_text_from_docx, extract_images_from_docx
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "DOCX RAG dependency 'python-docx' is missing. Install "
+                "server/utils/rag_parsers/requirements.txt with the same Python "
+                "used by the app."
+            ) from exc
         text = extract_text_from_docx(file_path)
         images = extract_images_from_docx(file_path)
         result_text, usage = analyze_with_claude_with_usage(text, images, ANTHROPIC_API_KEY, CLAUDE_MODEL)
