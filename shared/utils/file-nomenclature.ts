@@ -9,6 +9,43 @@ export type FileRuleValidation = {
   message?: string;
 };
 
+const validateNomenclatureStem = (
+  name: string,
+  segments: NomenclatureSegment[],
+  kind: "File" | "Folder",
+): FileRuleValidation => {
+  if (!segments.length) {
+    return { valid: false, message: `No ${kind.toLocaleLowerCase()} nomenclature template is configured for this department.` };
+  }
+
+  const values = name.split("_");
+  const expected = segments.map((segment) => segment.key).join("_");
+  if (values.length !== segments.length || values.some((value) => !value.trim())) {
+    return {
+      valid: false,
+      message: kind === "File"
+        ? `File name must follow ${expected} before the extension.`
+        : `Folder name must follow ${expected}.`,
+    };
+  }
+
+  for (const [index, segment] of segments.entries()) {
+    const value = values[index];
+    const allowedValues = (segment.allowedValues || []).map((item) => item.trim()).filter(Boolean);
+    if (typeof value !== "string") {
+      return { valid: false, message: `${kind} name must follow ${expected}.` };
+    }
+    if (allowedValues.length && !allowedValues.includes(value)) {
+      return {
+        valid: false,
+        message: `${segment.label || segment.key} must be one of: ${allowedValues.join(", ")}.`,
+      };
+    }
+  }
+
+  return { valid: true };
+};
+
 const basename = (filename: string) =>
   filename.replace(/\\/gu, "/").split("/").pop() || filename;
 
@@ -52,27 +89,28 @@ export const validateFileNomenclature = (
   filename: string,
   segments: NomenclatureSegment[],
 ): FileRuleValidation => {
-  if (!segments.length) {
-    return { valid: false, message: "No nomenclature template is configured for this department." };
-  }
+  return validateNomenclatureStem(fileStem(filename), segments, "File");
+};
 
-  const values = fileStem(filename).split("_");
-  const expected = segments.map((segment) => segment.key).join("_");
-  if (values.length !== segments.length || values.some((value) => !value.trim())) {
-    return { valid: false, message: `File name must follow ${expected} before the extension.` };
-  }
+export const validateFolderNomenclature = (
+  folderName: string,
+  segments: NomenclatureSegment[],
+): FileRuleValidation => validateNomenclatureStem(basename(folderName), segments, "Folder");
 
-  for (const [index, segment] of segments.entries()) {
-    const value = values[index];
-    const allowedValues = (segment.allowedValues || []).map((item) => item.trim()).filter(Boolean);
-    if (typeof value !== "string") {
-      return { valid: false, message: `File name must follow ${expected} before the extension.` };
-    }
-    if (allowedValues.length && !allowedValues.includes(value)) {
-      return {
-        valid: false,
-        message: `${segment.label || segment.key} must be one of: ${allowedValues.join(", ")}.`,
-      };
+export const validateFolderPathNomenclature = (
+  relativePath: string,
+  segments: NomenclatureSegment[],
+): FileRuleValidation => {
+  const folderNames = relativePath
+    .replace(/\\/gu, "/")
+    .split("/")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  for (const folderName of folderNames) {
+    const result = validateFolderNomenclature(folderName, segments);
+    if (!result.valid) {
+      return { valid: false, message: `Folder "${folderName}": ${result.message}` };
     }
   }
 

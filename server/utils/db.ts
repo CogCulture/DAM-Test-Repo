@@ -1544,13 +1544,21 @@ export const upsertNomenclature = async (
   template: string,
   segments: any[],
   allowedExtensions: string[] | null,
-  updatedBy: string
+  updatedBy: string,
+  folderTemplate?: string | null,
+  folderSegments?: any[] | null,
 ) => {
   const existing = await getNomenclature(departmentId);
+  const folderValues = folderTemplate === undefined && folderSegments === undefined
+    ? {}
+    : {
+        folderTemplate: folderTemplate || null,
+        folderSegments: folderSegments?.length ? folderSegments : null,
+      };
   if (existing) {
     return await useDrizzle()
       .update(nomenclatures)
-      .set({ organizationId, template, segments, allowedExtensions, updatedBy, updatedAt: new Date() })
+      .set({ organizationId, template, segments, allowedExtensions, ...folderValues, updatedBy, updatedAt: new Date() })
       .where(eq(nomenclatures.departmentId, departmentId));
   }
   return await useDrizzle().insert(nomenclatures).values({
@@ -1560,6 +1568,8 @@ export const upsertNomenclature = async (
     segments,
     updatedBy,
     allowedExtensions,
+    folderTemplate: folderTemplate || null,
+    folderSegments: folderSegments?.length ? folderSegments : null,
     updatedAt: new Date(),
   });
 };

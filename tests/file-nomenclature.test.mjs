@@ -6,6 +6,8 @@ import {
   normalizeNomenclatureSegments,
   validateFileExtension,
   validateFileNomenclature,
+  validateFolderNomenclature,
+  validateFolderPathNomenclature,
 } from "../shared/utils/file-nomenclature.ts";
 
 const segments = [
@@ -73,4 +75,25 @@ test("rejects wrong shapes and administrator-restricted values", () => {
   assert.match(validateFileNomenclature("Acme.pdf", policy).message, /Brand_MediaType/);
   assert.match(validateFileNomenclature("Other_Video.pdf", policy).message, /Brand/);
   assert.match(validateFileNomenclature("Acme_Image.pdf", policy).message, /Media type/);
+});
+
+test("validates folder names with the same segment model as files", () => {
+  assert.deepEqual(validateFolderNomenclature("Acme_Photo", segments), { valid: true });
+  assert.match(validateFolderNomenclature("Other_Photo", segments).message, /Brand/i);
+  assert.match(validateFolderNomenclature("Acme", segments).message, /Brand_Asset/i);
+});
+
+test("validates every directory component against folder nomenclature", () => {
+  const folderSegments = [
+    { key: "Brand", label: "Brand", allowedValues: ["Acme"] },
+    { key: "Project", label: "Project", allowedValues: [] },
+  ];
+
+  assert.deepEqual(
+    validateFolderPathNomenclature("Acme_Launch/Acme_Images", folderSegments),
+    { valid: true },
+  );
+  const rejected = validateFolderPathNomenclature("Acme_Launch/Misc", folderSegments);
+  assert.equal(rejected.valid, false);
+  assert.match(rejected.message, /Misc/);
 });

@@ -274,6 +274,12 @@ export const nomenclatures = sqliteTable("nomenclatures", {
   // JSON: Array of { key: string, label: string, allowedValues: string[] }
   segments: text("segments", { mode: "json" }),
   allowedExtensions: text("allowed_extensions", { mode: "json" }).$type<string[] | null>(),
+  folderTemplate: text("folder_template"),
+  folderSegments: text("folder_segments", { mode: "json" }).$type<Array<{
+    key: string;
+    label: string;
+    allowedValues?: string[] | null;
+  }> | null>(),
   updatedBy: text("updated_by").notNull(), // userId of the dept_head who last updated
   updatedAt: updatedAt,
 });

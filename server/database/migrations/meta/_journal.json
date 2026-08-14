@@ -204,6 +204,13 @@
       "when": 1786100001000,
       "tag": "0028_complete_folder_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1786680000000,
+      "tag": "0029_add_folder_nomenclature",
+      "breakpoints": true
     }
   ]
 }
