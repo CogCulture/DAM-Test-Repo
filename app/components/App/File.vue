@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useFile } from "~/composables/useFile";
 const { file, loading } = useFile();
 </script>
 <template>
@@ -16,7 +17,7 @@ const { file, loading } = useFile();
         </div>
       </div>
       <div
-        class="min-w-96 w-96 border-l border-neutral-200/70 h-screen bg-neutral-100 flex flex-col"
+        class="min-w-96 w-96 border-l border-neutral-200/70 h-screen bg-white dark:bg-neutral-900 flex flex-col"
       >
         <div class="grow w-full overflow-auto">
           <FileInfo :file="file" />

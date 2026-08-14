@@ -1,4 +1,4 @@
-import { getOrgDepartments, getOrgPermissions } from "~~/server/utils/db";
+import { getOrgDepartments, getOrgPermissions, getGDriveRules } from "~~/server/utils/db";
 import { useDrizzle } from "~~/server/utils/drizzle";
 import { organizations } from "~~/server/database/schema";
 import { eq } from "drizzle-orm";
@@ -44,14 +44,23 @@ export default defineEventHandler(async (event) => {
   const permissions = await getOrgPermissions(orgId);
 
   const org = orgResult[0];
+  const orgType = (org as any).orgType ?? "s3";
+
+  // 4. Get GDrive rules if applicable
+  let gdriveRules = null;
+  if (orgType === "gdrive") {
+    gdriveRules = await getGDriveRules(orgId);
+  }
 
   return {
     id: orgId,
     name: org.name,
     status: org.status ?? "active",
-    orgType: (org as any).orgType ?? "s3",
+    orgType,
     features: (org as any).features ?? DEFAULT_FEATURES,
     departments,
     permissions,
+    gdriveRules,
   };
 });
+

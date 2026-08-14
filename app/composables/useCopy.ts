@@ -1,6 +1,7 @@
 import Copy from "~/components/MakeCopy.vue";
+import { useOverlay } from "./useOverlay";
 
-export const useCopy = () => {
+export function useCopy() {
   const route = useRoute();
   const overlay = useOverlay();
   const modal = overlay.create(Copy);

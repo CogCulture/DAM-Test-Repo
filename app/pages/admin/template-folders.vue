@@ -143,6 +143,8 @@ const createTemplate = async (templateId: string) => {
       description: "Folder structure has been set up in the org drive.",
       color: "success",
     });
+    const refreshTrigger = useState("files-refresh-trigger", () => 0);
+    refreshTrigger.value++;
     await fetchRootFolders();
     if (templateId === "clients" && clientsFolder.value) {
       await fetchClients(clientsFolder.value.id);
@@ -171,6 +173,8 @@ const addClient = async () => {
       description: "Brand Assets, Corporate, KT, Monthly Reports, Projects, SM Calendars created.",
       color: "success",
     });
+    const refreshTrigger = useState("files-refresh-trigger", () => 0);
+    refreshTrigger.value++;
     newClientName.value = "";
     showAddClient.value = false;
     await fetchRootFolders();

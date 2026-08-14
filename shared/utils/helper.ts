@@ -1,3 +1,5 @@
+import { allowedExtensions, fileIcons, fileTypes } from "./constants";
+
 export const cleanPath = (path: string) => {
   // replace leading, trailing and duplicate slashes
   return path.replace(/\/+/g, "/").replace(/^\/|\/$/g, "");

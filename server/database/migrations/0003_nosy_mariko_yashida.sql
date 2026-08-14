@@ -16,7 +16,7 @@ CREATE TABLE `__new_files` (
 	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
-INSERT INTO `__new_files`("id", "name", "content_type", "type", "size", "path", "visibility", "preview", "dimensions", "count", "folder_id", "user_id", "created_at", "updated_at") SELECT "id", "name", "content_type", "type", "size", "path", "visibility", "preview", "dimensions", "count", "folder_id", "user_id", "created_at", "updated_at" FROM `files`;--> statement-breakpoint
+INSERT INTO `__new_files`("id", "name", "content_type", "type", "size", "path", "visibility", "preview", "dimensions", "count", "folder_id", "user_id", "created_at", "updated_at") SELECT "id", "name", "content_type", "type", "size", "path", "visibility", "preview", "dimensions", "count", 'root', "user_id", "created_at", "updated_at" FROM `files`;--> statement-breakpoint
 DROP TABLE `files`;--> statement-breakpoint
 ALTER TABLE `__new_files` RENAME TO `files`;--> statement-breakpoint
 PRAGMA foreign_keys=ON;--> statement-breakpoint

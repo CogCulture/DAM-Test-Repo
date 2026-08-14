@@ -12,6 +12,7 @@ if (!canEditNomenclature.value) {
 
 const { data: requests, refresh } = await useFetch("/api/folder-requests");
 const actioning = ref<string | null>(null);
+const reviewNotes = reactive<Record<string, string>>({});
 
 const pendingRequests = computed(() =>
   (requests.value as any[])?.filter((r) => r.status === "pending") ?? []
@@ -25,7 +26,7 @@ const handleReview = async (id: string, action: "approve" | "reject") => {
   try {
     await $fetch(`/api/folder-requests/${id}`, {
       method: "POST",
-      body: { action },
+      body: { action, reviewNote: reviewNotes[id]?.trim() || undefined },
     });
     toast.add({
       title: action === "approve" ? "Folder created" : "Request rejected",
@@ -91,6 +92,12 @@ const statusColor = (status: string) => {
             Destination: {{ getDestinationPath(req) }}
           </p>
         </div>
+        <UInput
+          v-model="reviewNotes[req.id]"
+          placeholder="Optional review note"
+          class="w-52"
+          :disabled="actioning === req.id"
+        />
         <div class="flex gap-2">
           <UButton
             size="sm"
@@ -139,6 +146,12 @@ const statusColor = (status: string) => {
           </p>
           <p class="text-xs text-neutral-400 mt-1">
             Destination: {{ getDestinationPath(req) }}
+          </p>
+          <p v-if="req.finalFolderName && req.finalFolderName !== req.folderName" class="text-xs text-primary-500 mt-1">
+            Created as: {{ req.finalFolderName }}
+          </p>
+          <p v-if="req.reviewNote" class="text-xs text-neutral-500 mt-1">
+            Review note: {{ req.reviewNote }}
           </p>
         </div>
         <UBadge :color="statusColor(req.status)" variant="soft" size="sm">

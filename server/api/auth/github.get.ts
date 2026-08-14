@@ -13,6 +13,11 @@ export default defineOAuthGitHubEventHandler({
       avatar,
     });
     await setUserSession(event, { user: authUser });
+    const inviteToken = getCookie(event, "invite_token");
+    if (inviteToken) {
+      return sendRedirect(event, `/auth/invite?token=${inviteToken}`);
+    }
+
     // If user needs to complete their profile (no role/dept set yet)
     if (authUser.approvalStatus === "needs_profile") {
       return sendRedirect(event, "/auth/complete-profile");

@@ -10,7 +10,7 @@ export default defineEventHandler(async (event) => {
       {
         headers: { Authorization: `Bearer ${token}` },
         query: {
-          q: "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+          q: "mimeType = 'application/vnd.google-apps.folder' and trashed = false and 'root' in parents",
           fields: "files(id, name, createdTime)",
           orderBy: "name",
           pageSize: 100,

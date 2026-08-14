@@ -1,4 +1,10 @@
 <script setup>
+import { useFolder } from "~/composables/useFolder";
+import { useRole } from "~/composables/useRole";
+import { useToast } from "~/composables/useToast";
+import { resolveFolderCreationMode } from "~~/shared/utils/folder-creation-policy";
+import { resolveDriveRouteFolderId } from "~~/shared/utils/drive-storage";
+
 const route = useRoute();
 const router = useRouter();
 const open = ref(false);
@@ -10,8 +16,40 @@ const form = ref({
 });
 
 const { folder } = useFolder();
-const { canCreateFolder, canCreateFolderDirectly } = useRole();
+const { role, canCreateFolder, canCreateFolderDirectly, orgType } = useRole();
+const { user } = useUserSession();
 const toast = useToast();
+const folderCreationMode = computed(() => resolveFolderCreationMode({
+  role: role.value,
+  canCreateFolder: canCreateFolder.value,
+}));
+
+const props = defineProps({
+  compact: {
+    type: Boolean,
+    default: false,
+  },
+  size: {
+    type: String,
+    default: "md",
+  },
+  parentId: {
+    type: String,
+    default: null,
+  }
+});
+
+const resolvedParentId = computed(() => {
+  if (props.parentId) return props.parentId;
+  if (orgType.value === "gdrive") {
+    return resolveDriveRouteFolderId({
+      idParam: route.params.id,
+      organizationId: user.value?.organizationId,
+    });
+  }
+  const idParam = route.params.id;
+  return Array.isArray(idParam) ? (idParam.join("/") || "root") : (idParam || "root");
+});
 
 const items = computed(() => {
   const result = [];
@@ -26,19 +64,22 @@ const items = computed(() => {
       kbds: ["meta", "n"],
     });
   }
-  result.push({
-    label: "New File",
-    icon: "i-lucide-file-plus",
-    onSelect: () => {
-      form.value.type = "file";
-      open.value = true;
-    },
-  });
+  if (orgType.value !== "gdrive") {
+    result.push({
+      label: "New File",
+      icon: "i-lucide-file-plus",
+      onSelect: () => {
+        form.value.type = "file";
+        open.value = true;
+      },
+    });
+  }
   return [result];
 });
 
 const friendlyPath = computed(() => {
-  if (!folder.value) return route.params.bucket;
+  if (props.parentId === "root") return route.params.bucket || "org";
+  if (!folder.value) return route.params.bucket || "org";
   if (!folder.value.breadcrumb || folder.value.breadcrumb.length === 0) {
     return `${route.params.bucket}/${folder.value.name}`;
   }
@@ -46,7 +87,13 @@ const friendlyPath = computed(() => {
   return `${route.params.bucket}/${breadcrumbNames.join("/")}`;
 });
 
+const formNamePreview = computed(() => {
+  if (form.value.name) return `/${form.value.name}`;
+  return "";
+});
+
 const onSubmit = async () => {
+  if (loading.value) return;
   if (!form.value.name) {
     error.value = "Name is required";
     return;
@@ -61,46 +108,48 @@ const onSubmit = async () => {
   }
   loading.value = true;
   try {
-    const isGDrive = route.params.bucket && route.params.bucket.startsWith("gdrive_");
-    const idParam = route.params.id;
-    const resolvedId = Array.isArray(idParam) ? (idParam.join("/") || "root") : (idParam || "root");
-    if (isGDrive) {
-      const data = await $fetch("/api/gdrive/folder/create", {
-        method: "POST",
-        body: {
-          parentId: resolvedId,
-          folderName: form.value.name,
-        },
-      });
-      if (data.folder?.id) {
-        open.value = false;
-        form.value.name = "";
-        router.push(`/${route.params.bucket}/${data.folder.id}`);
-      }
-    } else if (form.value.type === "folder" && !canCreateFolderDirectly.value && canCreateFolder.value) {
-      const data = await $fetch("/api/folder-requests", {
+    const isGDrive = orgType.value === "gdrive" || (route.params.bucket && route.params.bucket.startsWith("gdrive_"));
+    if (form.value.type === "folder" && folderCreationMode.value === "request") {
+      await $fetch("/api/folder-requests", {
         method: "POST",
         body: {
           folderName: form.value.name,
-          parentId: route.params.id || "root",
+          parentId: resolvedParentId.value,
         },
       });
       toast.add({
         title: "Folder Request Submitted",
-        description: `Your request to create folder "${form.value.name}" is pending approval from your Department Head.`,
+        description: `Your request to create folder "${form.value.name}" is pending approval from your administrator or Department Head.`,
         color: "warning"
       });
       open.value = false;
       form.value.name = "";
+    } else if (isGDrive) {
+      const data = await $fetch("/api/gdrive/folder/create", {
+        method: "POST",
+        body: {
+          parentId: resolvedParentId.value,
+          folderName: form.value.name,
+        },
+      });
+      if (data.folder?.id) {
+        const refreshTrigger = useState("files-refresh-trigger");
+        refreshTrigger.value++;
+        open.value = false;
+        form.value.name = "";
+        router.push(`/${route.params.bucket}/${data.folder.id}`);
+      }
     } else {
       const data = await $fetch(
-        `/api/folder/${route.params.bucket}/${route.params.id || "root"}`,
+        `/api/folder/${route.params.bucket || 'org'}/${resolvedParentId.value}`,
         {
           method: "POST",
           body: form.value,
         }
       );
       if (data.id) {
+        const refreshTrigger = useState("files-refresh-trigger");
+        refreshTrigger.value++;
         open.value = false;
         form.value.name = "";
         if (form.value.type === "folder") {
@@ -128,12 +177,13 @@ const onSubmit = async () => {
     v-model:open="open"
     :title="'Create ' + form.type"
     :description="`Create a new ${form.type}`"
+    :ui="{ overlay: 'z-[70]', content: 'z-[80]' }"
   >
     <template #body>
-      <div class="flex flex-col gap-4">
+      <form class="flex flex-col gap-4" @submit.prevent="onSubmit">
         <UFormField
           :error="error"
-          :help="`${friendlyPath}/${form.name}`"
+          :help="`${friendlyPath}${formNamePreview}`"
         >
           <UInput
             label="Name"
@@ -141,27 +191,29 @@ const onSubmit = async () => {
             :placeholder="`Enter ${form.type} name`"
             size="xl"
             class="w-full"
+            @keydown.enter.prevent="onSubmit"
           />
         </UFormField>
         <div class="flex justify-end gap-4 mt-8">
-          <UButton label="Cancel" color="neutral" @click="open = false" />
+          <UButton type="button" label="Cancel" color="neutral" @click="open = false" />
           <UButton
+            type="submit"
             label="Submit"
             color="primary"
             variant="solid"
             :loading="loading"
-            @click="onSubmit"
           />
         </div>
-      </div>
+      </form>
     </template>
   </UModal>
   <UDropdownMenu
     :items="items"
+    :modal="false"
     :ui="{
-      content: 'w-48',
+      content: 'z-50 w-48',
     }"
   >
-    <UButton icon="lucide:plus" label="New" />
+    <UButton :icon="props.compact ? 'lucide:folder-plus' : 'lucide:plus'" :label="props.compact ? undefined : 'New'" :size="props.size" :variant="props.compact ? 'ghost' : 'outline'" color="neutral" :class="props.compact ? 'rounded-lg' : 'rounded-xl border-[var(--dam-line)] bg-[var(--dam-panel)] font-semibold shadow-[var(--dam-shadow-soft)]'" />
   </UDropdownMenu>
 </template>

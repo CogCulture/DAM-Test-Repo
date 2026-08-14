@@ -22,6 +22,8 @@ logs
 .env
 .env.*
 !.env.example
+!.env.gcp.example
+.env.gcp
 wrangler.toml
 # wrangler files
 .wrangler
@@ -29,3 +31,19 @@ wrangler.toml
 
 # Temporary scratch directory
 scratch/
+brain/
+
+# Codex/local development artifacts
+.codex-*.pid
+.codex-*.png
+.pnpm-store/
+.worktrees/
+
+# Generated Python bytecode and local RAG working files
+__pycache__/
+*.py[cod]
+uploads/
+
+# Local DAM binary storage (keep the directory, never commit uploaded assets)
+local dam storage/*
+!local dam storage/.gitkeep

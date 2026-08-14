@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useBucket } from "~/composables/useBucket";
+import { useRole } from "~/composables/useRole";
+
 const router = useRouter();
 const { bucket, loading } = useBucket();
 const { isAdmin, isApproved } = useRole();

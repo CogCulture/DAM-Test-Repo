@@ -1,21 +1,66 @@
 <script setup lang="ts">
-import VueOfficeDocx from '@vue-office/docx'
-import '@vue-office/docx/lib/index.css'
-import VueOfficeExcel from '@vue-office/excel'
-import '@vue-office/excel/lib/index.css'
-import VueOfficePptx from '@vue-office/pptx'
+import { usePreview } from "~/composables/usePreview";
+import * as Vue from 'vue'
+import * as VueDemi from 'vue-demi'
+import { defineAsyncComponent } from 'vue'
+import { isGoogleDriveAsset } from '~/utils/damModal'
 
-const props = defineProps<{
-  files: IFile[];
-}>();
-const { opened, open, limit, prevPage, nextPage } = usePreview();
-const file = computed(() => props.files[opened.value]);
-watch(opened, () => {
-  limit.value = props.files.length;
-});
+type OfficeGlobal = 'vue-office-docx' | 'vue-office-excel' | 'vue-office-pptx'
+
+const vendorLoads = new Map<string, Promise<unknown>>()
+
+const loadOfficeComponent = (globalName: OfficeGlobal, src: string) => {
+  return defineAsyncComponent(async () => {
+    const browser = window as typeof window & Record<string, any>
+    browser.Vue = Vue
+    browser.VueDemi = VueDemi
+
+    if (!browser[globalName]) {
+      let load = vendorLoads.get(src)
+      if (!load) {
+        load = new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script')
+          script.src = src
+          script.async = true
+          script.onload = () => resolve()
+          script.onerror = () => reject(new Error(`Unable to load ${globalName}`))
+          document.head.appendChild(script)
+        })
+        vendorLoads.set(src, load)
+      }
+      await load
+    }
+
+    const component = browser[globalName]
+    if (!component) throw new Error(`Preview component ${globalName} did not initialize`)
+    return component
+  })
+}
+
+const VueOfficeDocx = loadOfficeComponent('vue-office-docx', '/vendor/vue-office/docx.js')
+const VueOfficeExcel = loadOfficeComponent('vue-office-excel', '/vendor/vue-office/excel.js')
+const VueOfficePptx = loadOfficeComponent('vue-office-pptx', '/vendor/vue-office/pptx.js')
+
+useHead({
+  link: [
+    { rel: 'stylesheet', href: '/vendor/vue-office/docx.css' },
+    { rel: 'stylesheet', href: '/vendor/vue-office/excel.css' },
+  ],
+})
+
+const { files, opened, open, limit, prevPage, nextPage } = usePreview();
+const file = computed(() => files.value[opened.value]);
 
 const getFileUrl = (f: IFile, inline = false) => {
-  return `/api/files/${f.bucketName}/download/${f.id}${inline ? '?inline=true' : ''}`;
+  if (isGoogleDriveAsset(f)) {
+    return `/api/gdrive/download/${encodeURIComponent(f.id)}${inline ? '?inline=true' : ''}`;
+  }
+  return `/api/files/${encodeURIComponent(f.bucketName)}/download/${encodeURIComponent(f.id)}${inline ? '?inline=true' : ''}`;
+}
+
+const isTextFile = (f: IFile) => {
+  const contentType = (f.contentType || '').toLowerCase();
+  return contentType.startsWith('text/') || contentType === 'application/json' || contentType.endsWith('+json');
 }
 
 const isOfficeFile = (contentType: string) => {
@@ -40,8 +85,8 @@ const getOfficeComponent = (contentType: string) => {
 <template>
   <UModal v-if="opened >= 0" v-model:open="open" fullscreen>
     <template #content>
-      <div class="flex flex-row h-screen w-full overflow-hidden">
-        <div class="h-full w-full flex justify-center items-center bg-neutral-100 dark:bg-neutral-900 overflow-hidden relative">
+      <div class="flex h-dvh w-full flex-col overflow-hidden lg:flex-row">
+        <div class="relative min-h-0 grow flex justify-center items-center bg-white dark:bg-neutral-900 overflow-hidden">
           <Transition name="fade" mode="out-in">
             <div
               v-if="file"
@@ -51,15 +96,21 @@ const getOfficeComponent = (contentType: string) => {
                 file?.type === 'folder' ? 'flex justify-center items-center max-w-96 max-h-96 m-auto' : 'block'
               ]"
             >
-              <iframe 
-                v-if="file.contentType === 'application/pdf'" 
-                :src="getFileUrl(file, true)" 
+              <iframe
+                v-if="file.contentType === 'application/pdf'"
+                :src="getFileUrl(file, true)"
                 class="w-full h-full border-none"
               ></iframe>
+              <iframe
+                v-else-if="isTextFile(file)"
+                :src="getFileUrl(file, true)"
+                :title="`Preview of ${file.name}`"
+                class="h-full w-full border-none bg-white dark:bg-neutral-950"
+              ></iframe>
               <ClientOnly v-else-if="isOfficeFile(file.contentType)">
-                <component 
-                  :is="getOfficeComponent(file.contentType)" 
-                  :src="getFileUrl(file, true)" 
+                <component
+                  :is="getOfficeComponent(file.contentType)"
+                  :src="getFileUrl(file, true)"
                   class="w-full h-full"
                   style="height: 100vh;"
                 />
@@ -71,13 +122,25 @@ const getOfficeComponent = (contentType: string) => {
           </Transition>
         </div>
         <div
-          class="min-w-96 w-96 border-l border-neutral-200/70 h-screen bg-white dark:bg-neutral-800 flex flex-col z-10"
+          class="z-10 flex h-[min(42dvh,24rem)] w-full shrink-0 flex-col border-t border-neutral-200/70 bg-white dark:bg-neutral-800 lg:h-dvh lg:w-96 lg:border-l lg:border-t-0"
         >
           <div
             class="h-16 min-h-16 border-b border-neutral-200/70 bg-white dark:bg-neutral-800 dark:border-neutral-700 w-full flex justify-between items-center px-4 gap-4"
           >
             <h4 class="truncate font-semibold text-neutral-800 dark:text-neutral-200" :title="file?.name">{{ file?.name }}</h4>
-            <UButton icon="lucide:x" color="neutral" variant="ghost" @click="open = false" />
+            <div class="flex items-center gap-1">
+              <FileMenu v-if="file && !file.deletedAt" :file="file" dropdown>
+                <UButton
+                  icon="lucide:ellipsis"
+                  label="Actions"
+                  color="neutral"
+                  variant="outline"
+                  size="sm"
+                  class="rounded-xl"
+                />
+              </FileMenu>
+              <UButton icon="lucide:x" color="neutral" variant="ghost" aria-label="Close preview" @click="open = false" />
+            </div>
           </div>
           <div class="grow w-full overflow-auto">
             <FileInfo v-if="file" :file="file" />

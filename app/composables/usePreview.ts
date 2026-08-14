@@ -1,9 +1,10 @@
 import { onKeyStroke } from "@vueuse/core";
 
-export const usePreview = () => {
+export function usePreview() {
+  const files = useState<IFile[]>("preview-files", () => []);
   const opened = useState("opened-preview", () => -1);
-  const open = ref(false);
-  const limit = ref(0);
+  const open = useState("preview-open", () => false);
+  const limit = computed(() => files.value.length);
 
   // onKeyStroke("ArrowRight", (e) => {
   //   e.preventDefault();
@@ -30,6 +31,13 @@ export const usePreview = () => {
     }
   }
 
+  const showPreview = (items: IFile[], index = 0) => {
+    if (!items.length) return;
+    files.value = [...items];
+    opened.value = Math.min(Math.max(index, 0), items.length - 1);
+    open.value = true;
+  };
+
   watch(opened, (value) => {
     if (value >= 0) {
       open.value = true;
@@ -43,9 +51,11 @@ export const usePreview = () => {
   });
 
   return {
+    files,
     open,
     opened,
     limit,
+    showPreview,
     prevPage,
     nextPage,
   };

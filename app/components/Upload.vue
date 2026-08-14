@@ -1,167 +1,347 @@
-<script setup>
+<script setup lang="ts">
+import { useFolder } from "~/composables/useFolder";
+import { uploadFileToLocalStorage } from "~/composables/useLocalUpload";
+import { useRole } from "~/composables/useRole";
+import { useToast } from "~/composables/useToast";
+import { resolveDriveRouteFolderId, resolveUploadStorageTarget } from "~~/shared/utils/drive-storage";
+import { resolveUploadPickerMode } from "~~/shared/utils/upload-picker";
+import { buildDriveUploadUrl, type UploadDestination } from "~~/shared/utils/department-upload";
+import { useUploadDestination, type ActiveUploadFolder } from "~/composables/useUploadDestination";
+import { getUploadDirectoryPaths } from "~~/shared/utils/folder-upload-target";
+
+const props = withDefaults(defineProps<{
+  type?: "files" | "folder";
+}>(), {
+  type: "files",
+});
+
 const route = useRoute();
+const toast = useToast();
 const { folder } = useFolder();
-const { departmentId, canUpload, isAdmin, isDeptHead, canCreateFolder } = useRole();
-const type = ref("files");
-const uploadProgress = ref({});
+const { orgType } = useRole();
+const { user } = useUserSession();
+const type = ref(resolveUploadPickerMode(props.type));
+const storageTarget = useState<"local" | "gdrive">("upload-storage-target", () =>
+  resolveUploadStorageTarget({ orgType: orgType.value }),
+);
+const canUseGDrive = computed(() => orgType.value === "gdrive");
+const selectedDestinationId = ref<string | null>(null);
+const uploadPhase = ref<"uploading" | "syncing" | null>(null);
+const { data: uploadDestinations, refresh: refreshUploadDestinations } = await useFetch<UploadDestination[]>(
+  "/api/gdrive/upload-destinations",
+  { immediate: false },
+);
+const selectedDestination = computed(() => (uploadDestinations.value || []).find(
+  (destination) => destination.id === selectedDestinationId.value,
+) || null);
+const { activeFolder, selectUploadFolder } = useUploadDestination();
+const folderOptions = ref<ActiveUploadFolder[]>([]);
+const selectedFolderId = ref<string | null>(null);
+const selectedFolder = computed(() => folderOptions.value.find(
+  destination => destination.id === selectedFolderId.value,
+) || activeFolder.value);
+const folderItems = computed(() => folderOptions.value.map(destination => ({
+  label: destination.path || destination.name,
+  value: destination.id,
+})));
+
+const mergeFolderOptions = (incoming: ActiveUploadFolder[]) => {
+  const byId = new Map(folderOptions.value.map(destination => [destination.id, destination]));
+  for (const destination of incoming) {
+    byId.set(destination.id, { ...byId.get(destination.id), ...destination });
+  }
+  folderOptions.value = [...byId.values()];
+};
+
+const loadFolderChildren = async (parentId: string) => {
+  if (!canUseGDrive.value) return;
+  const children = await $fetch<ActiveUploadFolder[]>("/api/gdrive/upload-folders", {
+    query: { parentId },
+  });
+  const parent = folderOptions.value.find(destination => destination.id === parentId);
+  mergeFolderOptions(children.map(child => ({
+    ...child,
+    departmentId: child.departmentId || parent?.departmentId || null,
+  })));
+};
+
+const initializeFolderOptions = async () => {
+  if (!canUseGDrive.value) return;
+  folderOptions.value = (user.value as any)?.role === "admin"
+    ? [{ id: "root", name: "Organization root", path: "Organization root", parentId: null, type: "folder" }]
+    : [];
+  await loadFolderChildren("root");
+  if (activeFolder.value && !folderOptions.value.some(destination => destination.id === activeFolder.value?.id)) {
+    mergeFolderOptions([activeFolder.value]);
+  }
+  selectedFolderId.value = activeFolder.value?.id && folderOptions.value.some(
+    destination => destination.id === activeFolder.value?.id,
+  )
+    ? activeFolder.value.id
+    : folderOptions.value[0]?.id || null;
+};
+const uploadProgress = ref<Record<string, number>>({});
 const totalFiles = ref(0);
 const uploadedFiles = ref(0);
 const isUploading = ref(false);
-const nomenclatureError = ref("");
+const fileInput = ref<HTMLInputElement | null>(null);
 const emit = defineEmits(["success"]);
-
-const showNomenclatureModal = ref(false);
-const filesToRename = ref([]);
-
-const onWizardSuccess = () => {
-  showNomenclatureModal.value = false;
-  filesToRename.value = [];
-  emit("success");
-};
-
-// Fetch the department's nomenclature
-const { data: nomenclature } = await useFetch(
-  () => departmentId.value ? `/api/nomenclature/${departmentId.value}` : null
+const filesRefreshTrigger = useState<number>("files-refresh-trigger", () => 0);
+const nomenclatureOpen = ref(false);
+const nomenclatureFiles = ref<File[]>([]);
+const nomenclatureQuery = computed(() => selectedDestinationId.value && selectedDestinationId.value !== "root"
+  ? { departmentId: selectedDestinationId.value }
+  : {});
+const { data: nomenclaturePolicy, refresh: refreshNomenclaturePolicy } = await useFetch<any>(
+  "/api/nomenclature/effective",
+  { query: nomenclatureQuery },
 );
 
-/**
- * Validate a filename against the department's nomenclature.
- * Returns null if valid, or an error string if invalid.
- */
-const validateFilename = (filename) => {
-  // Founders and dept heads bypass nomenclature
-  if (isAdmin.value || isDeptHead.value) return null;
-  if (!nomenclature.value?.segments?.length) return null;
-
-  // Strip extension for validation
-  const nameParts = filename.lastIndexOf(".");
-  const nameWithoutExt = nameParts > 0 ? filename.slice(0, nameParts) : filename;
-  const parts = nameWithoutExt.split("_");
-  const segments = nomenclature.value.segments;
-
-  if (parts.length !== segments.length) {
-    return `Filename must have ${segments.length} parts separated by "_". Expected: ${segments.map((s) => s.key).join("_")}`;
+const handleNomenclatureSuccess = async (result?: any) => {
+  uploadPhase.value = "syncing";
+  filesRefreshTrigger.value++;
+  emit("success");
+  if (result?.destination?.route && selectedFolderId.value !== "root") {
+    await navigateTo(result.destination.route);
   }
-
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    const val = parts[i];
-    if (seg.allowedValues?.length && !seg.allowedValues.includes(val)) {
-      return `"${val}" is not a valid value for "${seg.label}". Allowed: ${seg.allowedValues.join(", ")}`;
-    }
-  }
-  return null;
+  uploadPhase.value = null;
 };
 
-const uploadFiles = async (event) => {
-  const files = event.target.files;
-  if (!files.length) return;
-
-  // Validate all filenames first
-  nomenclatureError.value = "";
-  let hasNomenclatureError = false;
-  for (const file of files) {
-    const err = validateFilename(file.name);
-    if (err) {
-      hasNomenclatureError = true;
-      break;
-    }
+watch([orgType, () => (user.value as any)?.role], ([value]) => {
+  storageTarget.value = resolveUploadStorageTarget({ orgType: value });
+  if (value === "gdrive") {
+    refreshUploadDestinations();
+    initializeFolderOptions().catch((error) => {
+      toast.add({
+        title: "Folder destinations unavailable",
+        description: error?.data?.message || error?.message || "Unable to load Google Drive folders.",
+        color: "error",
+      });
+    });
   }
+}, { immediate: true });
 
-  if (hasNomenclatureError) {
-    filesToRename.value = [...files];
-    showNomenclatureModal.value = true;
-    event.target.value = ""; // reset input
+watch(uploadDestinations, (destinations) => {
+  const current = destinations?.find((destination) => destination.id === selectedDestinationId.value && destination.available);
+  if (!current) {
+    selectedDestinationId.value = destinations?.find((destination) => destination.available)?.id || null;
+  }
+}, { immediate: true });
+
+watch(activeFolder, (destination) => {
+  if (!destination) return;
+  mergeFolderOptions([destination]);
+  selectedFolderId.value = destination.id;
+}, { deep: true });
+
+watch(selectedFolderId, async (folderId) => {
+  if (!folderId) return;
+  const destination = folderOptions.value.find(folder => folder.id === folderId);
+  if (!destination) return;
+  selectUploadFolder(destination);
+  if (destination.departmentId) selectedDestinationId.value = destination.departmentId;
+  else if (destination.id === "root") selectedDestinationId.value = "root";
+  try {
+    await loadFolderChildren(destination.id);
+  } catch (error: any) {
+    toast.add({
+      title: "Folder could not be expanded",
+      description: error?.data?.message || error?.message || "Unable to load child folders.",
+      color: "error",
+    });
+  }
+});
+
+const processFiles = async (filesList: File[]) => {
+  if (!filesList || !filesList.length) {
+    toast.add({ title: "No files found", description: "Empty folders cannot be uploaded.", color: "red" });
     return;
   }
 
-  totalFiles.value = files.length;
+  if (canUseGDrive.value && storageTarget.value === "gdrive" && !selectedFolderId.value) {
+    toast.add({
+      title: "Choose an upload folder",
+      description: "Select an authorized workspace folder before uploading files.",
+      color: "error",
+    });
+    return;
+  }
+
+  const folderPaths = getUploadDirectoryPaths(filesList.map(
+    file => (file as any).customPath || file.webkitRelativePath || file.name,
+  ));
+  if (folderPaths.length) {
+    try {
+      await $fetch("/api/nomenclature/folder-upload-preflight", {
+        method: "POST",
+        body: {
+          paths: folderPaths,
+          departmentId: selectedDestinationId.value,
+          destinationFolderId: selectedFolderId.value,
+        },
+      });
+    } catch (error: any) {
+      toast.add({
+        title: "Folder naming rule not met",
+        description: error?.data?.message || error?.message || "One or more folders do not follow the configured nomenclature.",
+        color: "error",
+      });
+      if (fileInput.value) fileInput.value.value = "";
+      return;
+    }
+  }
+
+  await refreshNomenclaturePolicy();
+  if (nomenclaturePolicy.value?.enforced) {
+    nomenclatureFiles.value = filesList;
+    nomenclatureOpen.value = true;
+    if (fileInput.value) fileInput.value.value = "";
+    return;
+  }
+
+  totalFiles.value = filesList.length;
   uploadedFiles.value = 0;
   isUploading.value = true;
+  uploadPhase.value = "uploading";
+  const destination = canUseGDrive.value && storageTarget.value === "gdrive" ? "Google Drive" : "local DAM storage";
+  toast.add({ title: "Uploading...", description: `Uploading ${filesList.length} file(s) to ${destination}...`, color: "blue" });
 
-  await Promise.all([...files].map(uploadFile));
-
-  setTimeout(() => {
-    isUploading.value = false;
-    uploadProgress.value = {};
+  try {
+    const containsFolderPaths = filesList.some((file) => Boolean((file as any).customPath || file.webkitRelativePath));
+    const results = containsFolderPaths
+      ? await filesList.reduce(async (pending, file) => [...await pending, await uploadFile(file)], Promise.resolve([] as any[]))
+      : await Promise.all([...filesList].map(uploadFile));
+    const localResult = results.find((result) => result?.storage?.type === "local");
+    const verifiedLocation = localResult?.storage?.relativePath
+      ? ` Verified on disk at local dam storage/${localResult.storage.relativePath}.`
+      : "";
+    const outcomes = results.flatMap((result) => result?.files || (result?.storage ? [result.storage] : []));
+    const renamed = outcomes.filter((outcome) => outcome?.renamed);
+    const duplicates = outcomes.filter((outcome) => outcome?.duplicate);
+    const organizationNotes = [
+      renamed.length ? `${renamed.length} name collision(s) were numbered automatically.` : "",
+      duplicates.length ? `${duplicates.length} byte-identical file(s) reuse existing content.` : "",
+    ].filter(Boolean).join(" ");
+    toast.add({
+      title: "Upload Complete",
+      description: `Successfully uploaded ${filesList.length} file(s). ${organizationNotes}${verifiedLocation}`.trim(),
+      color: "green",
+    });
+    uploadPhase.value = "syncing";
+    filesRefreshTrigger.value++;
     emit("success");
-  }, 1000);
+    const responseDestination = results.find((result) => result?.destination)?.destination;
+    if (responseDestination?.route && selectedFolderId.value !== "root") {
+      await navigateTo(responseDestination.route);
+    }
+  } catch (err: any) {
+    console.error("Upload error:", err);
+    toast.add({ title: "Upload Failed", description: err?.message || "File upload failed.", color: "red" });
+  } finally {
+    isUploading.value = false;
+    uploadPhase.value = null;
+    uploadProgress.value = {};
+    if (fileInput.value) {
+      fileInput.value.value = "";
+    }
+  }
 };
 
-const uploadFile = async (file) => {
-  const relativePath = file.webkitRelativePath || file.name;
-  const isGDrive = route.params.bucket && route.params.bucket.startsWith("gdrive_");
+const uploadFiles = async (event: any) => {
+  const files = event?.target?.files;
+  if (files && files.length) {
+    await processFiles([...files]);
+  }
+};
+
+const uploadFile = async (file: File) => {
+  const relativePath = (file as any).customPath || file.webkitRelativePath || file.name;
+  const isGDrive = canUseGDrive.value && storageTarget.value === "gdrive";
 
   if (isGDrive) {
-    const idParam = route.params.id;
-    const resolvedId = Array.isArray(idParam) ? (idParam.join("/") || "root") : (idParam || "root");
+    const resolvedId = resolveDriveRouteFolderId({
+      idParam: route.params.id as string | string[] | undefined,
+      organizationId: (user.value as any)?.organizationId,
+    });
     uploadProgress.value[relativePath] = 0;
     const formData = new FormData();
     formData.append("files", file);
 
     try {
-      await $fetch(`/api/gdrive/upload`, {
+      uploadProgress.value[relativePath] = 10;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 180000);
+
+      const res = await fetch(buildDriveUploadUrl({
+        parentId: resolvedId,
+        folderId: selectedFolderId.value,
+        relativePath,
+        departmentId: selectedDestinationId.value,
+      }), {
         method: "POST",
-        query: { parentId: resolvedId },
         body: formData,
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "Unknown error");
+        let parsedMessage = errText;
+        try {
+          const json = JSON.parse(errText);
+          if (json.message) parsedMessage = json.message;
+        } catch {}
+        throw new Error(parsedMessage);
+      }
+      const uploadResult = await res.json().catch(() => ({ success: true, files: [] }));
       uploadProgress.value[relativePath] = 100;
       uploadedFiles.value++;
-    } catch (err) {
+      return { ...uploadResult, storage: { type: "gdrive" } };
+    } catch (err: any) {
       console.error("Google Drive upload failed:", err);
+      uploadProgress.value[relativePath] = 100;
+      throw err;
     }
-    return;
   }
 
   const fileType = file.type.split("/")[0];
-  let dimensions = null;
+  let dimensions: string | null = null;
   if (fileType === "image") {
     const image = new Image();
     image.src = URL.createObjectURL(file);
-    await new Promise((resolve) => {
+    await new Promise<void>((resolve) => {
       image.onload = () => {
         dimensions = image.width + "x" + image.height;
         resolve();
       };
+      image.onerror = () => resolve();
     });
   }
   uploadProgress.value[relativePath] = 0;
 
-  const currentFolderPath = folder.value?.path
-    ? "/" + folder.value.path
-    : route.params.bucket;
-
-  let uploadPath = currentFolderPath;
-  if (file.webkitRelativePath) {
-    const pathParts = file.webkitRelativePath.split("/");
+  const pathForFolder = (file as any).customPath || file.webkitRelativePath;
+  let targetRelativePath = file.name;
+  if (pathForFolder) {
+    const pathParts = pathForFolder.split("/");
     pathParts.pop();
     if (pathParts.length > 0) {
-      uploadPath = `${currentFolderPath}/${pathParts.join("/")}`;
+      targetRelativePath = `${pathParts.join("/")}/${file.name}`;
     }
   }
-  const partSize = chunkSize(file.size);
-  const upload = useMultipartUpload(
-    `/upload/${route.params.bucket}/${route.params.id || "root"}`,
-    {
-      partSize: partSize,
-      concurrent: 10,
-      prefix: uploadPath,
-      fetchOptions: {
-        headers: {
-          "x-amz-meta-dimensions": dimensions,
-          "x-amz-meta-content-type": file.type,
-        },
-      },
-    }
-  );
-  const { progress, completed, abort } = upload(file);
-  watch(progress, (value) => {
-    uploadProgress.value[relativePath] = value;
-  });
 
-  await completed;
+  const result = await uploadFileToLocalStorage({
+    file,
+    bucket: String(route.params.bucket || "org"),
+    parentId: folder.value?.id || "root",
+    relativePath: targetRelativePath,
+    dimensions,
+    onProgress: (value) => {
+      uploadProgress.value[relativePath] = value;
+    },
+  });
   uploadedFiles.value++;
   uploadProgress.value[relativePath] = 100;
+  return result;
 };
 
 const overallProgress = computed(() => {
@@ -173,98 +353,68 @@ const overallProgress = computed(() => {
   return Math.round(sum / Object.keys(uploadProgress.value).length);
 });
 
-// Nomenclature template display
-const templateDisplay = computed(() =>
-  nomenclature.value?.segments?.map((s) => s.key).join("_") ?? ""
-);
+defineExpose({ processFiles });
 </script>
 
 <template>
-  <div>
-    <div class="space-y-2">
-      <!-- Nomenclature hint for team members/leads/interns -->
-      <div
-        v-if="templateDisplay && !isAdmin && !isDeptHead"
-        class="text-xs text-neutral-500 dark:text-neutral-400 bg-neutral-50 dark:bg-neutral-800 rounded-lg px-3 py-2"
-      >
-        <span class="font-medium text-neutral-600 dark:text-neutral-300">Naming:</span>
-        <code class="ml-1 font-mono">{{ templateDisplay }}</code>
+  <div class="flex w-full min-w-0 flex-wrap items-center gap-2">
+    <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+      <div class="destination-switch flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] px-3 py-2" aria-label="Upload destination">
+        <Icon :name="canUseGDrive ? 'logos:google-drive' : 'lucide:hard-drive'" class="size-4 shrink-0" />
+        <USelect
+          v-if="canUseGDrive"
+          v-model="selectedFolderId"
+          :items="folderItems"
+          value-key="value"
+          label-key="label"
+          class="min-w-0 flex-1"
+          aria-label="Select upload folder"
+        />
+        <span v-else class="truncate text-xs font-semibold text-[var(--dam-ink)]">Local development storage</span>
       </div>
-
-      <!-- Error -->
-      <div
-        v-if="nomenclatureError"
-        class="text-xs text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2"
-      >
-        <UIcon name="lucide:alert-circle" class="inline mr-1" />
-        {{ nomenclatureError }}
-      </div>
-
-      <UButtonGroup>
+      <UButtonGroup class="h-10 min-w-0 flex-1 rounded-xl shadow-[0_12px_30px_rgba(37,99,235,.22)]">
         <UButton
-          v-if="canCreateFolder"
+          size="md"
           color="primary"
           variant="solid"
           :icon="type === 'files' ? 'lucide:file-up' : 'lucide:folder-up'"
           @click="type = type === 'folder' ? 'files' : 'folder'"
-          class="opacity-80"
+          class="rounded-l-xl border-r border-white/15 opacity-90"
         />
         <UButton
           color="primary"
           variant="solid"
-          :label="canCreateFolder && type === 'folder' ? 'Upload Folder' : 'Upload Files'"
-          @click="$refs.fileInput.click()"
+          :label="type === 'folder' ? 'Upload Folder' : 'Upload Files'"
+          class="min-w-0 flex-1 justify-center rounded-r-xl font-semibold"
+          @click="fileInput?.click()"
         />
         <input
           ref="fileInput"
           type="file"
-          :accept="(!canCreateFolder || type === 'files') && '*'"
-          :webkitdirectory="canCreateFolder && type === 'folder'"
-          :multiple="!canCreateFolder || type === 'files'"
+          :webkitdirectory="type === 'folder'"
+          :multiple="type === 'files'"
           @change="uploadFiles"
           class="hidden"
         />
       </UButtonGroup>
     </div>
-
-    <UModal v-model:open="isUploading" :dismissible="false">
-      <template #title>Uploading Files</template>
-      <template #description
-        >{{ uploadedFiles }} / {{ totalFiles }} complete</template
-      >
-      <template #body>
-        <div class="space-y-4">
-          <div>
-            <p class="mb-1 font-medium">Overall Progress</p>
-            <UProgress :value="overallProgress" color="primary" />
-          </div>
-
-          <div
-            v-if="Object.keys(uploadProgress).length >= 1"
-            class="max-h-60 overflow-y-auto space-y-2"
-          >
-            <div
-              v-for="(progress, fileName) in uploadProgress"
-              :key="fileName"
-              class="text-sm"
-            >
-              <div class="flex justify-between mb-1">
-                <p class="truncate">{{ fileName }}</p>
-                <span>{{ progress.toFixed(1) }}%</span>
-              </div>
-              <UProgress :modelValue="progress" :max="100" color="primary" />
-            </div>
-          </div>
-        </div>
-      </template>
-    </UModal>
-
-    <NomenclatureUploadModal
-      v-slot="modal"
-      v-model:open="showNomenclatureModal"
-      :files="filesToRename"
-      :folder="folder"
-      @success="onWizardSuccess"
-    />
+    <div v-if="isUploading" class="min-w-32">
+      <div class="mb-1 flex justify-between text-[10px] font-medium uppercase tracking-wider text-[var(--dam-muted)]">
+        <span>{{ uploadPhase === "syncing" ? "Syncing with Google Drive" : `Uploading to ${selectedFolder?.path || selectedFolder?.name || "Google Drive"}` }}</span>
+        <span>{{ overallProgress }}%</span>
+      </div>
+      <div class="h-1 overflow-hidden rounded-full bg-[var(--dam-line)]">
+        <div class="h-full rounded-full bg-primary-500 transition-all" :style="{ width: `${overallProgress}%` }" />
+      </div>
+    </div>
   </div>
+  <NomenclatureUploadModal
+    v-model:open="nomenclatureOpen"
+    :files="nomenclatureFiles"
+    :folder="folder"
+    :destination-id="selectedDestinationId"
+    :destination-name="selectedFolder?.path || selectedFolder?.name || selectedDestination?.name || 'Google Drive'"
+    :folder-id="selectedFolderId"
+    @success="handleNomenclatureSuccess"
+  />
 </template>

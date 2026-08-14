@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { damModalUi } from "~/utils/damModal";
 const props = defineProps<{
   file: IFile;
   publishing: boolean;
@@ -15,6 +16,7 @@ const onConfirm = () => {
     v-if="file"
     :title="`Publish '${file.name}'`"
     :description="`Published item will be available to everyone via a public link.`"
+    :ui="damModalUi"
   >
     <template #body>
       <div class="flex flex-col gap-4">

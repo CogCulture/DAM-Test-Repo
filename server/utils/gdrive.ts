@@ -9,6 +9,70 @@ export interface GDriveItem {
   size?: string;
   createdTime?: string;
   modifiedTime?: string;
+  md5Checksum?: string;
+  parents?: string[];
+  trashed?: boolean;
+  shortcutDetails?: { targetId: string; targetMimeType?: string };
+}
+
+export async function getGDriveItem(
+  accessToken: string,
+  itemId: string,
+): Promise<GDriveItem> {
+  try {
+    return await $fetch<GDriveItem>(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(itemId)}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        query: {
+          fields: "id,name,mimeType,parents,trashed",
+        },
+        timeout: 15000,
+      },
+    );
+  } catch (err: any) {
+    console.error("Google Drive API item lookup failed:", err?.data || err);
+    throw createError({ status: 404, message: "Google Drive folder was not found." });
+  }
+}
+
+export async function getAuthorizedGDriveFolder(
+  accessToken: string,
+  folderId: string,
+  allowedRootIds: Set<string>,
+): Promise<GDriveItem & { path: string; authorizedRootId: string }> {
+  if (!folderId || allowedRootIds.size === 0) {
+    throw createError({ status: 403, message: "Upload folder is not authorized." });
+  }
+
+  const queue: Array<{ id: string; trail: GDriveItem[] }> = [{ id: folderId, trail: [] }];
+  const visited = new Set<string>();
+
+  while (queue.length > 0 && visited.size < 200) {
+    const current = queue.shift()!;
+    if (visited.has(current.id)) continue;
+    visited.add(current.id);
+
+    const item = await getGDriveItem(accessToken, current.id);
+    if (item.trashed || (current.id === folderId && item.mimeType !== "application/vnd.google-apps.folder")) {
+      throw createError({ status: 409, message: "The selected upload destination is not an active folder." });
+    }
+
+    const trail = [...current.trail, item];
+    if (allowedRootIds.has(item.id)) {
+      return {
+        ...trail[0]!,
+        path: [...trail].reverse().map(part => part.name).join(" / "),
+        authorizedRootId: item.id,
+      };
+    }
+
+    for (const parentId of item.parents || []) {
+      if (!visited.has(parentId)) queue.push({ id: parentId, trail });
+    }
+  }
+
+  throw createError({ status: 403, message: "Upload folder is not authorized." });
 }
 
 /**
@@ -92,10 +156,11 @@ export async function listGDriveFolder(
         },
         query: {
           q,
-          fields: "files(id, name, mimeType, size, createdTime, modifiedTime)",
+          fields: "files(id, name, mimeType, size, createdTime, modifiedTime, md5Checksum, shortcutDetails(targetId,targetMimeType))",
           orderBy: "folder,name",
           pageSize: 100,
         },
+        timeout: 15000,
       }
     );
     return response.files || [];
@@ -199,4 +264,35 @@ export async function getGDriveConnection(userId: string) {
     .from(gdriveFolders)
     .where(eq(gdriveFolders.userId, userId));
   return results && results.length > 0 ? results[0] : null;
+}
+
+/**
+ * Ensures a specific path of folders exists in Google Drive, creating them if necessary.
+ * Returns the folder ID of the final folder in the path.
+ */
+export async function ensureGDrivePath(
+  accessToken: string,
+  rootFolderId: string,
+  path: string
+): Promise<string> {
+  const segments = path.split("/").filter(Boolean);
+  let currentParentId = rootFolderId;
+
+  for (const segment of segments) {
+    const items = await listGDriveFolder(accessToken, currentParentId);
+    const existing = items.find(
+      (item) =>
+        item.name.toLowerCase() === segment.toLowerCase() &&
+        item.mimeType === "application/vnd.google-apps.folder"
+    );
+
+    if (existing) {
+      currentParentId = existing.id;
+    } else {
+      const created = await createGDriveFolder(accessToken, currentParentId, segment);
+      currentParentId = created.id;
+    }
+  }
+
+  return currentParentId;
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { damModalUi } from "~/utils/damModal";
 defineProps<{
   files: IFile[];
 }>();
@@ -23,7 +24,8 @@ const onUpdate = () => {
   <UModal
     v-if="files.length > 0"
     :title="`Share ${files.length} items`"
-    description="Share files and folders with others or make public them to the web."
+    description="Share files and folders with others or make them public on the web."
+    :ui="damModalUi"
   >
     <template #body>
       <div class="flex flex-col gap-4">

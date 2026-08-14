@@ -1,6 +1,7 @@
 import Share from "~/components/Share.vue";
+import { useOverlay } from "./useOverlay";
 
-export const useShare = () => {
+export function useShare() {
   const route = useRoute();
   const overlay = useOverlay();
   const modal = overlay.create(Share);

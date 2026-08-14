@@ -1,18 +1,11 @@
 import { createFolderRequest, getBucket } from "~~/server/utils/db";
-import { requireMinRole, getApprovedUser } from "~~/server/utils/permission";
+import { requireFileDepartmentAccess, requireFilePermission } from "~~/server/utils/permission";
 import { ORG_BUCKET_NAME } from "~~/shared/constants/roles";
+import { requireValidFolderName } from "~~/server/utils/folderNomenclature";
 
 export default defineEventHandler(async (event) => {
-  const user = await getApprovedUser(event);
+  const user = await requireFilePermission(event, "canCreateFolder");
 
-  // @ts-ignore
-  const canCreate = user.permissions?.canCreateFolder || user.role === "admin";
-  if (!canCreate) {
-    throw createError({
-      status: 403,
-      message: "Insufficient permissions.",
-    });
-  }
 
   const { folderName, parentId } = await readBody<{
     folderName: string;
@@ -28,6 +21,14 @@ export default defineEventHandler(async (event) => {
     throw createError({ status: 404, message: "Organization bucket not found." });
   }
 
+  const resolvedParentId = parentId ?? "root";
+  await requireFileDepartmentAccess(user, resolvedParentId);
+  await requireValidFolderName({
+    user,
+    folderName: folderName.trim(),
+    departmentId: user.departmentId,
+  });
+
   // @ts-ignore
   const result = await createFolderRequest({
     // @ts-ignore
@@ -35,7 +36,7 @@ export default defineEventHandler(async (event) => {
     // @ts-ignore
     departmentId: user.departmentId ?? "",
     folderName: folderName.trim(),
-    parentId: parentId ?? "root",
+    parentId: resolvedParentId,
     bucketName: ORG_BUCKET_NAME,
   });
 

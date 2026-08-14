@@ -1,8 +1,19 @@
 <script setup lang="ts">
+import { useSelected } from "~/composables/useSelected";
+import { useFileActions } from "~/composables/useFileActions";
+import { useShare } from "~/composables/useShare";
+import { useMove } from "~/composables/useMove";
+
 const route = useRoute();
-const { files, refresh } = useFiles();
+// Reuse the list owned by <AppFiles>. Calling useFiles() here starts a second
+// request and both composable instances append into the same shared state.
+const files = useState<IFile[]>("files", () => []);
+const refreshTrigger = useState("files-refresh-trigger", () => 0);
+const refresh = () => {
+  refreshTrigger.value++;
+};
 const { selected, resetSelected } = useSelected();
-const { deleteFiles, deleting, downloadFile } = useFileActions();
+const { deleteFiles, deleting, downloadAsset, downloading } = useFileActions();
 const { openShare } = useShare();
 const { openMove } = useMove();
 const selectedFiles = computed(() =>
@@ -18,10 +29,10 @@ watch(deleting, (value) => {
 <template>
   <footer
     v-if="route?.params?.bucket"
-    class="px-4 sm:px-18 bg-white dark:bg-neutral-950 fixed bottom-0 left-0 right-0 z-10 border-t border-neutral-200 dark:border-neutral-700/50"
+    class="pointer-events-none fixed inset-x-0 bottom-4 z-20 px-4 sm:pl-[18.5rem] sm:pr-6"
   >
     <div
-      class="flex flex-wrap items-center border-b border-neutral-200 dark:border-neutral-700/50 gap-1 p-1"
+      class="dam-glass pointer-events-auto mx-auto flex max-w-4xl flex-wrap items-center gap-1 rounded-2xl p-2 shadow-[var(--dam-shadow)]"
       v-if="selected.length"
     >
       <div class="w-full sm:w-auto flex items-center gap-4">
@@ -49,14 +60,14 @@ watch(deleting, (value) => {
         v-if="selected.length === 1"
         icon="lucide:download"
         label="Download"
-        :to="downloadFile(route.params.bucket as string, selected[0] as string)"
-        target="_blank"
+        :loading="downloading"
+        @click="downloadAsset(selectedFiles[0])"
       />
       <UButton
         :loading="deleting"
         icon="lucide:trash"
         :label="route.path.endsWith('/trash') ? 'Delete Permanently' : 'Delete'"
-        @click="deleteFiles(selected)"
+        @click="deleteFiles(selectedFiles)"
       />
       <UButton
         trailingIcon="lucide:x"

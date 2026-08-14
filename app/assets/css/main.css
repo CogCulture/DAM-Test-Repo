@@ -2,10 +2,237 @@
 @import "@nuxt/ui";
 
 @theme {
-  --font-sans: "Public Sans", sans-serif;
+  --font-sans: "Inter", "Aptos", "Segoe UI", sans-serif;
+  --color-primary-50: #edf5ff;
+  --color-primary-100: #d7e9ff;
+  --color-primary-200: #b8d8ff;
+  --color-primary-300: #88bdff;
+  --color-primary-400: #5599ff;
+  --color-primary-500: #3578f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1f4fc4;
+  --color-primary-800: #203f9b;
+  --color-primary-900: #203879;
+  --color-primary-950: #14234a;
 }
 
 :root {
-  /* --ui-primary: black; */
-  --ui-radius: var(--radius-none);
+  --ui-primary: var(--color-primary-500);
+  --ui-radius: 0.75rem;
+  --dam-bg: #ffffff;
+  --dam-bg-soft: #ffffff;
+  --dam-panel: #ffffff;
+  --dam-panel-solid: #ffffff;
+  --dam-panel-raised: #f7f9fc;
+  --dam-line: #dbe2ec;
+  --dam-line-strong: #c8d2e1;
+  --dam-muted: #667085;
+  --dam-ink: #101828;
+  --dam-accent: #3578f6;
+  --dam-accent-soft: rgba(53, 120, 246, 0.12);
+  --dam-coral: #ff7259;
+  --dam-success: #34c38f;
+  --dam-shadow: 0 12px 32px rgba(31, 48, 78, 0.11);
+  --dam-shadow-soft: 0 4px 16px rgba(31, 48, 78, 0.07);
+}
+
+.dark {
+  --dam-bg: #08111d;
+  --dam-bg-soft: #0b1624;
+  --dam-panel: rgba(13, 24, 38, 0.84);
+  --dam-panel-solid: #0e1928;
+  --dam-panel-raised: #142237;
+  --dam-line: #23344c;
+  --dam-line-strong: #314765;
+  --dam-muted: #8fa0b8;
+  --dam-ink: #f1f6ff;
+  --dam-accent: #4d8cff;
+  --dam-accent-soft: rgba(77, 140, 255, 0.14);
+  --dam-coral: #ff795e;
+  --dam-success: #4bd6a2;
+  --dam-shadow: 0 14px 38px rgba(0, 0, 0, 0.3);
+  --dam-shadow-soft: 0 4px 18px rgba(0, 0, 0, 0.2);
+}
+
+.light {
+  --dam-bg: #ffffff;
+  --dam-bg-soft: #ffffff;
+  --dam-panel: #ffffff;
+  --dam-panel-solid: #ffffff;
+  --dam-panel-raised: #f8fafc;
+  --dam-line: #e2e8f0;
+  --dam-line-strong: #cbd5e1;
+  --dam-muted: #64748b;
+  --dam-ink: #0f172a;
+  --dam-accent: #3578f6;
+  --dam-accent-soft: rgba(53, 120, 246, 0.1);
+  --dam-shadow: 0 10px 26px rgba(15, 23, 42, 0.09);
+  --dam-shadow-soft: 0 3px 12px rgba(15, 23, 42, 0.06);
+}
+
+html {
+  background: var(--dam-bg);
+  color-scheme: light;
+}
+
+html.light,
+html.light body,
+html.light #__nuxt {
+  background: #ffffff;
+}
+
+html.dark { color-scheme: dark; }
+
+body {
+  min-width: 320px;
+  background: var(--dam-bg);
+  color: var(--dam-ink);
+  font-feature-settings: "ss01" 1, "cv02" 1, "cv03" 1;
+  letter-spacing: -0.005em;
+}
+
+.dark body {
+  background:
+    radial-gradient(circle at 82% -10%, rgba(53, 120, 246, 0.12), transparent 30rem),
+    radial-gradient(circle at 14% 105%, rgba(255, 114, 89, 0.07), transparent 28rem),
+    var(--dam-bg);
+}
+
+body::before {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  content: "";
+  opacity: 0.26;
+  background-image:
+    linear-gradient(rgba(53, 120, 246, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(53, 120, 246, 0.035) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(to bottom, black, transparent 60%);
+}
+
+.light body::before {
+  display: none;
+}
+
+html.light .dam-authenticated-shell,
+html.light .dam-authenticated-viewport,
+html.light .dam-workspace-header,
+html.light .dam-workspace-sidebar,
+html.light .dam-glass {
+  background: #ffffff;
+}
+
+html.light .dam-workspace-header,
+html.light .dam-workspace-sidebar,
+html.light .dam-glass {
+  backdrop-filter: none;
+}
+
+html.light .dam-dropzone {
+  background: #ffffff;
+}
+
+#__nuxt { position: relative; z-index: 1; }
+
+/* Reka portals are siblings of #__nuxt. Lift their positioning wrapper above
+   the application stacking context so popovers, menus, and tooltips stay visible. */
+[data-reka-popper-content-wrapper] {
+  z-index: 1000 !important;
+}
+
+::selection { background: rgba(53, 120, 246, 0.3); }
+* { scrollbar-color: var(--dam-line-strong) transparent; scrollbar-width: thin; }
+button, a, input, select { outline-offset: 3px; }
+button, a { -webkit-tap-highlight-color: transparent; }
+
+.dam-kicker {
+  color: var(--dam-muted);
+  font-size: 0.66rem;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.dam-hairline { border-color: var(--dam-line); }
+
+.dam-glass {
+  border: 1px solid var(--dam-line);
+  background: var(--dam-panel-solid);
+  box-shadow: var(--dam-shadow-soft);
+  backdrop-filter: none;
+}
+
+.dam-control {
+  border: 1px solid var(--dam-line);
+  background: var(--dam-panel-solid);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.05), var(--dam-shadow-soft);
+}
+
+.dam-dropzone {
+  background:
+    radial-gradient(circle at 18% 20%, rgba(77, 140, 255, 0.11), transparent 18rem),
+    linear-gradient(135deg, rgba(77, 140, 255, 0.045), transparent 46%),
+    var(--dam-panel);
+}
+
+.dam-dropzone::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  opacity: 0.18;
+  background-image:
+    radial-gradient(circle at 20% 35%, transparent 0 24px, var(--dam-line) 25px 26px, transparent 27px),
+    radial-gradient(circle at 78% 60%, transparent 0 38px, var(--dam-line) 39px 40px, transparent 41px);
+  background-size: 190px 130px, 240px 170px;
+  mask-image: linear-gradient(90deg, black, transparent 48%, black);
+}
+
+.dam-asset-card::before {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  content: "";
+  border-radius: inherit;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.07);
+}
+
+.dam-asset-card {
+  content-visibility: auto;
+  contain: layout paint style;
+  contain-intrinsic-size: 280px 340px;
+}
+
+.dam-asset-card:hover .dam-asset-media { transform: scale(1.01); }
+
+/* Let scrolled workspace actions remain clickable through empty header space. */
+.dam-workspace-header { pointer-events: none; }
+.dam-workspace-header :is(a, button, input, select, textarea, [role="button"], [role="link"]) {
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dam-enter { animation: dam-enter 160ms cubic-bezier(.2, .72, .2, 1) backwards; }
+  .dam-float { animation: none; }
+  @keyframes dam-enter {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes dam-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; }
+}
+
+@media (min-width: 640px) {
+  .dam-main-with-sidebar {
+    margin-left: calc(var(--dam-sidebar-width, 272px) + 0.5rem);
+  }
 }

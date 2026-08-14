@@ -1,9 +1,11 @@
 import { getUser, getOrgDepartments, getOrgPermissions } from "~~/server/utils/db";
+import { useDrizzle } from "~~/server/utils/drizzle";
 import { getVerifiedUser } from "~~/server/utils/permission";
-import { users, organizations, organizationRequests } from "~~/server/database/schema";
+import { users, organizations, organizationRequests, gdriveFolders, byosStorageConfigs } from "~~/server/database/schema";
 import { eq } from "drizzle-orm";
 import { getGDriveConnection } from "~~/server/utils/gdrive";
 import { ulid } from "ulidx";
+import { verifyByosCredentials, type ByosConfig } from "~~/server/utils/byosStorage";
 
 export default defineEventHandler(async (event) => {
   const user = await getVerifiedUser(event);
@@ -13,10 +15,13 @@ export default defineEventHandler(async (event) => {
     selectedOrgId?: string;
     role?: string;
     departmentId?: string;
-    orgType?: "s3" | "gdrive";
+    orgType?: "s3" | "gdrive" | "byos";
+    folderId?: string;
+    folderName?: string;
+    byosConfig?: ByosConfig;
   }>(event);
 
-  const { orgAction, newOrgName, selectedOrgId, role, departmentId, orgType } = body;
+  const { orgAction, newOrgName, selectedOrgId, role, departmentId, orgType, folderId, folderName, byosConfig } = body;
 
   if (orgAction === "create") {
     if (!newOrgName || !newOrgName.trim()) {
@@ -51,6 +56,59 @@ export default defineEventHandler(async (event) => {
       });
     }
 
+    // For GDrive orgs: if a folder was pre-selected, save it with approved status now.
+    // The org id will be updated when the super admin approves the request.
+    if (orgType === "gdrive" && folderId && folderName) {
+      const db = useDrizzle();
+      const existingConn = await db
+        .select()
+        .from(gdriveFolders)
+        .where(eq(gdriveFolders.userId, user.id));
+
+      if (existingConn && existingConn.length > 0) {
+        await db
+          .update(gdriveFolders)
+          .set({
+            folderId,
+            folderName,
+            status: "approved",
+            updatedAt: new Date(),
+          })
+          .where(eq(gdriveFolders.userId, user.id));
+      } else {
+        // Should not normally happen since OAuth callback creates the entry, but guard here
+        throw createError({ status: 400, message: "Google Drive not connected. Please connect your Drive account first." });
+      }
+    }
+
+    // For BYOS orgs: save credentials and get the config id to link to the org request
+    let byosConfigId: string | undefined;
+    if (orgType === "byos") {
+      if (!byosConfig) {
+        throw createError({ status: 400, message: "BYOS configuration is required for this storage type." });
+      }
+      // Double-check credentials server-side before saving
+      await verifyByosCredentials(byosConfig);
+
+      byosConfigId = ulid();
+      await useDrizzle().insert(byosStorageConfigs).values({
+        id: byosConfigId,
+        userId: user.id,
+        provider: byosConfig.provider,
+        bucketName: byosConfig.bucketName,
+        accessKeyId: byosConfig.provider !== "gcs" ? (byosConfig as any).accessKeyId : null,
+        secretAccessKey: byosConfig.provider !== "gcs" ? (byosConfig as any).secretAccessKey : null,
+        region: byosConfig.provider !== "gcs" ? (byosConfig as any).region : null,
+        endpoint: byosConfig.provider === "r2" ? (byosConfig as any).endpoint : null,
+        projectId: byosConfig.provider === "gcs" ? (byosConfig as any).projectId : null,
+        clientEmail: byosConfig.provider === "gcs" ? (byosConfig as any).clientEmail : null,
+        privateKey: byosConfig.provider === "gcs" ? (byosConfig as any).privateKey : null,
+        status: "verified",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+
     // Create a pending org request (Super Admin must approve)
     const requestId = ulid();
     await useDrizzle().insert(organizationRequests).values({
@@ -58,6 +116,7 @@ export default defineEventHandler(async (event) => {
       userId: user.id,
       orgName: newOrgName.trim(),
       orgType: orgType || "s3",
+      byosConfigId: byosConfigId ?? null,
       status: "pending",
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -121,3 +180,5 @@ export default defineEventHandler(async (event) => {
 
   return { success: true, pendingOrgRequest: false, redirectToGDrive };
 });
+
+

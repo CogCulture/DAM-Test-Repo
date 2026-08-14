@@ -1,4 +1,4 @@
-export const useBucket = () => {
+export function useBucket() {
   type Bucket = {
     id: string;
     name: string;

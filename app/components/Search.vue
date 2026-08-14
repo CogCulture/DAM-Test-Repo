@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { defineShortcuts } from "~/composables/defineShortcuts";
 const route = useRoute();
 const open = ref(false);
 const searchTerm = ref("");

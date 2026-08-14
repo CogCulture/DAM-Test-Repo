@@ -7,7 +7,7 @@ export default defineEventHandler(async (event) => {
   const role = user.role as string;
 
   if (role === "dept_head" || role === "admin") {
-    return await getFolderRequests(orgId, user.departmentId ?? undefined);
+    return await getFolderRequests(orgId, role === "admin" ? undefined : (user.departmentId ?? undefined));
   }
-  throw createError({ status: 403, message: "Only Department Heads or Admins can view folder requests." });
+  return await getFolderRequests(orgId, undefined, user.id);
 });

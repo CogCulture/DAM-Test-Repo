@@ -2,7 +2,7 @@ import type { UserRole } from "~~/shared/constants/roles";
 import { hasMinRole, getRoleLabel } from "~~/shared/constants/roles";
 import { getDepartmentName } from "~~/shared/constants/departments";
 
-export const useRole = () => {
+export function useRole() {
   const { user, loggedIn } = useUserSession();
 
   const role = computed<UserRole | null>(
@@ -14,6 +14,10 @@ export const useRole = () => {
   const approvalStatus = computed<string | null>(
     () => (user.value as any)?.approvalStatus ?? null
   );
+  const orgType = computed<string>(
+    () => (user.value as any)?.orgType ?? "s3"
+  );
+
 
   const isApproved = computed(() => approvalStatus.value === "active");
   const isPending = computed(() => approvalStatus.value === "pending");
@@ -27,6 +31,9 @@ export const useRole = () => {
 
   const userPermissions = computed(() => (user.value as any)?.permissions || {});
 
+  const canView = computed(() =>
+    isApproved.value && (userPermissions.value.canView ?? true)
+  );
   const canUpload = computed(() =>
     isApproved.value && (userPermissions.value.canUpload ?? hasMinRole(role.value || "intern", "intern"))
   );
@@ -54,6 +61,15 @@ export const useRole = () => {
   const canDelete = computed(() =>
     isApproved.value && (userPermissions.value.canDelete ?? hasMinRole(role.value || "intern", "team_lead"))
   );
+  const canRename = computed(() =>
+    isApproved.value && (userPermissions.value.canRename ?? hasMinRole(role.value || "intern", "team_lead"))
+  );
+  const canEditMetadata = computed(() =>
+    isApproved.value && (userPermissions.value.canEditMetadata ?? false)
+  );
+  const canUseRag = computed(() =>
+    isApproved.value && (userPermissions.value.canUseRag ?? false)
+  );
 
   const roleLabel = computed(() =>
     role.value ? getRoleLabel(role.value) : ""
@@ -74,9 +90,13 @@ export const useRole = () => {
     isTeamLead,
     isTeamMember,
     isIntern,
+    canView,
     canUpload,
     canDownload,
     canDelete,
+    canRename,
+    canEditMetadata,
+    canUseRag,
     canShare,
     canCreateFolder,
     canCreateFolderDirectly,
@@ -85,5 +105,6 @@ export const useRole = () => {
     canManageDepts,
     roleLabel,
     departmentLabel,
+    orgType,
   };
 };

@@ -1,4 +1,4 @@
-export const useFile = () => {
+export function useFile() {
   const route = useRoute();
   const loading = useState<boolean>("file-loading", () => false);
   const file = useState<IFile | null>("file", () => null);

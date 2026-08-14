@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useToast } from "~/composables/useToast";
 definePageMeta({ layout: "superadmin", middleware: "superadmin" });
 
 const route = useRoute();

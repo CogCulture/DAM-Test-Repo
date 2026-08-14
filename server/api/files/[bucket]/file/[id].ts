@@ -2,7 +2,7 @@ import { verifyBucket } from "~~/server/utils/permission";
 import { getFolder } from "~~/server/utils/db";
 
 export default defineEventHandler(async (event) => {
-  const { bucket, user } = await verifyBucket(event);
+  const { bucket, user } = await verifyBucket(event, "canView");
   const { id } = getRouterParams(event);
 
   if (id) {

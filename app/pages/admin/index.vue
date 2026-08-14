@@ -16,7 +16,39 @@ const { data: allUsers, refresh: refreshAll } = (isAdmin.value || isDeptHead.val
   ? await useFetch("/api/admin/users")
   : { data: ref([]), refresh: () => {} };
 
+const { data: orgSettings } = await useFetch("/api/organizations/settings");
+
 const actioning = ref<string | null>(null);
+
+const editingUser = ref<any>(null);
+const editForm = ref({ role: "", departmentId: "" });
+const savingEdit = ref(false);
+
+const openEditModal = (user: any) => {
+  editingUser.value = user;
+  editForm.value = {
+    role: user.role || "team_member",
+    departmentId: user.departmentId || "",
+  };
+};
+
+const saveUserEdit = async () => {
+  if (!editingUser.value) return;
+  savingEdit.value = true;
+  try {
+    await $fetch(`/api/admin/users/${editingUser.value.id}`, {
+      method: "PUT",
+      body: editForm.value,
+    });
+    toast.add({ title: "User updated successfully", color: "success" });
+    editingUser.value = null;
+    await refreshAll();
+  } catch (e: any) {
+    toast.add({ title: e?.data?.message || "Failed to update user", color: "error" });
+  } finally {
+    savingEdit.value = false;
+  }
+};
 
 const handleAction = async (userId: string, action: "approve" | "reject" | "remove") => {
   actioning.value = userId;
@@ -180,10 +212,72 @@ const activeTab = ref(0);
               >
                 Remove
               </UButton>
+              <UButton
+                v-if="user.role !== 'admin'"
+                size="sm"
+                color="primary"
+                variant="soft"
+                icon="lucide:pencil"
+                @click="openEditModal(user)"
+              >
+                Edit
+              </UButton>
             </div>
           </div>
         </div>
       </template>
     </UTabs>
+
+    <!-- Edit User Modal -->
+    <UModal v-model="editingUser">
+      <div v-if="editingUser" class="p-6 space-y-6">
+        <h3 class="text-xl font-semibold text-neutral-900 dark:text-white flex items-center gap-2">
+          <Icon name="lucide:user-cog" class="text-primary size-5" />
+          Edit User: {{ editingUser.name }}
+        </h3>
+
+        <div class="space-y-4">
+          <UFormField label="Department">
+            <select
+              v-model="editForm.departmentId"
+              class="w-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 text-neutral-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="">None (Global)</option>
+              <option v-for="dept in orgSettings?.departments || []" :key="dept.id" :value="dept.id">
+                {{ dept.name }}
+              </option>
+            </select>
+          </UFormField>
+
+          <UFormField label="Role">
+            <select
+              v-model="editForm.role"
+              class="w-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 text-neutral-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="admin">Admin</option>
+              <option value="dept_head">Department Head</option>
+              <option value="team_lead">Team Lead</option>
+              <option value="team_member">Team Member</option>
+              <option value="intern">Intern</option>
+              <template v-if="orgSettings?.permissions">
+                <option v-for="role in [...new Set(orgSettings.permissions.map((p: any) => p.role).filter((r: any) => !['admin', 'dept_head', 'team_lead', 'team_member', 'intern'].includes(r)))]" :key="role" :value="role">
+                  {{ role }}
+                </option>
+              </template>
+            </select>
+          </UFormField>
+        </div>
+
+        <div class="flex justify-end gap-3 pt-4 border-t border-neutral-200 dark:border-neutral-800">
+          <UButton color="neutral" variant="ghost" @click="editingUser = null">
+            Cancel
+          </UButton>
+          <UButton color="primary" variant="solid" :loading="savingEdit" @click="saveUserEdit">
+            Save Changes
+          </UButton>
+        </div>
+      </div>
+    </UModal>
+
   </div>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { data, refresh } = await useFetch("/api/superadmin/session");
+const { data, refresh } = useFetch("/api/superadmin/session");
 const isSuperAdmin = computed(() => (data.value as any)?.authenticated === true);
 
 // Watch for unauthenticated state

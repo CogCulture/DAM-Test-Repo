@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useToast } from "~/composables/useToast";
 definePageMeta({ layout: "superadmin", middleware: "superadmin" });
 
 const toast = useToast();
@@ -62,6 +63,26 @@ const saveUser = async () => {
     await refresh();
   } catch (e: any) {
     toast.add({ title: e?.data?.message ?? "Update failed", color: "error" });
+  } finally {
+    editLoading.value = false;
+  }
+};
+
+const deleteUser = async (user: any) => {
+  if (!user) return;
+  if (!window.confirm(`Are you sure you want to remove ${user.name} (${user.email})? This will delete their login entirely.`)) {
+    return;
+  }
+  editLoading.value = true;
+  try {
+    await $fetch(`/api/superadmin/users/${user.id}`, {
+      method: "DELETE",
+    });
+    toast.add({ title: "User removed successfully", color: "success" });
+    editingUser.value = null;
+    await refresh();
+  } catch (e: any) {
+    toast.add({ title: e?.data?.message ?? "Removal failed", color: "error" });
   } finally {
     editLoading.value = false;
   }
@@ -206,10 +227,16 @@ const formatDate = (d: any) => {
 
             <!-- Actions -->
             <td class="px-6 py-4 text-right">
-              <button @click="openEdit(user)"
-                class="text-xs font-medium text-slate-400 hover:text-white border border-[#1e1e2e] hover:border-violet-500/40 px-3 py-1.5 rounded-lg transition-all">
-                Edit
-              </button>
+              <div class="flex justify-end gap-2">
+                <button @click="openEdit(user)"
+                  class="text-xs font-medium text-slate-400 hover:text-white border border-[#1e1e2e] hover:border-violet-500/40 px-3 py-1.5 rounded-lg transition-all">
+                  Edit
+                </button>
+                <button @click="deleteUser(user)"
+                  class="text-xs font-medium text-red-400 hover:text-white border border-[#1e1e2e] hover:border-red-500/40 px-3 py-1.5 rounded-lg transition-all bg-red-500/5 hover:bg-red-500/20">
+                  Remove
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -275,15 +302,22 @@ const formatDate = (d: any) => {
         </div>
 
         <!-- Actions -->
-        <div class="flex gap-3 pt-2">
-          <button @click="editingUser = null"
-            class="flex-1 border border-[#1e1e2e] text-slate-400 hover:text-white rounded-xl py-2.5 text-sm font-medium transition-all hover:border-slate-500">
-            Cancel
-          </button>
-          <button @click="saveUser" :disabled="editLoading"
-            class="flex-1 bg-violet-600 hover:bg-violet-500 text-white rounded-xl py-2.5 text-sm font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+        <div class="flex flex-col gap-2.5 pt-2">
+          <div class="flex gap-3">
+            <button @click="editingUser = null"
+              class="flex-1 border border-[#1e1e2e] text-slate-400 hover:text-white rounded-xl py-2.5 text-sm font-medium transition-all hover:border-slate-500">
+              Cancel
+            </button>
+            <button @click="saveUser" :disabled="editLoading"
+              class="flex-1 bg-violet-600 hover:bg-violet-500 text-white rounded-xl py-2.5 text-sm font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+              <Icon v-if="editLoading" name="lucide:loader" class="w-4 h-4 animate-spin" />
+              Save Changes
+            </button>
+          </div>
+          <button @click="deleteUser(editingUser)" :disabled="editLoading"
+            class="w-full border border-red-500/20 bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 rounded-xl py-2.5 text-sm font-semibold transition-all flex items-center justify-center gap-2">
             <Icon v-if="editLoading" name="lucide:loader" class="w-4 h-4 animate-spin" />
-            Save Changes
+            Remove User Entirely
           </button>
         </div>
       </div>

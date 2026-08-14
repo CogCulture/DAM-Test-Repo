@@ -28,7 +28,7 @@ export default defineEventHandler(async (event) => {
   const effectiveDepartments = features.hierarchy ? departments : [];
   const effectivePermissions = features.userPermissions ? permissions : [];
 
-  await updateOrganizationSettings(orgId, name.trim(), effectiveDepartments, effectivePermissions);
+  await updateOrganizationSettings(orgId, name.trim(), effectiveDepartments, effectivePermissions, user.id as string);
 
   return { success: true };
 });
