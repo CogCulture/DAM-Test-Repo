@@ -5,6 +5,7 @@ const emit = defineEmits(["dropped"]);
 
 const dropZoneRef = ref<HTMLDivElement>();
 const fileInputRef = ref<HTMLInputElement>();
+const folderInputRef = ref<HTMLInputElement>();
 const isOverDropZone = ref(false);
 
 const readEntry = async (entry: any, path: string = ""): Promise<File[]> => {
@@ -82,8 +83,12 @@ const onDragLeave = (e: DragEvent) => {
   isOverDropZone.value = false;
 };
 
-const handleClick = () => {
+const handleFileClick = () => {
   fileInputRef.value?.click();
+};
+
+const handleFolderClick = () => {
+  folderInputRef.value?.click();
 };
 
 const handleFileSelect = (event: Event) => {
@@ -98,7 +103,7 @@ const handleFileSelect = (event: Event) => {
 <template>
   <div
     ref="dropZoneRef"
-    @click="handleClick"
+    @click="handleFileClick"
     @dragover="onDragOver"
     @dragenter="onDragOver"
     @dragleave="onDragLeave"
@@ -113,6 +118,14 @@ const handleFileSelect = (event: Event) => {
     <input
       ref="fileInputRef"
       type="file"
+      multiple
+      class="hidden"
+      @change="handleFileSelect"
+    />
+    <input
+      ref="folderInputRef"
+      type="file"
+      webkitdirectory
       multiple
       class="hidden"
       @change="handleFileSelect"
@@ -135,6 +148,21 @@ const handleFileSelect = (event: Event) => {
         or browse from your device · ZIP archives supported
       </p>
     </div>
-    <span class="dam-kicker relative z-10 rounded-full border border-primary-500/25 bg-primary-500/10 px-3 py-1 text-primary-500">Upload assets</span>
+    <div class="relative z-10 flex flex-wrap items-center justify-center gap-2" @click.stop>
+      <button
+        type="button"
+        class="dam-kicker rounded-full border border-primary-500/25 bg-primary-500/10 px-3 py-1 text-primary-500 transition-colors hover:bg-primary-500/20"
+        @click="handleFileClick"
+      >
+        Upload files
+      </button>
+      <button
+        type="button"
+        class="dam-kicker rounded-full border border-primary-500 bg-primary-500 px-3 py-1 text-white transition-colors hover:bg-primary-600"
+        @click="handleFolderClick"
+      >
+        Upload folder
+      </button>
+    </div>
   </div>
 </template>
