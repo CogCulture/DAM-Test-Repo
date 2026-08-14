@@ -7,6 +7,7 @@ import { resolveDriveRouteFolderId, resolveUploadStorageTarget } from "~~/shared
 import { resolveUploadPickerMode } from "~~/shared/utils/upload-picker";
 import { buildDriveUploadUrl, type UploadDestination } from "~~/shared/utils/department-upload";
 import { useUploadDestination, type ActiveUploadFolder } from "~/composables/useUploadDestination";
+import { getUploadDirectoryPaths } from "~~/shared/utils/folder-upload-target";
 
 const props = withDefaults(defineProps<{
   type?: "files" | "folder";
@@ -164,6 +165,30 @@ const processFiles = async (filesList: File[]) => {
       color: "error",
     });
     return;
+  }
+
+  const folderPaths = getUploadDirectoryPaths(filesList.map(
+    file => (file as any).customPath || file.webkitRelativePath || file.name,
+  ));
+  if (folderPaths.length) {
+    try {
+      await $fetch("/api/nomenclature/folder-upload-preflight", {
+        method: "POST",
+        body: {
+          paths: folderPaths,
+          departmentId: selectedDestinationId.value,
+          destinationFolderId: selectedFolderId.value,
+        },
+      });
+    } catch (error: any) {
+      toast.add({
+        title: "Folder naming rule not met",
+        description: error?.data?.message || error?.message || "One or more folders do not follow the configured nomenclature.",
+        color: "error",
+      });
+      if (fileInput.value) fileInput.value.value = "";
+      return;
+    }
   }
 
   await refreshNomenclaturePolicy();

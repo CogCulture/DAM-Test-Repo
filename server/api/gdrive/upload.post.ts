@@ -7,6 +7,7 @@ import { planFileUpload } from "~~/shared/utils/file-collision";
 import crypto from "node:crypto";
 import { resolveDepartmentUploadTarget, resolveDriveUploadParent } from "~~/shared/utils/department-upload";
 import { normalizeUploadRelativePath } from "~~/shared/utils/folder-upload-target";
+import { requireValidFolderPath } from "~~/server/utils/folderNomenclature";
 
 export default defineEventHandler(async (event) => {
   const user = await requireFilePermission(event, "canUpload");
@@ -82,6 +83,11 @@ export default defineEventHandler(async (event) => {
   )?.id;
 
   const folderPath = normalizedPath.directories.join("/");
+  await requireValidFolderPath({
+    user,
+    relativePath: folderPath,
+    departmentId: departmentTarget?.departmentId || selectedDepartmentId || (user as any).departmentId,
+  });
   if (folderPath) {
     parentId = await ensureGDrivePath(token, parentId, folderPath);
   }

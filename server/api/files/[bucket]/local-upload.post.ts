@@ -11,6 +11,7 @@ import { useDrizzle } from "~~/server/utils/drizzle";
 import { and, eq, isNull } from "drizzle-orm";
 import { planFileUpload } from "~~/shared/utils/file-collision";
 import { isUploadRouteAllowed } from "~~/shared/utils/drive-storage";
+import { requireValidFolderPath } from "~~/server/utils/folderNomenclature";
 
 const normalizeRelativePath = (value: string) => {
   const normalized = value.replace(/\\/g, "/").replace(/^\/+/, "");
@@ -38,6 +39,14 @@ export default defineEventHandler(async (event) => {
   await requireFileDepartmentAccess(user, parentId);
   const relativePath = normalizeRelativePath(String(query.relativePath || ""));
   const fileName = relativePath.split("/").pop()!;
+  const relativeParts = relativePath.split("/");
+  relativeParts.pop();
+  const relativeDirectory = relativeParts.join("/");
+  await requireValidFolderPath({
+    user,
+    relativePath: relativeDirectory,
+    departmentId: (user as any).departmentId,
+  });
 
   const [features, rules, nomenclature] = await Promise.all([
     getOrgFeatures(user.organizationId),
@@ -79,9 +88,6 @@ export default defineEventHandler(async (event) => {
   const dimensions = getHeader(event, "x-dam-dimensions") || null;
   const md5 = crypto.createHash("md5").update(fileBuffer).digest("hex");
 
-  const relativeParts = relativePath.split("/");
-  relativeParts.pop();
-  const relativeDirectory = relativeParts.join("/");
   const targetDirectory = cleanPath(`${parentPath}/${relativeDirectory}`);
   const candidates = await useDrizzle()
     .select({

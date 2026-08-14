@@ -2,12 +2,25 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  getUploadDirectoryPaths,
   normalizeUploadRelativePath,
   resolveAuthorizedFolderId,
   resolveSelectedFolderId,
   replaceDirectoryBranch,
   sortDirectoryChildren,
 } from "../shared/utils/folder-upload-target.ts";
+
+test("derives every unique parent directory from uploaded file paths", () => {
+  assert.deepEqual(getUploadDirectoryPaths([
+    "Acme_Launch/Acme_Images/logo.png",
+    "Acme_Launch/Acme_Docs/brief.docx",
+    "Acme_Launch/Acme_Images/banner.png",
+  ]), [
+    "Acme_Launch",
+    "Acme_Launch/Acme_Images",
+    "Acme_Launch/Acme_Docs",
+  ]);
+});
 
 test("a directory upload preserves its top-level and nested folders", () => {
   assert.deepEqual(normalizeUploadRelativePath("Campaign Assets/Images/logo.png"), {

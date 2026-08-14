@@ -5,6 +5,7 @@ import { uploadFileToLocalStorage } from "~/composables/useLocalUpload";
 import { useRole } from "~/composables/useRole";
 import { resolveDriveRouteFolderId, resolveUploadStorageTarget } from "~~/shared/utils/drive-storage";
 import { buildDriveUploadUrl } from "~~/shared/utils/department-upload";
+import { getUploadDirectoryPaths } from "~~/shared/utils/folder-upload-target";
 
 const props = defineProps<{
   open: boolean;
@@ -147,6 +148,20 @@ const handleUpload = async () => {
   uploadedCount.value = 0;
 
   try {
+    const folderPaths = getUploadDirectoryPaths(props.files.map(
+      file => (file as any).customPath || file.webkitRelativePath || file.name,
+    ));
+    if (folderPaths.length) {
+      await $fetch("/api/nomenclature/folder-upload-preflight", {
+        method: "POST",
+        body: {
+          paths: folderPaths,
+          departmentId: props.destinationId,
+          destinationFolderId: props.folderId,
+        },
+      });
+    }
+
     let uploadResult: any = null;
     const uploadPromises = props.files.map(async (file, index) => {
       const finalName = getTargetFileName(file, index);

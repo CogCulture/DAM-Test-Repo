@@ -24,6 +24,24 @@ export const normalizeUploadRelativePath = (value: string) => {
   return { directories: parts, fileName };
 };
 
+export const getUploadDirectoryPaths = (relativePaths: string[]) => {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+
+  for (const relativePath of relativePaths) {
+    const { directories } = normalizeUploadRelativePath(relativePath);
+    for (let index = 1; index <= directories.length; index++) {
+      const directoryPath = directories.slice(0, index).join("/");
+      if (!seen.has(directoryPath)) {
+        seen.add(directoryPath);
+        paths.push(directoryPath);
+      }
+    }
+  }
+
+  return paths;
+};
+
 export const resolveSelectedFolderId = ({
   selectedFolderId,
   routeFolderId,
