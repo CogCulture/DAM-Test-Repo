@@ -42,6 +42,22 @@ export const getUploadDirectoryPaths = (relativePaths: string[]) => {
   return paths;
 };
 
+export const normalizeDirectoryManifest = (paths: string[]) => {
+  const normalized = new Set<string>();
+
+  for (const path of paths) {
+    const { directories } = normalizeUploadRelativePath(`${path}/.directory`);
+    for (let index = 1; index <= directories.length; index++) {
+      normalized.add(directories.slice(0, index).join("/"));
+    }
+  }
+
+  return [...normalized].sort((left, right) => {
+    const depth = left.split("/").length - right.split("/").length;
+    return depth || left.localeCompare(right, undefined, { sensitivity: "base" });
+  });
+};
+
 export const resolveSelectedFolderId = ({
   selectedFolderId,
   routeFolderId,

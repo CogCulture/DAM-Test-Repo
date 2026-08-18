@@ -9,6 +9,7 @@ import { useFileActions } from "~/composables/useFileActions";
 import { useToast } from "~/composables/useToast";
 import { dispatchDroppedFiles } from "~~/shared/utils/upload-dispatch";
 import { useUploadDestination } from "~/composables/useUploadDestination";
+import type { DirectoryUploadSelection } from "~~/shared/utils/directory-upload";
 
 const props = defineProps<{
   title?: string;
@@ -25,7 +26,7 @@ const route = useRoute();
 const router = useRouter();
 const { folder } = useFolder();
 const activeEndpoint = computed(() => props.endpoint || "root");
-const { files, isEnd, loadMore, loading, error, onSort, onFilter, refresh } =
+const { files, loading, error, onSort, onFilter, refresh } =
   useFiles(activeEndpoint);
 const { showPreview } = usePreview();
 const { selected, toggleSelected } = useSelected();
@@ -56,7 +57,7 @@ watch(actionsOpen, async (open) => {
   if (assetControlsPanel.value) assetControlsPanel.value.scrollTop = 0;
 });
 const uploadRef = ref();
-const onFilesDropped = async (filesList: File[]) => {
+const onFilesDropped = async (filesList: File[] | DirectoryUploadSelection) => {
   actionsOpen.value = true;
   await nextTick();
 
@@ -76,6 +77,9 @@ const onFilesDropped = async (filesList: File[]) => {
       color: "error",
     });
   }
+};
+const onDropError = (message: string) => {
+  toast.add({ title: "Folder could not be selected", description: message, color: "error" });
 };
 const applyFilters = (value: any) => {
   activeFilters.value = !!value;
@@ -228,7 +232,7 @@ defineShortcuts({
       </span>
       <span class="hidden sm:inline">Double-click to preview · Right-click for DAM + RAG actions</span>
     </div>
-    <DropFiles v-if="!endpoint && canUpload" @dropped="onFilesDropped" />
+    <DropFiles v-if="!endpoint && canUpload" @dropped="onFilesDropped" @error="onDropError" />
     <AppView :name="view" v-slot="{ dir }" :loading="loading">
       <File
         v-for="(file, index) in safeFiles"
@@ -261,13 +265,6 @@ defineShortcuts({
       <div class="text-lg font-medium">{{ emptyTitle || "No assets found" }}</div>
       <p class="mt-1 max-w-lg text-center text-sm text-[var(--dam-muted)]">{{ emptyDescription || "Upload a file or adjust your filters to populate this workspace." }}</p>
     </div>
-    <UButton
-      v-if="!isEnd && !loading"
-      @click="loadMore"
-      class="mx-auto max-w-48"
-    >
-      Load more
-    </UButton>
   </AppMain>
 
   <Teleport to="body">

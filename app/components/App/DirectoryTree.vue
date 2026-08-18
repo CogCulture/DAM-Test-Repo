@@ -2,7 +2,8 @@
 import { useDebounceFn } from "@vueuse/core";
 import { useAside } from "~/composables/useAside";
 import { useRole } from "~/composables/useRole";
-import { replaceDirectoryBranch, sortDirectoryChildren } from "~~/shared/utils/folder-upload-target";
+import { replaceDirectoryBranch } from "~~/shared/utils/folder-upload-target";
+import { loadAllDirectoryPages } from "~~/shared/utils/directory-pagination";
 
 const route = useRoute();
 const { orgType } = useRole();
@@ -15,36 +16,23 @@ const isVisible = computed(() => !!route.params.bucket);
 const files = ref<any[]>([]);
 const loading = ref(false);
 const loadError = ref<string | null>(null);
-const page = ref(1);
-const hasNextPage = ref(false);
 
-const fetchContents = async (reset = false) => {
-  if (reset) {
-    page.value = 1;
-  }
-
+const fetchContents = async () => {
   loading.value = true;
   loadError.value = null;
   try {
     const isGDrive = orgType.value === "gdrive" || (bucketName.value && bucketName.value.startsWith("gdrive_"));
     const url = isGDrive ? `/api/gdrive/list/root` : `/api/files/list/${bucketName.value}/root`;
-    const data = await $fetch<any>(url, {
+    const data = await loadAllDirectoryPages<any>((page) => $fetch<any>(url, {
       query: {
-        page: page.value,
+        page,
         sortBy: 'name',
         order: 'asc',
         t: Date.now(),
       },
       timeout: 30000,
-    });
-    if (data && data.data) {
-      if (reset) {
-        files.value = replaceDirectoryBranch(files.value, data.data, true);
-      } else {
-        files.value = sortDirectoryChildren([...files.value, ...data.data]);
-      }
-      hasNextPage.value = !!data.nextPage;
-    }
+    }));
+    files.value = replaceDirectoryBranch(files.value, data, true);
   } catch (err: any) {
     console.error("Error fetching root directory contents:", err);
     loadError.value = err?.data?.message || err?.message || "Directory could not be loaded.";
@@ -53,25 +41,20 @@ const fetchContents = async (reset = false) => {
   }
 };
 
-const loadMore = () => {
-  page.value++;
-  fetchContents();
-};
-
 const refreshTrigger = useState("files-refresh-trigger", () => 0);
 
 watch(refreshTrigger, () => {
-  fetchContents(true);
+  fetchContents();
 });
 
 watch(bucketName, (newVal, oldVal) => {
   if (newVal && newVal !== oldVal) {
-    fetchContents(true);
+    fetchContents();
   }
 });
 
 onMounted(() => {
-  fetchContents(true);
+  fetchContents();
 });
 const { aside } = useAside();
 const sidebarRef = ref<HTMLElement | null>(null);
@@ -270,10 +253,7 @@ const isLibraryLinkActive = (to: string) => route.path === to;
         </div>
         <div v-else-if="loadError" class="space-y-2 px-2 py-4 text-center">
           <p class="text-xs text-red-500">{{ loadError }}</p>
-          <UButton size="2xs" variant="soft" icon="lucide:refresh-cw" label="Retry" @click="fetchContents(true)" />
-        </div>
-        <div v-else-if="hasNextPage" class="px-4 py-2">
-          <UButton variant="ghost" size="2xs" color="neutral" class="w-full justify-center text-xs font-medium" @click="loadMore">Load more...</UButton>
+          <UButton size="2xs" variant="soft" icon="lucide:refresh-cw" label="Retry" @click="fetchContents()" />
         </div>
         <div v-else-if="files.length === 0" class="rounded-xl border border-dashed border-[var(--dam-line)] px-3 py-6 text-center">
           <UIcon name="lucide:folder-open" class="mx-auto mb-2 size-5 text-[var(--dam-muted)]" />
