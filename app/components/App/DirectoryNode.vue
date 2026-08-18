@@ -4,7 +4,8 @@ import { fileIcon } from '~~/shared/utils/helper';
 import { useRole } from '~~/app/composables/useRole';
 import { usePreview } from '~/composables/usePreview';
 import { useUploadDestination } from '~/composables/useUploadDestination';
-import { replaceDirectoryBranch, sortDirectoryChildren } from '~~/shared/utils/folder-upload-target';
+import { replaceDirectoryBranch } from '~~/shared/utils/folder-upload-target';
+import { loadAllDirectoryPages } from '~~/shared/utils/directory-pagination';
 
 const props = defineProps<{
   file: any;
@@ -25,8 +26,7 @@ const open = computed({
 });
 const files = ref<any[]>([]);
 const loading = ref(false);
-const page = ref(1);
-const hasNextPage = ref(false);
+const loadError = ref<string | null>(null);
 
 const isFolder = computed(() => props.file.type === 'folder');
 
@@ -52,32 +52,24 @@ const selectFolderForUpload = () => {
   });
 };
 
-const fetchContents = async (reset = false) => {
-  if (reset) {
-    page.value = 1;
-  }
+const fetchContents = async () => {
   loading.value = true;
+  loadError.value = null;
   try {
     const isGDrive = orgType.value === "gdrive" || (props.bucketName && props.bucketName.startsWith("gdrive_"));
     const url = isGDrive ? `/api/gdrive/list/${props.file.id}` : `/api/files/list/${props.bucketName}/${props.file.id}`;
-    const data = await $fetch<any>(url, {
+    const data = await loadAllDirectoryPages<any>((page) => $fetch<any>(url, {
       query: {
-        page: page.value,
+        page,
         sortBy: 'name',
         order: 'asc',
         t: Date.now(),
       }
-    });
-    if (data && data.data) {
-      if (reset) {
-        files.value = replaceDirectoryBranch(files.value, data.data, true);
-      } else {
-        files.value = sortDirectoryChildren([...files.value, ...data.data]);
-      }
-      hasNextPage.value = !!data.nextPage;
-    }
-  } catch (err) {
+    }));
+    files.value = replaceDirectoryBranch(files.value, data, true);
+  } catch (err: any) {
     console.error("Error fetching directory contents:", err);
+    loadError.value = err?.data?.message || err?.message || "Folder contents could not be loaded.";
   } finally {
     loading.value = false;
   }
@@ -87,26 +79,21 @@ const toggleOpen = () => {
   if (!isFolder.value) return;
   open.value = !open.value;
   if (open.value && files.value.length === 0) {
-    fetchContents(true);
+    fetchContents();
   }
-};
-
-const loadMore = () => {
-  page.value++;
-  fetchContents();
 };
 
 const refreshTrigger = useState("files-refresh-trigger", () => 0);
 
 watch(refreshTrigger, () => {
   if (open.value) {
-    fetchContents(true);
+    fetchContents();
   }
 });
 
 onMounted(() => {
   if (open.value && files.value.length === 0) {
-    fetchContents(true);
+    fetchContents();
   }
 });
 
@@ -176,21 +163,19 @@ onMounted(() => {
         :level="level + 1"
       />
 
-      <!-- Loading / Load More -->
+      <!-- Loading / error state -->
       <div v-if="loading" class="py-2 text-center">
         <UIcon name="lucide:loader-2" class="w-4 h-4 animate-spin text-neutral-400" />
       </div>
-      <div v-else-if="hasNextPage" class="py-1">
+      <div v-else-if="loadError" class="space-y-1 px-2 py-2 text-center">
+        <p class="text-[11px] text-red-500">{{ loadError }}</p>
         <UButton
-          variant="ghost"
           size="2xs"
-          color="neutral"
-          class="w-full text-[11px] font-medium justify-start"
-          :style="{ paddingLeft: `${((level + 1) * 20) + 34}px` }"
-          @click="loadMore"
-        >
-          Load more...
-        </UButton>
+          variant="soft"
+          icon="lucide:refresh-cw"
+          label="Retry"
+          @click="fetchContents()"
+        />
       </div>
       <div v-else-if="files.length === 0" class="py-1">
         <div

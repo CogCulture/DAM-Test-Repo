@@ -7,7 +7,8 @@ import { resolveDriveRouteFolderId, resolveUploadStorageTarget } from "~~/shared
 import { resolveUploadPickerMode } from "~~/shared/utils/upload-picker";
 import { buildDriveUploadUrl, type UploadDestination } from "~~/shared/utils/department-upload";
 import { useUploadDestination, type ActiveUploadFolder } from "~/composables/useUploadDestination";
-import { getUploadDirectoryPaths } from "~~/shared/utils/folder-upload-target";
+import { getUploadDirectoryPaths, normalizeDirectoryManifest } from "~~/shared/utils/folder-upload-target";
+import { chooseUploadSource, type DirectoryUploadSelection } from "~~/shared/utils/directory-upload";
 
 const props = withDefaults(defineProps<{
   type?: "files" | "folder";
@@ -89,6 +90,7 @@ const emit = defineEmits(["success"]);
 const filesRefreshTrigger = useState<number>("files-refresh-trigger", () => 0);
 const nomenclatureOpen = ref(false);
 const nomenclatureFiles = ref<File[]>([]);
+const pendingDirectoryPaths = ref<string[]>([]);
 const nomenclatureQuery = computed(() => selectedDestinationId.value && selectedDestinationId.value !== "root"
   ? { departmentId: selectedDestinationId.value }
   : {});
@@ -98,6 +100,10 @@ const { data: nomenclaturePolicy, refresh: refreshNomenclaturePolicy } = await u
 );
 
 const handleNomenclatureSuccess = async (result?: any) => {
+  if (pendingDirectoryPaths.value.length) {
+    await createDirectoryTree(pendingDirectoryPaths.value);
+    pendingDirectoryPaths.value = [];
+  }
   uploadPhase.value = "syncing";
   filesRefreshTrigger.value++;
   emit("success");
@@ -152,9 +158,25 @@ watch(selectedFolderId, async (folderId) => {
   }
 });
 
-const processFiles = async (filesList: File[]) => {
-  if (!filesList || !filesList.length) {
-    toast.add({ title: "No files found", description: "Empty folders cannot be uploaded.", color: "red" });
+const createDirectoryTree = async (paths: string[]) => {
+  if (!paths.length) return { created: [] as string[] };
+  return await $fetch<{ created: string[] }>("/api/folder/upload-tree", {
+    method: "POST",
+    body: {
+      paths,
+      departmentId: selectedDestinationId.value,
+      destinationFolderId: canUseGDrive.value ? selectedFolderId.value : (folder.value?.id || "root"),
+      storageTarget: canUseGDrive.value && storageTarget.value === "gdrive" ? "gdrive" : "local",
+      bucket: String(route.params.bucket || "org"),
+    },
+  });
+};
+
+const processSelection = async (selection: DirectoryUploadSelection) => {
+  const filesList = selection.files || [];
+  const folderPaths = normalizeDirectoryManifest(selection.directories || []);
+  if (!filesList.length && !folderPaths.length) {
+    toast.add({ title: "No files or folders found", color: "error" });
     return;
   }
 
@@ -167,9 +189,6 @@ const processFiles = async (filesList: File[]) => {
     return;
   }
 
-  const folderPaths = getUploadDirectoryPaths(filesList.map(
-    file => (file as any).customPath || file.webkitRelativePath || file.name,
-  ));
   if (folderPaths.length) {
     try {
       await $fetch("/api/nomenclature/folder-upload-preflight", {
@@ -192,12 +211,26 @@ const processFiles = async (filesList: File[]) => {
   }
 
   await refreshNomenclaturePolicy();
+  if (!filesList.length) {
+    await createDirectoryTree(folderPaths);
+    toast.add({
+      title: "Folder upload complete",
+      description: `Created ${folderPaths.length} folder(s), including empty folders.`,
+      color: "success",
+    });
+    filesRefreshTrigger.value++;
+    emit("success");
+    return;
+  }
   if (nomenclaturePolicy.value?.enforced) {
     nomenclatureFiles.value = filesList;
+    pendingDirectoryPaths.value = folderPaths;
     nomenclatureOpen.value = true;
     if (fileInput.value) fileInput.value.value = "";
     return;
   }
+
+  await createDirectoryTree(folderPaths);
 
   totalFiles.value = filesList.length;
   uploadedFiles.value = 0;
@@ -247,10 +280,39 @@ const processFiles = async (filesList: File[]) => {
   }
 };
 
+const processFiles = async (filesList: File[]) => processSelection({
+  files: filesList,
+  directories: getUploadDirectoryPaths(filesList.map(
+    file => (file as any).customPath || file.webkitRelativePath || file.name,
+  )),
+});
+
 const uploadFiles = async (event: any) => {
   const files = event?.target?.files;
   if (files && files.length) {
     await processFiles([...files]);
+  }
+};
+
+const openUploadPicker = async () => {
+  if (!import.meta.client) return;
+
+  try {
+    const selection = await chooseUploadSource({
+      mode: type.value,
+      pickerWindow: window,
+      openFallback: () => fileInput.value?.click(),
+    });
+
+    if (selection) {
+      await processSelection(selection);
+    }
+  } catch (error: any) {
+    toast.add({
+      title: "Folder could not be selected",
+      description: error?.message || "The selected folder could not be read.",
+      color: "error",
+    });
   }
 };
 
@@ -353,7 +415,7 @@ const overallProgress = computed(() => {
   return Math.round(sum / Object.keys(uploadProgress.value).length);
 });
 
-defineExpose({ processFiles });
+defineExpose({ processFiles, processSelection });
 </script>
 
 <template>
@@ -386,7 +448,7 @@ defineExpose({ processFiles });
           variant="solid"
           :label="type === 'folder' ? 'Upload Folder' : 'Upload Files'"
           class="min-w-0 flex-1 justify-center rounded-r-xl font-semibold"
-          @click="fileInput?.click()"
+          @click="openUploadPicker"
         />
         <input
           ref="fileInput"

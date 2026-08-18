@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import { chooseDirectory, type DirectoryUploadSelection } from "~~/shared/utils/directory-upload";
+import { getUploadDirectoryPaths } from "~~/shared/utils/folder-upload-target";
 
-const emit = defineEmits(["dropped"]);
+const emit = defineEmits<{
+  dropped: [File[] | DirectoryUploadSelection];
+  error: [string];
+}>();
 
 const dropZoneRef = ref<HTMLDivElement>();
 const fileInputRef = ref<HTMLInputElement>();
@@ -87,14 +92,37 @@ const handleFileClick = () => {
   fileInputRef.value?.click();
 };
 
-const handleFolderClick = () => {
-  folderInputRef.value?.click();
+const handleFolderClick = async () => {
+  const pickerWindow = window as typeof window & {
+    showDirectoryPicker?: () => Promise<any>;
+  };
+  if (!pickerWindow.showDirectoryPicker) {
+    folderInputRef.value?.click();
+    return;
+  }
+
+  try {
+    const selection = await chooseDirectory({
+      showDirectoryPicker: pickerWindow.showDirectoryPicker.bind(pickerWindow),
+    });
+    if (selection) emit("dropped", selection);
+  } catch (error: any) {
+    emit("error", error?.message || "The folder could not be read.");
+  }
 };
 
 const handleFileSelect = (event: Event) => {
   const files = (event.target as HTMLInputElement).files;
   if (files && files.length > 0) {
-    emit("dropped", Array.from(files));
+    const selectedFiles = Array.from(files);
+    if (event.target === folderInputRef.value) {
+      emit("dropped", {
+        files: selectedFiles,
+        directories: getUploadDirectoryPaths(selectedFiles.map(file => file.webkitRelativePath || file.name)),
+      });
+    } else {
+      emit("dropped", selectedFiles);
+    }
     (event.target as HTMLInputElement).value = "";
   }
 };

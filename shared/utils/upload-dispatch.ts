@@ -1,9 +1,12 @@
+import type { DirectoryUploadSelection } from "./directory-upload";
+
 export type UploadController = {
   processFiles: (files: File[] | any[]) => Promise<void> | void;
+  processSelection?: (selection: DirectoryUploadSelection) => Promise<void> | void;
 };
 
 export const dispatchDroppedFiles = async (
-  files: File[] | any[],
+  input: File[] | any[] | DirectoryUploadSelection,
   controller: UploadController | null | undefined,
 ): Promise<{ ok: true } | { ok: false; message: string }> => {
   if (!controller) {
@@ -13,7 +16,10 @@ export const dispatchDroppedFiles = async (
     };
   }
 
-  await controller.processFiles(files);
+  if (!Array.isArray(input) && controller.processSelection) {
+    await controller.processSelection(input);
+  } else {
+    await controller.processFiles(Array.isArray(input) ? input : input.files);
+  }
   return { ok: true };
 };
-

@@ -3,12 +3,30 @@ import test from "node:test";
 
 import {
   getUploadDirectoryPaths,
+  normalizeDirectoryManifest,
   normalizeUploadRelativePath,
   resolveAuthorizedFolderId,
   resolveSelectedFolderId,
   replaceDirectoryBranch,
   sortDirectoryChildren,
 } from "../shared/utils/folder-upload-target.ts";
+
+test("directory manifests are normalized, deduplicated, and ordered parent first", () => {
+  assert.deepEqual(normalizeDirectoryManifest([
+    "Campaign\\Assets\\Empty",
+    "Campaign",
+    "Campaign/Assets",
+    "Campaign/Assets",
+  ]), [
+    "Campaign",
+    "Campaign/Assets",
+    "Campaign/Assets/Empty",
+  ]);
+});
+
+test("directory manifests reject traversal", () => {
+  assert.throws(() => normalizeDirectoryManifest(["Campaign/../Secrets"]), /Invalid upload path/u);
+});
 
 test("derives every unique parent directory from uploaded file paths", () => {
   assert.deepEqual(getUploadDirectoryPaths([

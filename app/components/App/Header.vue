@@ -59,7 +59,7 @@ const isNavItemActive = (to: string) => route.path === to;
 </script>
 
 <template>
-  <header class="dam-workspace-header fixed inset-x-0 top-0 z-20 flex flex-col border-b border-[var(--dam-line)] bg-white shadow-[var(--dam-shadow-soft)] dark:bg-[var(--dam-panel)]">
+  <header class="dam-workspace-header fixed inset-x-0 top-0 z-20 flex flex-col border-b border-[var(--dam-line)] bg-white shadow-[var(--dam-shadow-soft)] dark:bg-[var(--dam-panel-solid)]">
     <div class="flex h-[4.5rem] w-full items-center gap-2 pr-3 sm:gap-4 sm:pr-6">
       <Logo />
       <template v-if="showsWorkspaceControls">

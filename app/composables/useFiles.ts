@@ -2,6 +2,7 @@ import type { MaybeRefOrGetter } from "vue";
 import { useRole } from "./useRole";
 import { resolveDriveRouteFolderId } from "~~/shared/utils/drive-storage";
 import { replaceFetchedFiles } from "~~/shared/utils/department-upload";
+import { loadCompleteAssetView } from "~~/shared/utils/directory-pagination";
 
 export function useFiles(endpoint: MaybeRefOrGetter<string | undefined> = "root") {
   const route = useRoute();
@@ -14,17 +15,9 @@ export function useFiles(endpoint: MaybeRefOrGetter<string | undefined> = "root"
   const loading = useState<boolean>("files-loading", () => false);
   const error = useState<string | null>("files-error", () => null);
   const refreshTrigger = useState("files-refresh-trigger", () => 0);
-  const isEnd = ref<boolean>(true);
-
-  const page = ref(1);
   let requestVersion = 0;
-  const fetchFiles = async (reset: boolean) => {
+  const fetchFiles = async () => {
     const version = ++requestVersion;
-    if (reset) {
-      page.value = 1;
-      isEnd.value = true;
-    }
-    if (!reset && loading.value) return;
     loading.value = true;
     error.value = null;
     const filterQuery: Record<string, string | boolean> = {};
@@ -66,33 +59,29 @@ export function useFiles(endpoint: MaybeRefOrGetter<string | undefined> = "root"
       trash: `/api/files/${route.params.bucket}/trash`,
     };
     try {
-      const data = await $fetch<FilesFetchResponse>(
-        endpoints[(toValue(endpoint) || "root") as keyof typeof endpoints] as string,
-        {
-          query: {
-            page: page.value,
-            sortBy: sortBy.value,
-            order: order.value,
-            t: Date.now(),
-            ...filterQuery,
+      const requestTimestamp = Date.now();
+      const completeFiles = await loadCompleteAssetView<IFile>(page =>
+        $fetch<FilesFetchResponse>(
+          endpoints[(toValue(endpoint) || "root") as keyof typeof endpoints] as string,
+          {
+            query: {
+              page,
+              sortBy: sortBy.value,
+              order: order.value,
+              t: requestTimestamp,
+              ...filterQuery,
+            },
+            timeout: 30000,
           },
-          timeout: 30000,
-        }
+        ),
       );
       if (version !== requestVersion) return;
-      if (data && data.data) {
-        files.value = replaceFetchedFiles({
-          current: files.value,
-          incoming: data.data,
-          reset,
-          responseReady: true,
-        });
-        if (data.nextPage) {
-          isEnd.value = false;
-        } else {
-          isEnd.value = true;
-        }
-      }
+      files.value = replaceFetchedFiles({
+        current: files.value,
+        incoming: completeFiles,
+        reset: true,
+        responseReady: true,
+      });
     } catch (err: any) {
       if (version !== requestVersion) return;
       console.error("Error fetching files:", err);
@@ -101,32 +90,27 @@ export function useFiles(endpoint: MaybeRefOrGetter<string | undefined> = "root"
       if (version === requestVersion) loading.value = false;
     }
   };
-  const loadMore = () => {
-    if (isEnd.value) return;
-    page.value++;
-    fetchFiles(false);
-  };
   watch(
     () => [route.params.id, route.params.bucket, route.path, toValue(endpoint)],
     () => {
-      fetchFiles(true);
+      fetchFiles();
     }
   );
   watch(
     refreshTrigger,
     () => {
-      fetchFiles(true);
+      fetchFiles();
     }
   );
   watch(
     [sortBy, order, filters],
     () => {
-      fetchFiles(true);
+      fetchFiles();
     },
     { deep: true }
   );
   onMounted(() => {
-    fetchFiles(true);
+    fetchFiles();
   });
   const onSort = (e: { sortBy: string; order: string }) => {
     sortBy.value = e.sortBy;
@@ -137,8 +121,6 @@ export function useFiles(endpoint: MaybeRefOrGetter<string | undefined> = "root"
   };
   return {
     files,
-    isEnd,
-    loadMore,
     loading,
     error,
     fetchFiles,
