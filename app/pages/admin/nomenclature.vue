@@ -288,9 +288,9 @@ if (isAdmin.value) {
       <div v-if="isAdmin" class="mt-4 flex items-center justify-between gap-4 border-t border-blue-500/20 pt-4">
         <div>
           <p class="text-sm font-medium text-neutral-900 dark:text-white">Require this format on upload</p>
-          <p class="mt-1 text-xs text-neutral-500">When enabled, files are renamed in the upload wizard and invalid direct uploads are rejected.</p>
+          <p class="mt-1 text-xs text-neutral-500">When enabled, every filename is validated before upload and noncompliant files are rejected.</p>
         </div>
-        <UToggle v-model="governanceRules.enforceNomenclature" color="primary" />
+        <USwitch v-model="governanceRules.enforceNomenclature" color="primary" />
       </div>
     </div>
 

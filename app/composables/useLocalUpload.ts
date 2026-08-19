@@ -2,6 +2,7 @@ type LocalUploadOptions = {
   file: File;
   bucket: string;
   parentId: string;
+  departmentId?: string | null;
   relativePath?: string;
   dimensions?: string | null;
   onProgress?: (progress: number) => void;
@@ -13,6 +14,7 @@ export function uploadFileToLocalStorage(options: LocalUploadOptions) {
       parentId: options.parentId || "root",
       relativePath: options.relativePath || options.file.name,
     });
+    if (options.departmentId) query.set("departmentId", options.departmentId);
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `/api/files/${encodeURIComponent(options.bucket)}/local-upload?${query.toString()}`);
     xhr.responseType = "json";

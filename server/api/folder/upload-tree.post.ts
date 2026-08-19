@@ -1,12 +1,12 @@
 import { cleanPath } from "~~/shared/utils/helper";
 import { isUploadRouteAllowed } from "~~/shared/utils/drive-storage";
-import { resolveDepartmentUploadTarget } from "~~/shared/utils/department-upload";
+import { resolveDepartmentUploadTarget, resolveLocalDepartmentUploadTarget } from "~~/shared/utils/department-upload";
 import { normalizeDirectoryManifest } from "~~/shared/utils/folder-upload-target";
-import { ensurePath, getFolder } from "~~/server/utils/db";
+import { ensurePath, getFolder, getOrgDepartments } from "~~/server/utils/db";
 import { requireValidFolderPaths } from "~~/server/utils/folderNomenclature";
 import { getAuthorizedGDriveFolder, ensureGDrivePath } from "~~/server/utils/gdrive";
 import { getGDriveUploadAccess } from "~~/server/utils/gdrive-access";
-import { requireFileDepartmentAccess, requireFilePermission } from "~~/server/utils/permission";
+import { getFileDepartmentId, requireFileDepartmentAccess, requireFilePermission } from "~~/server/utils/permission";
 
 export default defineEventHandler(async (event) => {
   const user = await requireFilePermission(event, "canUpload");
@@ -32,7 +32,7 @@ export default defineEventHandler(async (event) => {
 
   const organizationId = (user as any).organizationId || "org_default";
   const requestedDepartmentId = String(body.departmentId || "").trim();
-  const destinationFolderId = String(body.destinationFolderId || "root").trim() || "root";
+  let destinationFolderId = String(body.destinationFolderId || "root").trim() || "root";
   let departmentId = (user as any).departmentId || null;
 
   if (body.storageTarget === "gdrive") {
@@ -79,6 +79,46 @@ export default defineEventHandler(async (event) => {
 
   if (!isUploadRouteAllowed({ orgType: (user as any).orgType, requestedTarget: "local" })) {
     throw createError({ status: 409, message: "This organization stores assets in Google Drive." });
+  }
+  if (requestedDepartmentId === "root") {
+    if ((user as any).role !== "admin") {
+      throw createError({ status: 403, message: "Only organization administrators can upload to the organization root." });
+    }
+    departmentId = destinationFolderId === "root"
+      ? null
+      : await getFileDepartmentId(destinationFolderId, organizationId);
+  } else if (requestedDepartmentId) {
+    try {
+      const target = resolveLocalDepartmentUploadTarget({
+        actor: user as any,
+        departments: await getOrgDepartments(organizationId),
+        departmentId: requestedDepartmentId,
+      });
+      departmentId = target.departmentId;
+      if (destinationFolderId === "root") {
+        destinationFolderId = target.folderId;
+      } else if (await getFileDepartmentId(destinationFolderId, organizationId) !== target.departmentId) {
+        throw new Error("The selected folder is outside the upload department.");
+      }
+    } catch (error: any) {
+      const message = error?.message || "Invalid upload department.";
+      throw createError({ status: /access|outside/i.test(message) ? 403 : 404, message });
+    }
+  } else if (destinationFolderId !== "root") {
+    departmentId = await getFileDepartmentId(destinationFolderId, organizationId) || departmentId;
+  } else if ((user as any).role !== "admin") {
+    if (!departmentId) {
+      throw createError({ status: 403, message: "Choose an authorized upload department." });
+    }
+    try {
+      destinationFolderId = resolveLocalDepartmentUploadTarget({
+        actor: user as any,
+        departments: await getOrgDepartments(organizationId),
+        departmentId,
+      }).folderId;
+    } catch (error: any) {
+      throw createError({ status: 403, message: error?.message || "Choose an authorized upload department." });
+    }
   }
   const bucket = String(body.bucket || "org");
   await requireFileDepartmentAccess(user, destinationFolderId);

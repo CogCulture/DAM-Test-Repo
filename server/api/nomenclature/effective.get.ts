@@ -1,6 +1,6 @@
 import { getGDriveRules, getNomenclatureForDept, getOrgDepartments, getOrgFeatures } from "~~/server/utils/db";
 import { getApprovedUser } from "~~/server/utils/permission";
-import { resolveDepartmentUploadTarget } from "~~/shared/utils/department-upload";
+import { resolveDepartmentUploadTarget, resolveLocalDepartmentUploadTarget } from "~~/shared/utils/department-upload";
 
 export default defineEventHandler(async (event) => {
   const user = await getApprovedUser(event);
@@ -10,7 +10,10 @@ export default defineEventHandler(async (event) => {
   if (requestedDepartmentId && requestedDepartmentId !== "root") {
     const departments = await getOrgDepartments(organizationId);
     try {
-      departmentId = resolveDepartmentUploadTarget({
+      const resolveTarget = (user as any).orgType === "gdrive"
+        ? resolveDepartmentUploadTarget
+        : resolveLocalDepartmentUploadTarget;
+      departmentId = resolveTarget({
         actor: user as any,
         departments,
         departmentId: requestedDepartmentId,

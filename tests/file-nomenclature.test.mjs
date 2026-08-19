@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  findUploadGovernanceViolation,
+  findEffectiveUploadGovernanceViolation,
   normalizeAllowedExtensions,
   normalizeNomenclatureSegments,
   validateFileExtension,
@@ -75,6 +77,43 @@ test("rejects wrong shapes and administrator-restricted values", () => {
   assert.match(validateFileNomenclature("Acme.pdf", policy).message, /Brand_MediaType/);
   assert.match(validateFileNomenclature("Other_Video.pdf", policy).message, /Brand/);
   assert.match(validateFileNomenclature("Acme_Image.pdf", policy).message, /Media type/);
+});
+
+test("strict upload preflight rejects the first original filename that violates policy", () => {
+  const violation = findUploadGovernanceViolation({
+    filenames: ["Acme_Photo.pdf", "tanishgahlot_resume-1.pdf"],
+    enabled: true,
+    segments,
+    allowedExtensions: ["pdf"],
+  });
+
+  assert.equal(violation?.filename, "tanishgahlot_resume-1.pdf");
+  assert.match(violation?.message || "", /Brand/);
+});
+
+test("strict upload preflight accepts compliant original filenames", () => {
+  assert.equal(findUploadGovernanceViolation({
+    filenames: ["Acme_Photo.pdf", "Acme_Video.pdf"],
+    enabled: true,
+    segments,
+    allowedExtensions: ["pdf"],
+  }), null);
+});
+
+test("strict preflight reads the effective API's nested nomenclature payload", () => {
+  const policy = {
+    enforced: true,
+    nomenclature: {
+      segments,
+      allowedExtensions: ["pdf"],
+    },
+  };
+
+  assert.equal(findEffectiveUploadGovernanceViolation(["Acme_Photo.pdf"], policy), null);
+  assert.equal(
+    findEffectiveUploadGovernanceViolation(["tanishgahlot_resume-1.pdf"], policy)?.filename,
+    "tanishgahlot_resume-1.pdf",
+  );
 });
 
 test("validates folder names with the same segment model as files", () => {

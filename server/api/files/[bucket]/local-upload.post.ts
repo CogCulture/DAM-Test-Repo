@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
 import exifr from "exifr";
 import { cleanPath, getContentType } from "~~/shared/utils/helper";
-import { getFolder, getGDriveRules, getNomenclatureForDept, getOrgFeatures, insertUpdateFile } from "~~/server/utils/db";
+import { getFolder, getGDriveRules, getNomenclatureForDept, getOrgDepartments, getOrgFeatures, insertUpdateFile } from "~~/server/utils/db";
 import { getLocalDamStorageRoot, localBlob } from "~~/server/utils/localBlob";
-import { requireFileDepartmentAccess, verifyBucket } from "~~/server/utils/permission";
+import { getFileDepartmentId, requireFileDepartmentAccess, verifyBucket } from "~~/server/utils/permission";
 import { readZipContents } from "~~/server/utils/zip";
 import { evaluateUploadGovernance } from "~~/shared/utils/file-nomenclature";
 import { files } from "~~/server/database/schema";
@@ -12,6 +12,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { planFileUpload } from "~~/shared/utils/file-collision";
 import { isUploadRouteAllowed } from "~~/shared/utils/drive-storage";
 import { requireValidFolderPath } from "~~/server/utils/folderNomenclature";
+import { resolveLocalDepartmentUploadTarget } from "~~/shared/utils/department-upload";
 
 const normalizeRelativePath = (value: string) => {
   const normalized = value.replace(/\\/g, "/").replace(/^\/+/, "");
@@ -35,7 +36,49 @@ export default defineEventHandler(async (event) => {
     });
   }
   const query = getQuery(event);
-  const parentId = String(query.parentId || "root");
+  let parentId = String(query.parentId || "root");
+  const requestedDepartmentId = String(query.departmentId || "").trim();
+  let departmentId = (user as any).departmentId || null;
+  if (requestedDepartmentId === "root") {
+    if ((user as any).role !== "admin") {
+      throw createError({ status: 403, message: "Only organization administrators can upload to the organization root." });
+    }
+    departmentId = parentId === "root"
+      ? null
+      : await getFileDepartmentId(parentId, user.organizationId);
+  } else if (requestedDepartmentId) {
+    try {
+      const target = resolveLocalDepartmentUploadTarget({
+        actor: user as any,
+        departments: await getOrgDepartments(user.organizationId),
+        departmentId: requestedDepartmentId,
+      });
+      departmentId = target.departmentId;
+      if (parentId === "root") {
+        parentId = target.folderId;
+      } else if (await getFileDepartmentId(parentId, user.organizationId) !== target.departmentId) {
+        throw new Error("The selected folder is outside the upload department.");
+      }
+    } catch (error: any) {
+      const message = error?.message || "Invalid upload department.";
+      throw createError({ status: /access|outside/i.test(message) ? 403 : 404, message });
+    }
+  } else if (parentId !== "root") {
+    departmentId = await getFileDepartmentId(parentId, user.organizationId) || departmentId;
+  } else if ((user as any).role !== "admin") {
+    if (!departmentId) {
+      throw createError({ status: 403, message: "Choose an authorized upload department." });
+    }
+    try {
+      parentId = resolveLocalDepartmentUploadTarget({
+        actor: user as any,
+        departments: await getOrgDepartments(user.organizationId),
+        departmentId,
+      }).folderId;
+    } catch (error: any) {
+      throw createError({ status: 403, message: error?.message || "Choose an authorized upload department." });
+    }
+  }
   await requireFileDepartmentAccess(user, parentId);
   const relativePath = normalizeRelativePath(String(query.relativePath || ""));
   const fileName = relativePath.split("/").pop()!;
@@ -45,13 +88,13 @@ export default defineEventHandler(async (event) => {
   await requireValidFolderPath({
     user,
     relativePath: relativeDirectory,
-    departmentId: (user as any).departmentId,
+    departmentId,
   });
 
   const [features, rules, nomenclature] = await Promise.all([
     getOrgFeatures(user.organizationId),
     getGDriveRules(user.organizationId),
-    getNomenclatureForDept(user.organizationId, (user as any).departmentId),
+    getNomenclatureForDept(user.organizationId, departmentId),
   ]);
   const governanceEnabled = features.nomenclature !== false && rules.enforceNomenclature;
   const configuredSegments = Array.isArray(nomenclature?.segments) ? nomenclature.segments : [];

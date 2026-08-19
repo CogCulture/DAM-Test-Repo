@@ -68,6 +68,27 @@ export const resolveSelectedFolderId = ({
   rootFolderId: string;
 }) => selectedFolderId?.trim() || routeFolderId?.trim() || rootFolderId;
 
+export const resolveLocalUploadParentId = ({
+  selectedDestinationId,
+  selectedDepartmentFolderId,
+  routeFolderId,
+  routeBreadcrumbIds,
+}: {
+  selectedDestinationId?: string | null;
+  selectedDepartmentFolderId?: string | null;
+  routeFolderId?: string | null;
+  routeBreadcrumbIds?: string[] | null;
+}) => {
+  if (selectedDestinationId === "root") return "root";
+  const selectedId = selectedDepartmentFolderId?.trim();
+  const routeId = routeFolderId?.trim();
+  if (!selectedId) return routeId || "root";
+  if (routeId && (routeId === selectedId || routeBreadcrumbIds?.includes(selectedId))) {
+    return routeId;
+  }
+  return selectedId;
+};
+
 export const resolveAuthorizedFolderId = ({
   requestedId,
   allowedIds,

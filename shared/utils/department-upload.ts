@@ -3,6 +3,7 @@ export type UploadDestination = {
   name: string;
   type: "organization" | "department";
   available: boolean;
+  folderId?: string;
   unavailableReason?: string;
 };
 
@@ -10,12 +11,14 @@ type UploadActor = {
   role?: string | null;
   organizationId?: string | null;
   accessibleDepartmentIds?: string[] | null;
+  orgType?: string | null;
 };
 
 type UploadDepartment = {
   id: string;
   organizationId: string;
   name: string;
+  folderId?: string | null;
   gdriveFolderId?: string | null;
 };
 
@@ -34,6 +37,7 @@ export const buildDepartmentUploadOptions = ({
   departments: UploadDepartment[];
 }): UploadDestination[] => {
   const accessibleIds = new Set(actor.accessibleDepartmentIds || []);
+  const usesDrive = !actor.orgType || actor.orgType === "gdrive";
   const visibleDepartments = organizationDepartments(actor, departments).filter(
     (department) => actor.role === "admin" || accessibleIds.has(department.id),
   );
@@ -47,16 +51,51 @@ export const buildDepartmentUploadOptions = ({
           available: true,
         }]
       : []),
-    ...visibleDepartments.map((department) => ({
-      id: department.id,
-      name: department.name,
-      type: "department" as const,
-      available: Boolean(department.gdriveFolderId),
-      ...(!department.gdriveFolderId
-        ? { unavailableReason: "This department is not connected to Google Drive." }
-        : {}),
-    })),
+    ...visibleDepartments.map((department) => {
+      const folderId = usesDrive ? department.gdriveFolderId : department.folderId;
+      return {
+        id: department.id,
+        name: department.name,
+        type: "department" as const,
+        available: Boolean(folderId),
+        ...(!usesDrive && folderId ? { folderId } : {}),
+        ...(!folderId
+          ? { unavailableReason: usesDrive
+              ? "This department is not connected to Google Drive."
+              : "This department is not connected to a DAM folder." }
+          : {}),
+      };
+    }),
   ];
+};
+
+export const resolveLocalDepartmentUploadTarget = ({
+  actor,
+  departments,
+  departmentId,
+}: {
+  actor: UploadActor;
+  departments: UploadDepartment[];
+  departmentId: string;
+}) => {
+  const department = organizationDepartments(actor, departments).find(
+    (candidate) => candidate.id === departmentId,
+  );
+  if (!department) throw new Error("Upload department was not found in this organization.");
+
+  const accessibleIds = new Set(actor.accessibleDepartmentIds || []);
+  if (actor.role !== "admin" && !accessibleIds.has(department.id)) {
+    throw new Error("You do not have access to this upload department.");
+  }
+  if (!department.folderId) {
+    throw new Error("This department is not connected to a DAM folder.");
+  }
+
+  return {
+    departmentId: department.id,
+    departmentName: department.name,
+    folderId: department.folderId,
+  };
 };
 
 export const resolveDepartmentUploadTarget = ({

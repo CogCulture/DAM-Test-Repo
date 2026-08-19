@@ -7,8 +7,9 @@ import { resolveDriveRouteFolderId, resolveUploadStorageTarget } from "~~/shared
 import { resolveUploadPickerMode } from "~~/shared/utils/upload-picker";
 import { buildDriveUploadUrl, type UploadDestination } from "~~/shared/utils/department-upload";
 import { useUploadDestination, type ActiveUploadFolder } from "~/composables/useUploadDestination";
-import { getUploadDirectoryPaths, normalizeDirectoryManifest } from "~~/shared/utils/folder-upload-target";
+import { getUploadDirectoryPaths, normalizeDirectoryManifest, resolveLocalUploadParentId } from "~~/shared/utils/folder-upload-target";
 import { chooseUploadSource, type DirectoryUploadSelection } from "~~/shared/utils/directory-upload";
+import { findEffectiveUploadGovernanceViolation } from "~~/shared/utils/file-nomenclature";
 
 const props = withDefaults(defineProps<{
   type?: "files" | "folder";
@@ -45,6 +46,24 @@ const folderItems = computed(() => folderOptions.value.map(destination => ({
   label: destination.path || destination.name,
   value: destination.id,
 })));
+const localDestinationItems = computed(() => (uploadDestinations.value || [])
+  .filter(destination => destination.available)
+  .map(destination => ({ label: destination.name, value: destination.id })));
+const localRouteFolderIds = computed(() => [
+  ...(folder.value?.breadcrumb || []).map(item => item.id),
+  ...(folder.value?.id ? [folder.value.id] : []),
+]);
+const routeDepartmentDestination = computed(() => (uploadDestinations.value || []).find(
+  destination => destination.available
+    && Boolean(destination.folderId)
+    && localRouteFolderIds.value.includes(destination.folderId!),
+) || null);
+const localParentId = computed(() => resolveLocalUploadParentId({
+  selectedDestinationId: selectedDestinationId.value,
+  selectedDepartmentFolderId: selectedDestination.value?.folderId,
+  routeFolderId: folder.value?.id,
+  routeBreadcrumbIds: localRouteFolderIds.value,
+}));
 
 const mergeFolderOptions = (incoming: ActiveUploadFolder[]) => {
   const byId = new Map(folderOptions.value.map(destination => [destination.id, destination]));
@@ -88,9 +107,6 @@ const isUploading = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 const emit = defineEmits(["success"]);
 const filesRefreshTrigger = useState<number>("files-refresh-trigger", () => 0);
-const nomenclatureOpen = ref(false);
-const nomenclatureFiles = ref<File[]>([]);
-const pendingDirectoryPaths = ref<string[]>([]);
 const nomenclatureQuery = computed(() => selectedDestinationId.value && selectedDestinationId.value !== "root"
   ? { departmentId: selectedDestinationId.value }
   : {});
@@ -99,24 +115,10 @@ const { data: nomenclaturePolicy, refresh: refreshNomenclaturePolicy } = await u
   { query: nomenclatureQuery },
 );
 
-const handleNomenclatureSuccess = async (result?: any) => {
-  if (pendingDirectoryPaths.value.length) {
-    await createDirectoryTree(pendingDirectoryPaths.value);
-    pendingDirectoryPaths.value = [];
-  }
-  uploadPhase.value = "syncing";
-  filesRefreshTrigger.value++;
-  emit("success");
-  if (result?.destination?.route && selectedFolderId.value !== "root") {
-    await navigateTo(result.destination.route);
-  }
-  uploadPhase.value = null;
-};
-
 watch([orgType, () => (user.value as any)?.role], ([value]) => {
   storageTarget.value = resolveUploadStorageTarget({ orgType: value });
+  refreshUploadDestinations();
   if (value === "gdrive") {
-    refreshUploadDestinations();
     initializeFolderOptions().catch((error) => {
       toast.add({
         title: "Folder destinations unavailable",
@@ -127,7 +129,12 @@ watch([orgType, () => (user.value as any)?.role], ([value]) => {
   }
 }, { immediate: true });
 
-watch(uploadDestinations, (destinations) => {
+watch([uploadDestinations, folder], ([destinations]) => {
+  const routeDestination = routeDepartmentDestination.value;
+  if (routeDestination) {
+    selectedDestinationId.value = routeDestination.id;
+    return;
+  }
   const current = destinations?.find((destination) => destination.id === selectedDestinationId.value && destination.available);
   if (!current) {
     selectedDestinationId.value = destinations?.find((destination) => destination.available)?.id || null;
@@ -165,7 +172,7 @@ const createDirectoryTree = async (paths: string[]) => {
     body: {
       paths,
       departmentId: selectedDestinationId.value,
-      destinationFolderId: canUseGDrive.value ? selectedFolderId.value : (folder.value?.id || "root"),
+      destinationFolderId: canUseGDrive.value ? selectedFolderId.value : localParentId.value,
       storageTarget: canUseGDrive.value && storageTarget.value === "gdrive" ? "gdrive" : "local",
       bucket: String(route.params.bucket || "org"),
     },
@@ -196,7 +203,7 @@ const processSelection = async (selection: DirectoryUploadSelection) => {
         body: {
           paths: folderPaths,
           departmentId: selectedDestinationId.value,
-          destinationFolderId: selectedFolderId.value,
+          destinationFolderId: canUseGDrive.value ? selectedFolderId.value : localParentId.value,
         },
       });
     } catch (error: any) {
@@ -222,10 +229,16 @@ const processSelection = async (selection: DirectoryUploadSelection) => {
     emit("success");
     return;
   }
-  if (nomenclaturePolicy.value?.enforced) {
-    nomenclatureFiles.value = filesList;
-    pendingDirectoryPaths.value = folderPaths;
-    nomenclatureOpen.value = true;
+  const violation = findEffectiveUploadGovernanceViolation(
+    filesList.map(file => file.name),
+    nomenclaturePolicy.value,
+  );
+  if (violation) {
+    toast.add({
+      title: "Upload rejected",
+      description: `${violation.filename}: ${violation.message}`,
+      color: "error",
+    });
     if (fileInput.value) fileInput.value.value = "";
     return;
   }
@@ -394,7 +407,8 @@ const uploadFile = async (file: File) => {
   const result = await uploadFileToLocalStorage({
     file,
     bucket: String(route.params.bucket || "org"),
-    parentId: folder.value?.id || "root",
+    parentId: localParentId.value,
+    departmentId: selectedDestinationId.value,
     relativePath: targetRelativePath,
     dimensions,
     onProgress: (value) => {
@@ -432,7 +446,15 @@ defineExpose({ processFiles, processSelection });
           class="min-w-0 flex-1"
           aria-label="Select upload folder"
         />
-        <span v-else class="truncate text-xs font-semibold text-[var(--dam-ink)]">Local development storage</span>
+        <USelect
+          v-else
+          v-model="selectedDestinationId"
+          :items="localDestinationItems"
+          value-key="value"
+          label-key="label"
+          class="min-w-0 flex-1"
+          aria-label="Select upload department"
+        />
       </div>
       <UButtonGroup class="h-10 min-w-0 flex-1 rounded-xl shadow-[0_12px_30px_rgba(37,99,235,.22)]">
         <UButton
@@ -470,13 +492,4 @@ defineExpose({ processFiles, processSelection });
       </div>
     </div>
   </div>
-  <NomenclatureUploadModal
-    v-model:open="nomenclatureOpen"
-    :files="nomenclatureFiles"
-    :folder="folder"
-    :destination-id="selectedDestinationId"
-    :destination-name="selectedFolder?.path || selectedFolder?.name || selectedDestination?.name || 'Google Drive'"
-    :folder-id="selectedFolderId"
-    @success="handleNomenclatureSuccess"
-  />
 </template>

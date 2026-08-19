@@ -6,10 +6,36 @@ import {
   normalizeDirectoryManifest,
   normalizeUploadRelativePath,
   resolveAuthorizedFolderId,
+  resolveLocalUploadParentId,
   resolveSelectedFolderId,
   replaceDirectoryBranch,
   sortDirectoryChildren,
 } from "../shared/utils/folder-upload-target.ts";
+
+test("a nested route folder is preserved when it belongs to the selected department", () => {
+  assert.equal(resolveLocalUploadParentId({
+    selectedDepartmentFolderId: "marketing-root",
+    routeFolderId: "marketing-campaign",
+    routeBreadcrumbIds: ["marketing-root", "marketing-campaign"],
+  }), "marketing-campaign");
+});
+
+test("an explicit department selection wins over a route in another department", () => {
+  assert.equal(resolveLocalUploadParentId({
+    selectedDepartmentFolderId: "marketing-root",
+    routeFolderId: "finance-folder",
+    routeBreadcrumbIds: ["finance-root", "finance-folder"],
+  }), "marketing-root");
+});
+
+test("an explicit organization-root selection wins over a nested department route", () => {
+  assert.equal(resolveLocalUploadParentId({
+    selectedDestinationId: "root",
+    selectedDepartmentFolderId: null,
+    routeFolderId: "marketing-campaign",
+    routeBreadcrumbIds: ["marketing-root", "marketing-campaign"],
+  }), "root");
+});
 
 test("directory manifests are normalized, deduplicated, and ordered parent first", () => {
   assert.deepEqual(normalizeDirectoryManifest([

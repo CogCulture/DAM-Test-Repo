@@ -6,6 +6,7 @@ const {
   buildDriveUploadUrl,
   resolveDriveUploadParent,
   resolveDepartmentUploadTarget,
+  resolveLocalDepartmentUploadTarget,
   replaceFetchedFiles,
 } = await import("../shared/utils/department-upload.ts");
 
@@ -20,17 +21,23 @@ const member = {
   organizationId,
   accessibleDepartmentIds: ["finance"],
 };
+const localAdmin = {
+  ...admin,
+  orgType: "s3",
+};
 const departments = [
   {
     id: "finance",
     organizationId,
     name: "Finance",
+    folderId: "local-finance",
     gdriveFolderId: "drive-finance",
   },
   {
     id: "hr",
     organizationId,
     name: "HR",
+    folderId: "local-hr",
     gdriveFolderId: null,
   },
   {
@@ -59,6 +66,31 @@ test("members receive only effectively accessible departments", () => {
   const options = buildDepartmentUploadOptions({ actor: member, departments });
 
   assert.deepEqual(options.map((option) => option.id), ["finance"]);
+});
+
+test("local organizations receive department folders as upload destinations", () => {
+  const options = buildDepartmentUploadOptions({ actor: localAdmin, departments });
+
+  assert.deepEqual(
+    options.map(({ id, folderId, available }) => ({ id, folderId, available })),
+    [
+      { id: "root", folderId: undefined, available: true },
+      { id: "finance", folderId: "local-finance", available: true },
+      { id: "hr", folderId: "local-hr", available: true },
+    ],
+  );
+});
+
+test("explicit local department resolution returns its DAM folder", () => {
+  assert.deepEqual(resolveLocalDepartmentUploadTarget({
+    actor: localAdmin,
+    departments,
+    departmentId: "finance",
+  }), {
+    departmentId: "finance",
+    departmentName: "Finance",
+    folderId: "local-finance",
+  });
 });
 
 test("a department without a Drive mapping fails without root fallback", () => {

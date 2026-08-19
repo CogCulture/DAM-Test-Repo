@@ -1,4 +1,4 @@
-import { resolveDepartmentUploadTarget } from "~~/shared/utils/department-upload";
+import { resolveDepartmentUploadTarget, resolveLocalDepartmentUploadTarget } from "~~/shared/utils/department-upload";
 import { normalizeUploadRelativePath } from "~~/shared/utils/folder-upload-target";
 import { getOrgDepartments } from "~~/server/utils/db";
 import { requireValidFolderPaths } from "~~/server/utils/folderNomenclature";
@@ -34,7 +34,10 @@ export default defineEventHandler(async (event) => {
   } else if (requestedDepartmentId) {
     const departments = await getOrgDepartments(organizationId);
     try {
-      departmentId = resolveDepartmentUploadTarget({
+      const resolveTarget = (user as any).orgType === "gdrive"
+        ? resolveDepartmentUploadTarget
+        : resolveLocalDepartmentUploadTarget;
+      departmentId = resolveTarget({
         actor: user as any,
         departments,
         departmentId: requestedDepartmentId,

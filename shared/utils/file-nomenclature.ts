@@ -151,3 +151,42 @@ export const evaluateUploadGovernance = (input: {
   if (!nomenclature.valid) return nomenclature;
   return validateFileExtension(input.filename, input.allowedExtensions);
 };
+
+export const findUploadGovernanceViolation = (input: {
+  filenames: string[];
+  enabled: boolean;
+  segments: NomenclatureSegment[];
+  allowedExtensions?: string[] | null;
+}): ({ filename: string; message: string } | null) => {
+  for (const filename of input.filenames) {
+    const result = evaluateUploadGovernance({
+      filename,
+      enabled: input.enabled,
+      segments: input.segments,
+      allowedExtensions: input.allowedExtensions,
+    });
+    if (!result.valid) {
+      return {
+        filename,
+        message: result.message || "File nomenclature is invalid.",
+      };
+    }
+  }
+  return null;
+};
+
+export const findEffectiveUploadGovernanceViolation = (
+  filenames: string[],
+  policy: {
+    enforced?: boolean;
+    nomenclature?: {
+      segments?: NomenclatureSegment[];
+      allowedExtensions?: string[] | null;
+    } | null;
+  } | null | undefined,
+) => findUploadGovernanceViolation({
+  filenames,
+  enabled: Boolean(policy?.enforced),
+  segments: policy?.nomenclature?.segments || [],
+  allowedExtensions: policy?.nomenclature?.allowedExtensions,
+});

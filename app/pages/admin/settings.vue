@@ -519,7 +519,7 @@ const roleLabelMap: Record<string, string> = {
                 <Icon name="lucide:lock" class="size-3" /> Nomenclature feature is disabled by Super Admin.
               </p>
             </div>
-            <UToggle
+            <USwitch
               v-model="gdriveRules.enforceNomenclature"
               :disabled="!features.nomenclature"
               color="primary"
@@ -540,7 +540,7 @@ const roleLabelMap: Record<string, string> = {
                 <Icon name="lucide:lock" class="size-3" /> Hierarchy feature is disabled by Super Admin.
               </p>
             </div>
-            <UToggle
+            <USwitch
               v-model="gdriveRules.enforceHierarchy"
               :disabled="!features.hierarchy"
               color="primary"
@@ -558,7 +558,7 @@ const roleLabelMap: Record<string, string> = {
                 When enabled (default), all users can see all department folders at the root. When disabled, users only see their own department's folder, keeping cross-team files private.
               </p>
             </div>
-            <UToggle
+            <USwitch
               v-model="gdriveRules.allowInterDeptVisibility"
               color="primary"
             />
