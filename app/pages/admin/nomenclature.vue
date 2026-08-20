@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useRole } from "~/composables/useRole";
+import { useToast } from "~/composables/useToast";
 import { normalizeNomenclatureSegments } from "~~/shared/utils/file-nomenclature";
 
 const { canEditNomenclature, departmentId, isDeptHead, isAdmin } = useRole();
