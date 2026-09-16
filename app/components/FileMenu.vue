@@ -102,27 +102,11 @@ const fileMenuItems = computed(() => {
   // Group 1
   list.push([
     {
-      label: "Open",
-      icon: "lucide:eye",
-      onSelect: () => {
-        if (externalUrl.value && typeof window !== "undefined") {
-          window.open(externalUrl.value, "_blank", "noopener,noreferrer");
-          return;
-        }
-        if (props.openMode === "emit") {
-          emit("open", props.file);
-          return;
-        }
-        navigateTo(`/${route.params.bucket}/file/${props.file.id}`);
-      },
-      disabled: props.file.type === "folder",
-    },
-    {
-      label: "Open in Browser",
+      label: "Open in New Tab",
       icon: "lucide:external-link",
       href: externalUrl.value || (isDriveAsset.value
         ? `/api/gdrive/download/${encodeURIComponent(props.file.id)}?inline=true`
-        : `/api/files/${encodeURIComponent(route.params.bucket)}/download/${encodeURIComponent(props.file.id)}?inline=true`),
+        : `/api/files/${encodeURIComponent(route.params.bucket || 'org')}/download/${encodeURIComponent(props.file.id)}?inline=true`),
       target: "_blank",
       disabled: props.file.type === "folder",
     },

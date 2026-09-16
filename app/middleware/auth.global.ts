@@ -2,7 +2,7 @@ export default defineNuxtRouteMiddleware((to) => {
   const { loggedIn, user, fetch: fetchSession } = useUserSession();
 
   // Public routes: auth pages + superadmin (handled by its own middleware)
-  const publicRoutes = ["/auth/signin", "/auth/complete-profile", "/auth/pending", "/auth/org-pending", "/auth/suspended", "/superadmin", "/admin/gdrive-setup"];
+  const publicRoutes = ["/auth/signin", "/auth/select-storage", "/auth/complete-profile", "/auth/pending", "/auth/org-pending", "/auth/suspended", "/superadmin", "/admin/gdrive-setup"];
   if (publicRoutes.some((r) => to.path.startsWith(r))) return;
 
   if (!loggedIn.value) {

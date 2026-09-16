@@ -1,5 +1,6 @@
 import { requireFileDepartmentAccess, verifyBucket } from "~~/server/utils/permission";
 import { getFolder } from "~~/server/utils/db";
+import { localBlob } from "~~/server/utils/localBlob";
 
 export default defineEventHandler(async (event) => {
   const { bucket, user } = await verifyBucket(event, "canDownload");

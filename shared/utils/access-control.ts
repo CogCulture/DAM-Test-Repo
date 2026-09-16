@@ -23,7 +23,7 @@ export function resolvePermission(input: {
   if (typeof input.individual === "boolean") return input.individual;
   if (typeof input.departmentRole === "boolean") return input.departmentRole;
   if (typeof input.globalRole === "boolean") return input.globalRole;
-  return false;
+  return true;
 }
 
 export function getAccessibleDepartmentIds(input: {

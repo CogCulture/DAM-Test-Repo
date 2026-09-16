@@ -66,18 +66,18 @@ const saveLink = async () => {
 </script>
 
 <template>
-  <form class="mt-3 rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] p-3 shadow-[var(--dam-shadow-soft)]" @submit.prevent="saveLink">
-    <div class="mb-2 flex items-center gap-2">
-      <Icon name="logos:google-drive" class="size-4" />
+  <form class="flex flex-col gap-2.5 rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] p-3 shadow-inner" @submit.prevent="saveLink">
+    <div class="flex items-center gap-2">
+      <Icon name="logos:google-drive" class="size-4 shrink-0" />
       <div>
-        <p class="text-xs font-bold text-[var(--dam-ink)]">Import a file from a link</p>
-        <p class="text-[10px] text-[var(--dam-muted)]">DAM securely copies the actual file into your organization's managed storage.</p>
+        <p class="text-xs font-semibold text-[var(--dam-ink)]">Import file from public link or Drive</p>
+        <p class="text-[10px] text-[var(--dam-muted)]">Copies the target file directly into your managed DAM storage.</p>
       </div>
     </div>
-    <div class="grid min-w-0 grid-cols-1 gap-2">
-      <UInput v-model="link" type="url" placeholder="Paste a public HTTP(S) or Google Drive file URL" aria-label="Public file URL" class="min-w-0" />
-      <UInput v-model="name" placeholder="Optional filename override" aria-label="Imported filename" class="min-w-0" />
-      <UButton type="submit" icon="lucide:download" label="Import actual file" color="primary" :loading="saving" :disabled="!canSubmit" class="w-full justify-center" />
+    <div class="grid min-w-0 grid-cols-1 gap-2 mt-0.5">
+      <UInput v-model="link" type="url" placeholder="Paste HTTP(S) or Google Drive file URL..." aria-label="Public file URL" class="w-full" size="sm" />
+      <UInput v-model="name" placeholder="Optional filename override" aria-label="Imported filename" class="w-full" size="sm" />
+      <UButton type="submit" icon="lucide:download" label="Import File" color="primary" variant="solid" size="sm" :loading="saving" :disabled="!canSubmit" class="w-full justify-center rounded-xl font-semibold mt-0.5" />
     </div>
   </form>
 </template>

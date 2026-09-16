@@ -36,6 +36,11 @@ export default defineEventHandler(async (event) => {
   }
 
   const email = body.email.trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || !emailRegex.test(email)) {
+    throw createError({ status: 400, message: "A valid email address (e.g. manager@company.com) is required." });
+  }
+
   const token = randomUUID();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
@@ -51,9 +56,10 @@ export default defineEventHandler(async (event) => {
     createdAt: new Date(),
   });
 
-  // Construct invite URL for local sharing (Option B)
-  const config = useRuntimeConfig();
-  const host = process.env.NUXT_PUBLIC_SITE_URL || "http://localhost:3005";
+  // Dynamically resolve active request host and protocol
+  const requestHost = getRequestHeader(event, "x-forwarded-host") || getRequestHeader(event, "host") || "localhost:3000";
+  const protocol = getRequestHeader(event, "x-forwarded-proto") || (requestHost.includes("localhost") || requestHost.includes("127.0.0.1") ? "http" : "https");
+  const host = process.env.NUXT_PUBLIC_SITE_URL || `${protocol}://${requestHost}`;
   const inviteUrl = `${host}/auth/invite?token=${token}`;
 
   return {

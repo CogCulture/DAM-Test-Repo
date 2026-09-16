@@ -119,7 +119,7 @@ const onSubmit = async () => {
       });
       toast.add({
         title: "Folder Request Submitted",
-        description: `Your request to create folder "${form.value.name}" is pending approval from your administrator or Department Head.`,
+        description: `Your request to create folder "${form.value.name}" is pending approval.`,
         color: "warning"
       });
       open.value = false;
@@ -133,7 +133,7 @@ const onSubmit = async () => {
         },
       });
       if (data.folder?.id) {
-        const refreshTrigger = useState("files-refresh-trigger");
+        const refreshTrigger = useState("files-refresh-trigger", () => 0);
         refreshTrigger.value++;
         open.value = false;
         form.value.name = "";
@@ -148,7 +148,7 @@ const onSubmit = async () => {
         }
       );
       if (data.id) {
-        const refreshTrigger = useState("files-refresh-trigger");
+        const refreshTrigger = useState("files-refresh-trigger", () => 0);
         refreshTrigger.value++;
         open.value = false;
         form.value.name = "";

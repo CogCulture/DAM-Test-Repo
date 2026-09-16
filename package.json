@@ -6,6 +6,7 @@
     "build": "nuxt build",
     "build:gcp": "node scripts/build-gcp.mjs",
     "dev": "nuxt dev",
+    "dev:local": "node scripts/dev-local.mjs",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",

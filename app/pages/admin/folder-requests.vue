@@ -1,5 +1,6 @@
 <script setup lang="ts">
-
+import { useRole } from "~/composables/useRole";
+import { useToast } from "~/composables/useToast";
 import { getDepartmentName } from "~~/shared/constants/departments";
 import { getRoleLabel } from "~~/shared/constants/roles";
 

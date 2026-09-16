@@ -60,7 +60,10 @@ const getFileUrl = (f: IFile, inline = false) => {
 
 const isTextFile = (f: IFile) => {
   const contentType = (f.contentType || '').toLowerCase();
-  return contentType.startsWith('text/') || contentType === 'application/json' || contentType.endsWith('+json');
+  const name = (f.name || '').toLowerCase();
+  const ext = name.split('.').pop() || '';
+  const codeExts = new Set(['py', 'js', 'ts', 'jsx', 'tsx', 'vue', 'html', 'htm', 'css', 'txt', 'md', 'json', 'xml', 'yaml', 'yml', 'sh', 'sql', 'php', 'go', 'java', 'cpp', 'c', 'rs', 'rb', 'csv', 'env', 'toml', 'ini']);
+  return contentType.startsWith('text/') || contentType === 'application/json' || contentType === 'application/javascript' || contentType === 'application/typescript' || contentType.endsWith('+json') || codeExts.has(ext);
 }
 
 const isOfficeFile = (contentType: string) => {
@@ -83,10 +86,17 @@ const getOfficeComponent = (contentType: string) => {
 }
 </script>
 <template>
-  <UModal v-if="opened >= 0" v-model:open="open" fullscreen>
+  <UModal
+    v-if="opened >= 0"
+    v-model:open="open"
+    :ui="{
+      overlay: 'fixed inset-0 z-[10000] bg-slate-950/75 backdrop-blur-sm',
+      content: 'z-[10001] !h-[90dvh] !max-h-[90dvh] !w-[92vw] !max-w-[min(92rem,92vw)] overflow-hidden rounded-2xl border border-[var(--dam-line-strong)] bg-[var(--dam-panel-solid)] shadow-2xl ring-0',
+    }"
+  >
     <template #content>
-      <div class="flex h-dvh w-full flex-col overflow-hidden lg:flex-row">
-        <div class="relative min-h-0 grow flex justify-center items-center bg-white dark:bg-neutral-900 overflow-hidden">
+      <div class="flex h-full w-full flex-col overflow-hidden lg:flex-row">
+        <div class="relative flex min-h-0 grow items-center justify-center overflow-hidden bg-neutral-100 dark:bg-neutral-950">
           <Transition name="fade" mode="out-in">
             <div
               v-if="file"
@@ -112,7 +122,7 @@ const getOfficeComponent = (contentType: string) => {
                   :is="getOfficeComponent(file.contentType)"
                   :src="getFileUrl(file, true)"
                   class="w-full h-full"
-                  style="height: 100vh;"
+                  style="height: 100%;"
                 />
               </ClientOnly>
               <div v-else class="w-full h-full flex justify-center items-center">
@@ -122,7 +132,7 @@ const getOfficeComponent = (contentType: string) => {
           </Transition>
         </div>
         <div
-          class="z-10 flex h-[min(42dvh,24rem)] w-full shrink-0 flex-col border-t border-neutral-200/70 bg-white dark:bg-neutral-800 lg:h-dvh lg:w-96 lg:border-l lg:border-t-0"
+          class="z-10 flex h-[min(38dvh,22rem)] w-full shrink-0 flex-col border-t border-neutral-200/70 bg-white dark:bg-neutral-900 lg:h-full lg:w-96 lg:border-l lg:border-t-0"
         >
           <div
             class="h-16 min-h-16 border-b border-neutral-200/70 bg-white dark:bg-neutral-800 dark:border-neutral-700 w-full flex justify-between items-center px-4 gap-4"

@@ -97,6 +97,10 @@ onBeforeUnmount(() => {
             <Icon name="lucide:globe" class="size-4" />
             <span>Published assets</span>
           </button>
+          <button type="button" class="profile-item text-indigo-600 dark:text-indigo-400 font-semibold" role="menuitem" @click="goTo('/auth/select-storage')">
+            <Icon name="lucide:database" class="size-4" />
+            <span>Change Storage Option</span>
+          </button>
         </div>
 
         <div class="border-t border-[var(--dam-line)] pt-2">

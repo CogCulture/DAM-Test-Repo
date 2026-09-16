@@ -32,10 +32,15 @@ export function usePreview() {
   }
 
   const showPreview = (items: IFile[], index = 0) => {
-    if (!items.length) return;
-    files.value = [...items];
-    opened.value = Math.min(Math.max(index, 0), items.length - 1);
-    open.value = true;
+    if (!items || !items.length) return;
+    const item = items[index] || items[0];
+    if (item && typeof window !== "undefined") {
+      const isDriveAsset = item.assetMetadata?.source === "google-drive";
+      const fileUrl = item.assetMetadata?.externalUrl || (isDriveAsset
+        ? `/api/gdrive/download/${encodeURIComponent(item.id)}?inline=true`
+        : `/api/files/org/download/${encodeURIComponent(item.id)}?inline=true`);
+      window.open(fileUrl, "_blank", "noopener,noreferrer");
+    }
   };
 
   watch(opened, (value) => {

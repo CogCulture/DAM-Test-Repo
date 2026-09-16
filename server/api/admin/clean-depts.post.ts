@@ -1,14 +1,11 @@
 import { eq, and, isNull } from "drizzle-orm";
 import { orgDepartments, organizations } from "~~/server/database/schema";
 import { useDrizzle } from "~~/server/utils/drizzle";
+import { requireMinRole } from "~~/server/utils/permission";
 
 export default defineEventHandler(async (event) => {
-  const { user } = await requireUserSession(event);
+  const user = await requireMinRole(event, "admin");
   
-  if (user.role !== "admin") {
-    throw createError({ status: 403, message: "Forbidden: Admins only." });
-  }
-
   const orgId = user.organizationId;
   if (!orgId) {
     throw createError({ status: 400, message: "User is not associated with an organization." });

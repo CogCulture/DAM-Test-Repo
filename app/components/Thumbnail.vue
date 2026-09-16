@@ -13,9 +13,38 @@ const inlineUrl = computed(() => isGDrive.value
   ? `/api/gdrive/download/${encodeURIComponent(file.id)}?inline=true`
   : `/api/files/${encodeURIComponent(file.bucketName)}/download/${encodeURIComponent(file.id)}?inline=true`);
 const imageUrl = computed(() => !isGDrive.value && file.preview ? getPreviewUrl(file.preview, file.deletedAt) : inlineUrl.value);
+
 const isImage = computed(() => file.type === "image" || normalizedType.value.startsWith("image/"));
 const isVideo = computed(() => file.type === "video" || normalizedType.value.startsWith("video/"));
-const isPdf = computed(() => file.type === "pdf" || normalizedType.value === "application/pdf");
+const isPdf = computed(() => file.type === "pdf" || normalizedType.value === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
+const isTextDoc = computed(() => {
+  const name = file.name.toLowerCase();
+  return (
+    name.endsWith(".md") ||
+    name.endsWith(".markdown") ||
+    name.endsWith(".txt") ||
+    name.endsWith(".html") ||
+    name.endsWith(".htm") ||
+    name.endsWith(".json") ||
+    name.endsWith(".csv") ||
+    name.endsWith(".log") ||
+    name.endsWith(".xml") ||
+    name.endsWith(".yaml") ||
+    name.endsWith(".yml") ||
+    normalizedType.value.startsWith("text/")
+  );
+});
+const isOfficeDoc = computed(() => {
+  const name = file.name.toLowerCase();
+  return (
+    name.endsWith(".docx") ||
+    name.endsWith(".doc") ||
+    name.endsWith(".xlsx") ||
+    name.endsWith(".xls") ||
+    name.endsWith(".pptx") ||
+    name.endsWith(".ppt")
+  );
+});
 const isArchive = computed(() => file.type === "archive" || normalizedType.value.includes("zip") || file.name.toLowerCase().endsWith(".zip"));
 const isDriveShortcut = computed(() => file.assetMetadata?.source === "google-drive-link");
 const archiveEntries = computed<string[]>(() => {
@@ -23,6 +52,14 @@ const archiveEntries = computed<string[]>(() => {
   return Array.isArray(entries) ? entries.slice(0, layout === "row" ? 2 : 5) : [];
 });
 const archiveEntryCount = computed(() => Number(file.assetMetadata?.archiveEntryCount || archiveEntries.value.length));
+
+const officeTypeLabel = computed(() => {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".docx") || name.endsWith(".doc")) return "Word Document";
+  if (name.endsWith(".xlsx") || name.endsWith(".xls")) return "Excel Spreadsheet";
+  if (name.endsWith(".pptx") || name.endsWith(".ppt")) return "PowerPoint Presentation";
+  return "Document";
+});
 
 const folderPreviews = computed(() => {
   if (file.type === "folder" && file.preview) {
@@ -86,12 +123,33 @@ const gridItems = computed(() => {
   />
 
   <iframe
-    v-else-if="isPdf && !mediaFailed"
-    :src="`${inlineUrl}#page=1&toolbar=0&navpanes=0&scrollbar=0`"
+    v-else-if="(isPdf || isTextDoc) && !mediaFailed"
+    :src="isPdf ? `${inlineUrl}#page=1&toolbar=0&navpanes=0&scrollbar=0` : inlineUrl"
     :title="`Preview of ${file.name}`"
-    class="absolute inset-0 h-full w-full border-0 bg-white pointer-events-none"
+    class="absolute inset-0 h-full w-full border-0 bg-white pointer-events-none select-none"
     loading="lazy"
+    @error="mediaFailed = true"
   />
+
+  <div
+    v-else-if="isOfficeDoc"
+    class="absolute inset-0 flex flex-col overflow-hidden bg-white p-4 text-slate-800 shadow-inner dark:bg-slate-900 dark:text-slate-100"
+  >
+    <div class="mb-2 flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
+      <Icon :name="fileIcon(file.contentType || file.type)" :class="layout === 'col' ? 'size-7' : 'size-5'" />
+      <div class="min-w-0">
+        <p class="text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:text-slate-400">{{ officeTypeLabel }}</p>
+        <p class="truncate text-[11px] font-medium opacity-90">{{ file.name }}</p>
+      </div>
+    </div>
+    <div class="min-h-0 flex-1 space-y-1.5 overflow-hidden p-1 opacity-60">
+      <div class="h-2 w-3/4 rounded bg-slate-300 dark:bg-slate-700"></div>
+      <div class="h-2 w-full rounded bg-slate-200 dark:bg-slate-800"></div>
+      <div class="h-2 w-5/6 rounded bg-slate-200 dark:bg-slate-800"></div>
+      <div class="h-2 w-2/3 rounded bg-slate-200 dark:bg-slate-800"></div>
+      <div class="h-2 w-full rounded bg-slate-200 dark:bg-slate-800"></div>
+    </div>
+  </div>
 
   <div
     v-else-if="isArchive"

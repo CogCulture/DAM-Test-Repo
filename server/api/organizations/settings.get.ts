@@ -52,12 +52,22 @@ export default defineEventHandler(async (event) => {
     gdriveRules = await getGDriveRules(orgId);
   }
 
+  let orgFeatures = (org as any).features;
+  if (typeof orgFeatures === "string") {
+    try { orgFeatures = JSON.parse(orgFeatures); } catch { orgFeatures = null; }
+  }
+
+  const features = {
+    ...DEFAULT_FEATURES,
+    ...(orgFeatures || {}),
+  };
+
   return {
     id: orgId,
     name: org.name,
     status: org.status ?? "active",
     orgType,
-    features: (org as any).features ?? DEFAULT_FEATURES,
+    features,
     departments,
     permissions,
     gdriveRules,

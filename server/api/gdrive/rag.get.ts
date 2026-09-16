@@ -3,7 +3,7 @@ import { getGDriveAccessToken, getGDriveConnection } from "~~/server/utils/gdriv
 import { useDrizzle } from "~~/server/utils/drizzle";
 import { files, users } from "~~/server/database/schema";
 import { spawn } from "node:child_process";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { promises as fs } from "node:fs";
 import { eq, and } from "drizzle-orm";
 import { buildRagArtifactMetadata, getRagArtifactName } from "~~/shared/utils/rag-artifact";
@@ -13,7 +13,7 @@ const RAGPUSH_DIR = join(process.cwd(), "server", "utils");
 const PYTHON_CMD = process.env.PYTHON_CMD || (process.platform === "win32" ? "python" : "python3");
 
 const SUPPORTED_EXTENSIONS = new Set([
-  ".txt", ".pdf", ".pptx", ".docx", ".xlsx", ".xls",
+  ".txt", ".md", ".markdown", ".pdf", ".pptx", ".docx", ".xlsx", ".xls",
   ".mp4", ".mov", ".avi", ".mkv",
   ".mp3", ".wav", ".m4a",
   ".jpg", ".jpeg", ".png", ".webp"
@@ -83,7 +83,7 @@ export default defineEventHandler(async (event) => {
 
     const tempDir = join(process.cwd(), "uploads", "rag_temp");
     await fs.mkdir(tempDir, { recursive: true });
-    const localFilePath = join(tempDir, `${fileId}${ext}`);
+    const localFilePath = join(tempDir, `${basename(fileId)}${ext}`);
     const downloadUrl = exportType
       ? `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(exportType.mime)}`
       : `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
@@ -106,7 +106,7 @@ export default defineEventHandler(async (event) => {
       throw new Error("RAG is not configured. PINECONE_API_KEY is missing in .env.");
     }
 
-    if (ext !== ".txt" && !apiKey) {
+    if (ext !== ".txt" && ext !== ".md" && ext !== ".markdown" && !apiKey) {
       throw new Error("RAG is not configured. ANTHROPIC_API_KEY is missing in .env.");
     }
 
@@ -239,7 +239,8 @@ export default defineEventHandler(async (event) => {
           await fs.access(finalPath);
           const mdContent = await fs.readFile(finalPath, "utf-8");
 
-          const generatedSuffix = ext === ".txt"
+          const isPlainText = ext === ".txt" || ext === ".md" || ext === ".markdown";
+          const generatedSuffix = isPlainText
             ? "_parsed.md"
             : finalPath.endsWith("_fast_parsed.md")
               ? "_fast_parsed.md"

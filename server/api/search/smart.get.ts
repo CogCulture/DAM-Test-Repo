@@ -104,7 +104,8 @@ function embedQuery(query: string): Promise<number[]> {
 async function queryPinecone(
   embedding: number[],
   namespace: string,
-  topK = 10
+  topK = 10,
+  filter?: Record<string, any>
 ): Promise<{ id: string; score: number; metadata: Record<string, any> }[]> {
   if (!PINECONE_KEY || !PINECONE_INDEX_HOST) return [];
 
@@ -122,6 +123,7 @@ async function queryPinecone(
         vector: embedding,
         topK,
         includeMetadata: true,
+        ...(filter && Object.keys(filter).length > 0 ? { filter } : {}),
       }),
     }
   );
@@ -137,7 +139,15 @@ export default defineEventHandler(async (event) => {
   }
 
   const orgId = (user as any).organizationId || "org_default";
+  const deptId = (user as any).departmentId || null;
+  const userRole = (user as any).role || "user";
   const bucketName = bucket || "local";
+
+  // Build department permission filter for Pinecone (Admins & Superadmins see all org vectors)
+  const pineconeFilter: Record<string, any> = {};
+  if (deptId && userRole !== "admin" && userRole !== "superadmin") {
+    pineconeFilter.department_id = { "$eq": deptId };
+  }
 
   // 1. Keyword DB search: run both full-query AND individual meaningful word searches
   const stopWords = new Set(["a","an","the","is","are","was","were","what","which","who","how","when","where","why","my","your","his","her","our","their","this","that","these","those","in","on","at","to","for","of","and","or","but"]);
@@ -203,10 +213,10 @@ export default defineEventHandler(async (event) => {
     source: "keyword" as const,
     }));
 
-  // 3. Semantic search via Pinecone (if embedding succeeded)
+  // 3. Semantic search via Pinecone with department permission filtering (if embedding succeeded)
   if (embedding) {
     try {
-      const matches = await queryPinecone(embedding, orgId);
+      const matches = await queryPinecone(embedding, orgId, 10, pineconeFilter);
 
       // Get file IDs from Pinecone metadata — format is `{file_id}_chunk-{n}`
       const semanticFileIds = [
@@ -247,58 +257,33 @@ export default defineEventHandler(async (event) => {
         const generatedResults = await Promise.all(
           semanticFileIds.map(async (sfId) => {
             const sf = semanticFilesMap.get(sfId);
+            if (!sf) return null;
+
             const fileMatches = matches.filter((m) => m.id.startsWith(sfId + "_chunk-"));
             if (fileMatches.length === 0) return null;
             
             const bestMatch = fileMatches[0];
             const fileChunks = fileMatches.map((m) => m.metadata?.text as string).filter(Boolean);
-            const filename = sf ? sf.name : (bestMatch.metadata?.file_name as string) || "Unknown File";
+            const filename = sf.name;
             
             // Generate summary concurrently
             const summary = await generateSummary(q, filename, fileChunks);
             
-            let semanticResult: SearchResult;
-
-            if (sf) {
-              semanticResult = {
-                id: sf.id,
-                name: sf.name,
-                path: sf.path,
-                type: sf.type,
-                contentType: sf.contentType,
-                bucketName: sf.bucketName,
-                preview: sf.preview ?? undefined,
-                deletedAt: sf.deletedAt?.toISOString?.() ?? undefined,
-                size: sf.size ?? undefined,
-                createdAt: sf.createdAt?.toISOString?.() ?? undefined,
-                score: bestMatch.score,
-                snippet: summary,
-                source: "semantic" as const,
-              };
-            } else {
-              const meta = bestMatch.metadata || {};
-              const ext = (meta.media_type as string) || "";
-              let cType = "application/octet-stream";
-              if (ext === ".pdf") cType = "application/pdf";
-              else if (ext === ".xlsx") cType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-              else if (ext === ".docx") cType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-              else if (ext === ".pptx") cType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-              else if (ext === ".mp4") cType = "video/mp4";
-              else if (ext === ".png") cType = "image/png";
-              else if (ext === ".jpg" || ext === ".jpeg") cType = "image/jpeg";
-
-              semanticResult = {
-                id: sfId,
-                name: filename,
-                path: sfId,
-                type: "file",
-                contentType: cType,
-                bucketName: bucketName,
-                score: bestMatch.score,
-                snippet: summary,
-                source: "semantic" as const,
-              };
-            }
+            const semanticResult: SearchResult = {
+              id: sf.id,
+              name: sf.name,
+              path: sf.path,
+              type: sf.type,
+              contentType: sf.contentType,
+              bucketName: sf.bucketName,
+              preview: sf.preview ?? undefined,
+              deletedAt: sf.deletedAt?.toISOString?.() ?? undefined,
+              size: sf.size ?? undefined,
+              createdAt: sf.createdAt?.toISOString?.() ?? undefined,
+              score: bestMatch.score,
+              snippet: summary,
+              source: "semantic" as const,
+            };
             return semanticResult;
           })
         );

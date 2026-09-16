@@ -3,6 +3,7 @@ import { damModalUi } from "~/utils/damModal";
 import { ref, onMounted, onUnmounted } from "vue";
 import { useRoute } from "vue-router";
 import { useRole } from "~/composables/useRole";
+import { resolveRagProgressMessage } from "~~/shared/utils/rag-progress";
 
 const props = defineProps<{
   file: any;
@@ -54,10 +55,7 @@ onMounted(() => {
       if (data.type === "start") {
         ragProgressText.value = data.message;
       } else if (data.type === "progress") {
-        const lines = String(data.text || "").split("\n").filter((line: string) => line.trim().length > 0);
-        if (lines.length > 0) {
-          ragProgressText.value = lines[lines.length - 1];
-        }
+        ragProgressText.value = resolveRagProgressMessage(data.text) || ragProgressText.value;
       } else if (data.type === "complete") {
         ragProgressText.value = "Done!";
         ragCost.value = Number(data.cost || 0);

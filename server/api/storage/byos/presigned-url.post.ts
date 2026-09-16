@@ -43,12 +43,19 @@ export default defineEventHandler(async (event) => {
 
   const body = await readBody<{ fileName: string; contentType: string }>(event);
 
-  if (!body?.fileName || !body?.contentType) {
-    throw createError({ status: 400, message: "fileName and contentType are required." });
+  const safeFileName = body.fileName
+    .replace(/\\/g, "/")
+    .replace(/[<>:"|?*\u0000-\u001F]/g, "-")
+    .split("/")
+    .filter((segment) => segment && segment !== ".." && segment !== ".")
+    .join("/");
+
+  if (!safeFileName) {
+    throw createError({ status: 400, message: "Invalid fileName." });
   }
 
   // Build a key scoped under the org so different orgs can't overwrite each other
-  const key = `${user.organizationId}/${body.fileName}`;
+  const key = `${user.organizationId}/${safeFileName}`;
 
   let config: ByosConfig;
 

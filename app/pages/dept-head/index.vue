@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
+import { useRole } from "~/composables/useRole";
+import { useToast } from "~/composables/useToast";
 import { getDepartmentName } from "~~/shared/constants/departments";
 import { getRoleLabel } from "~~/shared/constants/roles";
 
@@ -68,7 +70,7 @@ onMounted(fetchDashboardData);
       <Icon name="lucide:loader" class="animate-spin size-8 text-neutral-400" />
     </div>
 
-    <div v-else class="space-y-8 max-w-5xl">
+    <div v-else class="max-w-5xl mx-auto space-y-8">
       <!-- Summary Stats -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-6 flex items-center justify-between shadow-sm">

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, computed } from "vue";
 import { useAside } from "~/composables/useAside";
 import { defineShortcuts } from "~/composables/defineShortcuts";
 import { useRole } from "~/composables/useRole";
@@ -13,53 +14,53 @@ const { bucket } = useBucket();
 const bucketName = computed(() => (route.params.bucket as string) || bucket.value?.name || "org");
 const showsWorkspaceControls = computed(() => !!route.params.bucket || route.path.startsWith("/admin") || route.path.startsWith("/dept-head"));
 
-const mainItems = computed(() => [
-  [
-    { label: "Home", icon: "lucide:home", to: `/${bucketName.value}` },
-    { label: "Recent", icon: "lucide:clock", to: `/${bucketName.value}/recent` },
-    { label: "Favorites", icon: "lucide:star", to: `/${bucketName.value}/favorites` },
-  ],
-  [
-    { label: "Shared With Me", icon: "lucide:circle-user", to: `/${bucketName.value}/shared` },
-    { label: "Published", icon: "lucide:globe", to: `/${bucketName.value}/published` },
-  ],
-  [{ label: "Trash", icon: "lucide:trash", to: `/${bucketName.value}/trash` }],
+const mainNavItems = computed(() => [
+  { label: "Home", icon: "lucide:home", to: `/${bucketName.value}` },
+  { label: "Recent", icon: "lucide:clock", to: `/${bucketName.value}/recent` },
+  { label: "Favorites", icon: "lucide:star", to: `/${bucketName.value}/favorites` },
+  { label: "Shared With Me", icon: "lucide:circle-user", to: `/${bucketName.value}/shared` },
+  { label: "Published", icon: "lucide:globe", to: `/${bucketName.value}/published` },
+  { label: "Trash", icon: "lucide:trash", to: `/${bucketName.value}/trash` },
 ]);
 
-const adminItems = computed(() => {
+const adminMenuItems = computed(() => {
   const items = [];
   if (isAdmin.value) {
     items.push(
-      { label: "Org Settings", icon: "lucide:settings", to: "/admin/settings" },
-      { label: "Access Control", icon: "lucide:shield-check", to: "/admin/access-control" },
-      { label: "Departments", icon: "lucide:network", to: "/admin/departments" },
+      { label: "Org Settings & Access", icon: "lucide:settings", to: "/admin/settings" },
+      { label: "Department Hierarchy", icon: "lucide:network", to: "/admin/departments" },
       { label: "Template Folders", icon: "lucide:layout-template", to: "/admin/template-folders" },
     );
   }
   if (isDeptHead.value) {
     items.push(
-      { label: "Dept Dashboard", icon: "lucide:layout-dashboard", to: "/dept-head" },
-      { label: "Dept Permissions", icon: "lucide:shield-check", to: "/dept-head/permissions" },
+      { label: "Department Dashboard", icon: "lucide:layout-dashboard", to: "/dept-head" },
+      { label: "Department Permissions", icon: "lucide:shield-check", to: "/dept-head/permissions" },
     );
   }
-  if (canApproveUsers.value || isAdmin.value) items.push({ label: "User Approvals", icon: "lucide:users", to: "/admin" });
+  if (canApproveUsers.value || isAdmin.value) {
+    items.push({ label: "User Approvals", icon: "lucide:users", to: "/admin" });
+  }
   if (canEditNomenclature.value || isAdmin.value) {
     items.push(
-      { label: "Nomenclature", icon: "lucide:tag", to: "/admin/nomenclature" },
-      { label: "Taxonomy", icon: "lucide:layers", to: "/admin/taxonomy" },
+      { label: "Nomenclature Rules", icon: "lucide:tag", to: "/admin/nomenclature" },
+      { label: "Taxonomy & Metadata", icon: "lucide:layers", to: "/admin/taxonomy" },
       { label: "Folder Requests", icon: "lucide:folder-plus", to: "/admin/folder-requests" },
     );
-    if (orgType.value === "gdrive") items.push({ label: "GDrive Requests", icon: "lucide:cloud", to: "/admin/gdrive-requests" });
+    if (orgType.value === "gdrive") {
+      items.push({ label: "GDrive Requests", icon: "lucide:cloud", to: "/admin/gdrive-requests" });
+    }
   }
-  return items.length ? [items] : [];
+  return items;
 });
 
-const items = computed(() => [...mainItems.value, ...adminItems.value]);
+const isAdminDropdownOpen = ref(false);
 const isNavItemActive = (to: string) => route.path === to;
 </script>
 
 <template>
-  <header class="dam-workspace-header fixed inset-x-0 top-0 z-20 flex flex-col border-b border-[var(--dam-line)] bg-white shadow-[var(--dam-shadow-soft)] dark:bg-[var(--dam-panel-solid)]">
+  <header class="dam-workspace-header fixed inset-x-0 top-0 z-20 flex flex-col border-b border-[var(--dam-line)] bg-[var(--dam-panel-solid)] text-[var(--dam-ink)] shadow-[var(--dam-shadow-soft)]">
+    <!-- Top Row -->
     <div class="flex h-[4.5rem] w-full items-center gap-2 pr-3 sm:gap-4 sm:pr-6">
       <Logo />
       <template v-if="showsWorkspaceControls">
@@ -75,47 +76,99 @@ const isNavItemActive = (to: string) => route.path === to;
           />
         </UTooltip>
       </template>
+
       <div class="grow" />
-      <div class="flex items-center gap-1 sm:gap-2">
+
+      <!-- Top Right Actions -->
+      <div class="flex items-center gap-2 sm:gap-3">
         <div v-if="roleLabel" class="mr-1 hidden border-l border-[var(--dam-line)] pl-4 lg:block">
           <p class="dam-kicker max-w-32 truncate">{{ departmentLabel || 'Workspace' }}</p>
           <p class="mt-0.5 max-w-32 truncate text-xs font-semibold text-[var(--dam-ink)]">{{ roleLabel }}</p>
         </div>
+
+        <NuxtLink
+          to="/auth/select-storage"
+          class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] text-xs font-semibold text-[var(--dam-ink)] hover:border-indigo-500/50 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+          title="Change Workspace Storage Option"
+        >
+          <Icon name="lucide:database" class="size-3.5 text-indigo-500" />
+          <span class="capitalize">{{ orgType === 's3' ? 'Platform S3' : orgType === 'gdrive' ? 'Google Drive' : orgType === 'onedrive' ? 'MS OneDrive' : orgType === 'sharepoint' ? 'MS SharePoint' : orgType === 'box' ? 'Box Storage' : orgType === 'dropbox' ? 'Dropbox' : 'Cloud BYOS' }}</span>
+        </NuxtLink>
+
         <ColorMode />
         <ProfileMenu />
       </div>
     </div>
 
+    <!-- Secondary Navigation Sub-bar -->
     <div
       v-if="aside && showsWorkspaceControls"
-      class="w-full border-t border-[var(--dam-line)] bg-[var(--dam-panel)] px-3 sm:pl-[5.5rem] sm:pr-6"
+      class="w-full border-t border-[var(--dam-line)] bg-[var(--dam-panel)] px-3 sm:px-6"
     >
-      <div class="flex items-center overflow-x-auto whitespace-nowrap py-2 scrollbar-hide">
-        <template v-for="(group, idx) in items" :key="idx">
-          <nav class="flex min-w-max items-center gap-1" :aria-label="`Workspace navigation group ${idx + 1}`">
+      <div class="flex items-center justify-between py-2 overflow-x-auto whitespace-nowrap scrollbar-hide">
+        <!-- Main Core Navigation Pills -->
+        <nav class="flex items-center gap-1.5" aria-label="Primary workspace navigation">
+          <NuxtLink
+            v-for="item in mainNavItems"
+            :key="item.to"
+            :to="item.to"
+            :aria-current="isNavItemActive(item.to) ? 'page' : undefined"
+            :class="[
+              'flex h-9 items-center gap-2 rounded-xl border px-3 text-xs font-semibold transition-all duration-150',
+              isNavItemActive(item.to)
+                ? 'border-indigo-500/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                : 'border-transparent text-[var(--dam-ink-muted)] hover:border-[var(--dam-line)] hover:bg-[var(--dam-panel-raised)] hover:text-[var(--dam-ink)]',
+            ]"
+          >
+            <Icon :name="item.icon" class="size-4 shrink-0" />
+            <span>{{ item.label }}</span>
+          </NuxtLink>
+        </nav>
+
+        <!-- Governance & Admin Dropdown Menu -->
+        <div v-if="adminMenuItems.length > 0" class="relative">
+          <button
+            class="flex h-9 items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3.5 text-xs font-bold text-indigo-500 hover:bg-indigo-500/20 transition shadow-xs"
+            @click="isAdminDropdownOpen = !isAdminDropdownOpen"
+          >
+            <Icon name="lucide:shield-cog" class="size-4" />
+            <span>Governance & Admin</span>
+            <Icon name="lucide:chevron-down" class="size-3.5 transition-transform duration-200" :class="{ 'rotate-180': isAdminDropdownOpen }" />
+          </button>
+
+          <!-- Dropdown Popup -->
+          <div
+            v-if="isAdminDropdownOpen"
+            class="fixed inset-0 z-30"
+            @click="isAdminDropdownOpen = false"
+          />
+          <div
+            v-if="isAdminDropdownOpen"
+            class="absolute right-0 top-11 z-40 w-64 rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] p-2 shadow-2xl backdrop-blur-md space-y-1"
+            @click.stop
+          >
+            <div class="px-3 py-1.5 text-[10px] font-bold text-[var(--dam-ink-muted)] uppercase tracking-wider border-b border-[var(--dam-line)] mb-1">
+              Admin & Governance Settings
+            </div>
+
             <NuxtLink
-              v-for="item in group"
+              v-for="item in adminMenuItems"
               :key="item.to"
               :to="item.to"
-              :data-testid="`workspace-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`"
-              :aria-current="isNavItemActive(item.to) ? 'page' : undefined"
-              :class="[
-                'flex h-9 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition-colors duration-100',
-                isNavItemActive(item.to)
-                  ? 'border-primary-500/35 bg-primary-500/10 text-primary-600 dark:text-primary-400'
-                  : 'border-transparent text-[var(--dam-muted)] hover:border-[var(--dam-line)] hover:bg-[var(--dam-panel-raised)] hover:text-[var(--dam-ink)]',
-              ]"
+              class="flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-[var(--dam-ink)] hover:bg-[var(--dam-panel-raised)] hover:text-indigo-500 transition"
+              :class="{ 'bg-indigo-500/10 text-indigo-500 font-bold': isNavItemActive(item.to) }"
+              @click="isAdminDropdownOpen = false"
             >
-              <Icon :name="item.icon" class="size-4 shrink-0" />
+              <Icon :name="item.icon" class="size-4 text-indigo-400" />
               <span>{{ item.label }}</span>
             </NuxtLink>
-          </nav>
-          <div v-if="idx < items.length - 1" class="mx-2 h-4 w-px shrink-0 bg-[var(--dam-line)]" />
-        </template>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div v-if="route.params.bucket" class="w-full border-t border-[var(--dam-line)] bg-[var(--dam-panel)] px-4 sm:px-6">
+    <!-- Search Bar Row -->
+    <div v-if="showsWorkspaceControls" class="w-full border-t border-[var(--dam-line)] bg-[var(--dam-panel)] px-4 sm:px-6">
       <div class="mx-auto w-full max-w-[96rem]">
         <SmartSearch />
       </div>

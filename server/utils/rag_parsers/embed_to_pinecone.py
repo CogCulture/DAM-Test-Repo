@@ -52,7 +52,7 @@ def embed_chunks(chunks, api_key):
             chunk["embedding"] = vector["values"]
     return chunks
 
-def embed_markdown(md_path, file_id, file_name, media_type, client, org_id, user_id, user_role):
+def embed_markdown(md_path, file_id, file_name, media_type, client, org_id, user_id, user_role, department_id="global"):
     api_key = os.environ.get("PINECONE_API_KEY")
     index_host = os.environ.get("PINECONE_INDEX_HOST", "").strip().rstrip("/")
     if not api_key:
@@ -77,6 +77,7 @@ def embed_markdown(md_path, file_id, file_name, media_type, client, org_id, user
             "file_name": file_name, "media_type": media_type, "client": client,
             "text": chunk["text"], "chunk_index": chunk["index"],
             "user_id": user_id, "user_role": user_role, "organization_id": org_id,
+            "department_id": department_id or "global",
         },
     } for chunk in chunks]
 

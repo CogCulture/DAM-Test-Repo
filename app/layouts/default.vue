@@ -10,20 +10,23 @@ if (!loggedIn.value) {
 const { aside } = useAside();
 const { folder } = useFolder();
 const sidebarWidth = useState<number>("dam-sidebar-width", () => 272);
+const showsWorkspaceControls = computed(() => !!route.params.bucket || route.path.startsWith("/admin") || route.path.startsWith("/dept-head"));
+const mainPaddingTop = computed(() => {
+  if (!showsWorkspaceControls.value) return "pt-24";
+  return aside.value ? "pt-64" : "pt-44";
+});
 </script>
+
 <template>
-  <div class="dam-authenticated-shell flex min-h-screen flex-col justify-start bg-white text-[var(--dam-ink)] dark:bg-transparent" :style="{ '--dam-sidebar-width': `${sidebarWidth}px` }">
+  <div class="dam-authenticated-shell flex min-h-screen flex-col justify-start bg-[var(--dam-bg)] text-[var(--dam-ink)]" :style="{ '--dam-sidebar-width': `${sidebarWidth}px` }">
     <AppHeader />
-    <div class="dam-authenticated-viewport relative flex h-screen overflow-auto bg-white px-3 dark:bg-transparent sm:px-6">
-      <AppDirectoryTree v-if="route.params?.bucket || route.path.startsWith('/admin') || route.path.startsWith('/dept-head')" />
+    <div class="dam-authenticated-viewport relative flex h-screen overflow-auto bg-[var(--dam-bg)] text-[var(--dam-ink)] px-3 sm:px-6">
+      <AppDirectoryTree v-if="route.params?.bucket" />
       <div
         :class="[
-          'min-w-0 grow px-1 sm:px-2',
-          route.params?.bucket
-            ? `dam-main-with-sidebar pb-24 ${aside ? 'pt-48' : 'pt-36'}`
-            : (route.path.startsWith('/admin') || route.path.startsWith('/dept-head'))
-              ? `dam-main-with-sidebar pb-24 ${aside ? 'pt-36' : 'pt-24'}`
-              : 'ml-0 pt-24 pb-24',
+          'min-w-0 grow px-1 sm:px-2 pb-24 transition-all duration-150',
+          route.params?.bucket ? 'dam-main-with-sidebar' : 'ml-0',
+          mainPaddingTop,
         ]"
       >
         <main class="mx-auto w-full max-w-[1680px]">
@@ -31,7 +34,6 @@ const sidebarWidth = useState<number>("dam-sidebar-width", () => 272);
         </main>
       </div>
     </div>
-    <AppFooter v-if="route.params?.bucket || route.path.startsWith('/admin') || route.path.startsWith('/dept-head')" />
-    <FilePreview />
+    <AppFooter v-if="route.params?.bucket" />
   </div>
 </template>

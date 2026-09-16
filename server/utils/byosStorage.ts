@@ -199,7 +199,15 @@ export async function getGcsOAuthToken(userId: string): Promise<string> {
 
     const resp = await $fetch<{ access_token: string; expires_in: number }>("https://oauth2.googleapis.com/token", {
       method: "POST",
-      body: { client_id: clientId, client_secret: clientSecret, refresh_token: record.gcsRefreshToken, grant_type: "refresh_token" },
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        client_id: clientId || "",
+        client_secret: clientSecret || "",
+        refresh_token: record.gcsRefreshToken,
+        grant_type: "refresh_token",
+      }).toString(),
     });
 
     await db.update(byosStorageConfigs)

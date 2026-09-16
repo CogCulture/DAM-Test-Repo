@@ -209,6 +209,8 @@ export const files = sqliteTable(
     bucketName: text("bucket_name").notNull(),
     userId: text("user_id").notNull(),
     organizationId: text("organization_id").default("org_default").notNull(),
+    departmentId: text("department_id"),
+    processingStatus: text("processing_status").default("pending_processing").notNull(),
     sharedCount: integer("shared_count").default(0).notNull(),
     createdAt: createdAt,
     updatedAt: updatedAt,
@@ -222,6 +224,8 @@ export const files = sqliteTable(
     index("idx_files_name").on(t.name),
     index("idx_files_type_parent").on(t.type, t.parentId),
     index("idx_files_org").on(t.organizationId),
+    index("idx_files_department_id").on(t.departmentId),
+    index("idx_files_processing_status").on(t.processingStatus),
   ]
 );
 

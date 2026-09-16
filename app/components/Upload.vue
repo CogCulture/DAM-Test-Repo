@@ -13,8 +13,10 @@ import { findEffectiveUploadGovernanceViolation } from "~~/shared/utils/file-nom
 
 const props = withDefaults(defineProps<{
   type?: "files" | "folder";
+  controllerOnly?: boolean;
 }>(), {
   type: "files",
+  controllerOnly: false,
 });
 
 const route = useRoute();
@@ -29,7 +31,7 @@ const storageTarget = useState<"local" | "gdrive">("upload-storage-target", () =
 const canUseGDrive = computed(() => orgType.value === "gdrive");
 const selectedDestinationId = ref<string | null>(null);
 const uploadPhase = ref<"uploading" | "syncing" | null>(null);
-const { data: uploadDestinations, refresh: refreshUploadDestinations } = await useFetch<UploadDestination[]>(
+const { data: uploadDestinations, refresh: refreshUploadDestinations } = useFetch<UploadDestination[]>(
   "/api/gdrive/upload-destinations",
   { immediate: false },
 );
@@ -110,7 +112,7 @@ const filesRefreshTrigger = useState<number>("files-refresh-trigger", () => 0);
 const nomenclatureQuery = computed(() => selectedDestinationId.value && selectedDestinationId.value !== "root"
   ? { departmentId: selectedDestinationId.value }
   : {});
-const { data: nomenclaturePolicy, refresh: refreshNomenclaturePolicy } = await useFetch<any>(
+const { data: nomenclaturePolicy, refresh: refreshNomenclaturePolicy } = useFetch<any>(
   "/api/nomenclature/effective",
   { query: nomenclatureQuery },
 );
@@ -433,62 +435,69 @@ defineExpose({ processFiles, processSelection });
 </script>
 
 <template>
-  <div class="flex w-full min-w-0 flex-wrap items-center gap-2">
-    <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-      <div class="destination-switch flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] px-3 py-2" aria-label="Upload destination">
-        <Icon :name="canUseGDrive ? 'logos:google-drive' : 'lucide:hard-drive'" class="size-4 shrink-0" />
-        <USelect
-          v-if="canUseGDrive"
-          v-model="selectedFolderId"
-          :items="folderItems"
-          value-key="value"
-          label-key="label"
-          class="min-w-0 flex-1"
-          aria-label="Select upload folder"
-        />
-        <USelect
-          v-else
-          v-model="selectedDestinationId"
-          :items="localDestinationItems"
-          value-key="value"
-          label-key="label"
-          class="min-w-0 flex-1"
-          aria-label="Select upload department"
-        />
-      </div>
-      <UButtonGroup class="h-10 min-w-0 flex-1 rounded-xl shadow-[0_12px_30px_rgba(37,99,235,.22)]">
-        <UButton
-          size="md"
-          color="primary"
-          variant="solid"
-          :icon="type === 'files' ? 'lucide:file-up' : 'lucide:folder-up'"
-          @click="type = type === 'folder' ? 'files' : 'folder'"
-          class="rounded-l-xl border-r border-white/15 opacity-90"
-        />
-        <UButton
-          color="primary"
-          variant="solid"
-          :label="type === 'folder' ? 'Upload Folder' : 'Upload Files'"
-          class="min-w-0 flex-1 justify-center rounded-r-xl font-semibold"
-          @click="openUploadPicker"
-        />
-        <input
-          ref="fileInput"
-          type="file"
-          :webkitdirectory="type === 'folder'"
-          :multiple="type === 'files'"
-          @change="uploadFiles"
-          class="hidden"
-        />
-      </UButtonGroup>
+  <div v-if="!controllerOnly" class="flex w-full min-w-0 flex-col gap-3">
+    <!-- Destination Selector (Full Width) -->
+    <div class="destination-switch flex w-full items-center gap-2.5 rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] px-3.5 py-2 shadow-sm" aria-label="Upload destination">
+      <Icon :name="canUseGDrive ? 'logos:google-drive' : 'lucide:hard-drive'" class="size-4 shrink-0 text-[#ff5733]" />
+      <span class="text-xs font-medium text-[var(--dam-muted)] shrink-0">Target:</span>
+      <select
+        v-if="canUseGDrive"
+        v-model="selectedFolderId"
+        class="min-w-0 flex-1 rounded-lg border border-[var(--dam-line)] bg-[var(--dam-panel)] px-2.5 py-1.5 text-xs font-medium text-[var(--dam-ink)] focus:outline-none focus:ring-1 focus:ring-primary-500"
+        aria-label="Select upload folder"
+      >
+        <option v-for="item in folderItems" :key="item.value" :value="item.value">{{ item.label }}</option>
+      </select>
+      <select
+        v-else
+        v-model="selectedDestinationId"
+        class="min-w-0 flex-1 rounded-lg border border-[var(--dam-line)] bg-[var(--dam-panel)] px-2.5 py-1.5 text-xs font-medium text-[var(--dam-ink)] focus:outline-none focus:ring-1 focus:ring-primary-500"
+        aria-label="Select upload department"
+      >
+        <option v-for="item in localDestinationItems" :key="item.value" :value="item.value">{{ item.label }}</option>
+      </select>
     </div>
-    <div v-if="isUploading" class="min-w-32">
+
+    <!-- Upload Action Buttons -->
+    <div class="flex w-full items-center gap-2">
+      <button
+        type="button"
+        class="dam-btn-primary flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer shadow-md transition hover:scale-[1.01]"
+        @click="openUploadPicker"
+      >
+        <Icon :name="type === 'folder' ? 'lucide:folder-up' : 'lucide:file-up'" class="size-4" />
+        <span>{{ type === 'folder' ? 'Upload Folder' : 'Upload Files' }}</span>
+      </button>
+
+      <UTooltip :text="type === 'folder' ? 'Switch to File Upload' : 'Switch to Folder Upload'" arrow :delay-duration="0">
+        <button
+          type="button"
+          aria-label="Toggle File or Folder Mode"
+          class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] text-[var(--dam-muted)] transition hover:border-[#ff5733] hover:text-white"
+          @click="type = type === 'folder' ? 'files' : 'folder'"
+        >
+          <Icon :name="type === 'folder' ? 'lucide:folder' : 'lucide:file'" class="size-4" />
+        </button>
+      </UTooltip>
+
+      <input
+        ref="fileInput"
+        type="file"
+        :webkitdirectory="type === 'folder'"
+        :multiple="type === 'files'"
+        @change="uploadFiles"
+        class="hidden"
+      />
+    </div>
+
+    <!-- Upload Progress Bar -->
+    <div v-if="isUploading" class="w-full">
       <div class="mb-1 flex justify-between text-[10px] font-medium uppercase tracking-wider text-[var(--dam-muted)]">
-        <span>{{ uploadPhase === "syncing" ? "Syncing with Google Drive" : `Uploading to ${selectedFolder?.path || selectedFolder?.name || "Google Drive"}` }}</span>
+        <span>{{ uploadPhase === "syncing" ? "Syncing with Google Drive" : `Uploading...` }}</span>
         <span>{{ overallProgress }}%</span>
       </div>
-      <div class="h-1 overflow-hidden rounded-full bg-[var(--dam-line)]">
-        <div class="h-full rounded-full bg-primary-500 transition-all" :style="{ width: `${overallProgress}%` }" />
+      <div class="h-1.5 overflow-hidden rounded-full bg-[var(--dam-line)]">
+        <div class="h-full rounded-full bg-gradient-to-r from-[#ff5733] to-orange-400 transition-all duration-200" :style="{ width: `${overallProgress}%` }" />
       </div>
     </div>
   </div>

@@ -34,6 +34,7 @@ def main():
         
     # 2. Embed and upload without putting credentials in process arguments.
     try:
+        print(json.dumps({"type": "stage", "stage": "embedding", "message": "Embedding document for RAG search..."}), flush=True)
         from embed_to_pinecone import embed_markdown
         embed_markdown(md_path, *sys.argv[2:])
     except Exception as e:

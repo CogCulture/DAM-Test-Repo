@@ -1,6 +1,10 @@
 import { eq, and } from "drizzle-orm";
 import { gdriveFolders } from "../database/schema";
 import { useDrizzle } from "./drizzle";
+import {
+  GoogleOAuthRefreshError,
+  refreshGoogleOAuthAccessToken,
+} from "./googleOAuthRefresh";
 
 export interface GDriveItem {
   id: string;
@@ -104,17 +108,11 @@ export async function getGDriveAccessToken(userId: string): Promise<string> {
     const clientSecret = config.oauth?.google?.clientSecret || process.env.NUXT_OAUTH_GOOGLE_CLIENT_SECRET;
 
     try {
-      const response = await $fetch<{
-        access_token: string;
-        expires_in: number;
-      }>("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        body: {
-          client_id: clientId,
-          client_secret: clientSecret,
-          refresh_token: conn.refreshToken,
-          grant_type: "refresh_token",
-        },
+      const response = await refreshGoogleOAuthAccessToken({
+        clientId: clientId || "",
+        clientSecret: clientSecret || "",
+        refreshToken: conn.refreshToken,
+        fetchToken: (url, options) => $fetch(url, options),
       });
 
       const newAccessToken = response.access_token;
@@ -132,7 +130,13 @@ export async function getGDriveAccessToken(userId: string): Promise<string> {
       return newAccessToken;
     } catch (err: any) {
       console.error("Failed to refresh Google Drive token:", err);
-      throw createError({ status: 401, message: "Google Drive session expired. Please reconnect." });
+      const reconnectRequired = err instanceof GoogleOAuthRefreshError && err.reconnectRequired;
+      throw createError({
+        status: reconnectRequired ? 401 : 503,
+        message: reconnectRequired
+          ? "Google Drive session expired. Please reconnect."
+          : "Google Drive is temporarily unavailable. Please try again.",
+      });
     }
   }
 

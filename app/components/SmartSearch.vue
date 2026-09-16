@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { useDebounceFn } from "@vueuse/core";
 import { defineShortcuts } from "~/composables/defineShortcuts";
+import { useBucket } from "~/composables/useBucket";
 
 const route = useRoute();
+const { bucket } = useBucket();
 
 interface SearchResult {
   id: string;
@@ -28,7 +30,7 @@ const hoveredFile = ref<SearchResult | null>(null);
 const activeFilter = ref<"all" | "semantic" | "keyword">("all");
 const inputRef = ref<HTMLInputElement | null>(null);
 
-const bucketName = computed(() => (route.params.bucket as string) || "local");
+const bucketName = computed(() => (route.params.bucket as string) || bucket.value?.name || "org");
 
 const filteredResults = computed(() => {
   if (activeFilter.value === "all") return results.value;
@@ -167,27 +169,17 @@ const formatDate = (d?: string) => {
 
 <template>
   <!-- Search Trigger Button -->
-  <UButton
-    label="Smart Search"
-    icon="lucide:search"
-    variant="outline"
-    class="dam-control mx-auto my-2 h-11 w-full cursor-text justify-start rounded-xl border-[var(--dam-line)] bg-[var(--dam-panel)] transition duration-150 hover:border-primary-500/50"
+  <button
+    type="button"
+    class="dam-control group relative mx-auto my-2.5 flex h-12 w-full cursor-pointer items-center justify-between gap-3 rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel)] px-4 text-sm font-semibold transition-all duration-200 hover:border-[#ff5733] hover:shadow-[0_0_22px_rgba(255,87,51,0.25)]"
     @click="open = true"
     id="smart-search-trigger"
   >
-    <template #trailing>
-      <div class="ml-auto flex items-center gap-1">
-        <UBadge
-          label="AI"
-          size="xs"
-          color="primary"
-          variant="subtle"
-          class="font-semibold"
-        />
-        <UKbd>Ctrl K</UKbd>
-      </div>
-    </template>
-  </UButton>
+    <div class="flex items-center gap-2.5 text-[var(--dam-muted)] group-hover:text-[var(--dam-ink)]">
+      <Icon name="lucide:sparkles" class="size-4 text-[#ff5733]" />
+      <span>Search assets, transcripts, documents &amp; AI topics...</span>
+    </div>
+  </button>
 
   <!-- Full-screen Search Modal -->
   <Teleport to="body">
@@ -199,31 +191,23 @@ const formatDate = (d?: string) => {
       >
         <!-- Backdrop -->
         <div
-          class="absolute inset-0 bg-black/60"
+          class="absolute inset-0 bg-black/60 backdrop-blur-sm"
           @click="open = false"
         />
 
         <!-- Dialog -->
         <div
-          class="relative z-10 flex h-[min(44rem,calc(100dvh-1rem))] min-h-0 w-full max-w-6xl flex-col overflow-hidden rounded-2xl shadow-2xl sm:h-[min(44rem,calc(100dvh-2rem))]"
-          style="
-            background: linear-gradient(
-              135deg,
-              rgba(15, 15, 20, 0.98) 0%,
-              rgba(20, 20, 30, 0.98) 100%
-            );
-            border: 1px solid rgba(255, 255, 255, 0.08);
-          "
+          class="relative z-10 flex h-[min(44rem,calc(100dvh-1rem))] min-h-0 w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] text-[var(--dam-ink)] shadow-2xl sm:h-[min(44rem,calc(100dvh-2rem))]"
         >
           <!-- Search Input Row -->
           <div
-            class="flex shrink-0 items-center gap-3 border-b border-white/8 px-4 py-3 sm:px-5 sm:py-4"
+            class="flex shrink-0 items-center gap-3 border-b border-[var(--dam-line)] px-4 py-3 sm:px-5 sm:py-4"
           >
             <div class="relative flex-shrink-0">
               <Icon
                 v-if="!loading"
                 name="lucide:search"
-                class="size-5 text-neutral-400"
+                class="size-5 text-[var(--dam-muted)]"
               />
               <div
                 v-else
@@ -235,7 +219,7 @@ const formatDate = (d?: string) => {
               v-model="searchTerm"
               type="text"
               placeholder="Search anything - files, content, topics..."
-              class="flex-1 bg-transparent text-white text-base outline-none placeholder-neutral-500 caret-primary-400"
+              class="flex-1 bg-transparent text-[var(--dam-ink)] text-base outline-none placeholder-[var(--dam-muted)] caret-primary-500"
               id="smart-search-input"
               autocomplete="off"
               spellcheck="false"
@@ -249,7 +233,7 @@ const formatDate = (d?: string) => {
               />
               <button
                 @click="open = false"
-                class="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-neutral-400 hover:text-white"
+                class="p-1.5 rounded-lg hover:bg-[var(--dam-panel-raised)] transition-colors text-[var(--dam-muted)] hover:text-[var(--dam-ink)]"
               >
                 <Icon name="lucide:x" class="size-4" />
               </button>

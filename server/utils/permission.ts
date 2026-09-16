@@ -3,8 +3,8 @@ import { hasMinRole, ORG_BUCKET_NAME } from "~~/shared/constants/roles";
 import type { UserRole } from "~~/shared/constants/roles";
 import type { FilePermissionKey } from "~~/shared/utils/access-control";
 // Removed static DEPARTMENTS
-import { users } from "~~/server/database/schema";
-import { eq } from "drizzle-orm";
+import { users, buckets } from "~~/server/database/schema";
+import { useDrizzle } from "~~/server/utils/drizzle";
 
 
 export const getFileDepartmentId = async (fileId: string, orgId: string) => {
@@ -154,7 +154,20 @@ export const verifyOrgBucket = async (event, permission?: FilePermissionKey) => 
   if (permission && user.permissions?.[permission] !== true) {
     throw createError({ status: 403, message: "Insufficient permissions." });
   }
-  const bucket = await getBucket(ORG_BUCKET_NAME);
+  let bucket = await getBucket(ORG_BUCKET_NAME);
+  if (!bucket) {
+    try {
+      await useDrizzle().insert(buckets).values({
+        name: ORG_BUCKET_NAME,
+        userId: user.id,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      bucket = await getBucket(ORG_BUCKET_NAME);
+    } catch {
+      bucket = await getBucket(ORG_BUCKET_NAME);
+    }
+  }
   if (!bucket) {
     throw createError({
       status: 404,

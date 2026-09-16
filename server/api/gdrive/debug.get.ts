@@ -1,7 +1,8 @@
 import { getGDriveAccessToken, listGDriveFolder, getGDriveConnection } from "~~/server/utils/gdrive";
+import { requireMinRole } from "~~/server/utils/permission";
 
 export default defineEventHandler(async (event) => {
-  const { user } = await requireUserSession(event);
+  const user = await requireMinRole(event, "admin");
   const connection = await getGDriveConnection(user.id);
   if (!connection) {
     return { error: "No connection found." };

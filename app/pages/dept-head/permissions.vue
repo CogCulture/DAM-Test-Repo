@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
+import { useRole } from "~/composables/useRole";
+import { useToast } from "~/composables/useToast";
 import { getRoleLabel } from "~~/shared/constants/roles";
 import { getDepartmentName } from "~~/shared/constants/departments";
 
@@ -126,7 +128,7 @@ onMounted(fetchData);
       <Icon name="lucide:loader" class="animate-spin size-8 text-neutral-400" />
     </div>
 
-    <div v-else class="space-y-6 max-w-5xl text-white font-sans">
+    <div v-else class="max-w-5xl mx-auto space-y-6 text-white font-sans">
       <div class="flex justify-between items-center">
         <p class="text-sm text-neutral-400">Configure access rights and fine-grained overrides for your team.</p>
         <UButton color="primary" variant="solid" :loading="saving" @click="savePermissions" icon="lucide:save">

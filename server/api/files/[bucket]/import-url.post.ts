@@ -16,6 +16,8 @@ import { localBlob } from "~~/server/utils/localBlob";
 import { requireFileDepartmentAccess, verifyBucket } from "~~/server/utils/permission";
 import { fetchRemoteFile } from "~~/server/utils/remoteFile";
 
+import { buildGoogleDrivePublicUrl, parseGoogleDriveFileLink } from "~~/shared/utils/google-drive-link";
+
 const MAX_REMOTE_FILE_BYTES = 100 * 1024 * 1024;
 
 const normalizeFilenameOverride = (value?: string) => {
@@ -49,10 +51,18 @@ export default defineEventHandler(async (event) => {
     parentPath = parent.path;
   }
 
+  let targetUrl = sourceUrl;
+  try {
+    const driveLink = parseGoogleDriveFileLink(sourceUrl);
+    targetUrl = buildGoogleDrivePublicUrl(driveLink);
+  } catch {
+    targetUrl = sourceUrl;
+  }
+
   let remoteFile;
   try {
     remoteFile = await fetchRemoteFile({
-      url: sourceUrl,
+      url: targetUrl,
       maxBytes: MAX_REMOTE_FILE_BYTES,
       timeoutMs: 60_000,
     });
@@ -123,6 +133,10 @@ export default defineEventHandler(async (event) => {
       await localBlob().put(physicalPath, remoteFile.bytes);
       wroteBlob = true;
     }
+    const departmentId = parentId !== "root"
+      ? (await getFileDepartmentId(parentId, user.organizationId) || (user as any).departmentId || null)
+      : ((user as any).departmentId || null);
+
     const record = await insertUpdateFile(bucket.name, parentId, {
       pathname: logicalPath,
       fullPath: logicalPath,
@@ -130,6 +144,8 @@ export default defineEventHandler(async (event) => {
       contentType: remoteFile.contentType,
       size: remoteFile.bytes.length,
       userId: user.id,
+      departmentId,
+      processingStatus: "pending_processing",
       md5,
       duplicateOfId: uploadPlan.duplicate ? uploadPlan.duplicateOfId : null,
       assetMetadata: {

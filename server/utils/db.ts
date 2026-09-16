@@ -17,7 +17,8 @@ import { users, files, buckets, favorites, shared, nomenclatures, folderRequests
 import { useDrizzle } from "./drizzle";
 import { copyBlob, moveBlob } from "./blob";
 import { localBlob } from "./localBlob";
-import { cleanPath } from "../../shared/utils/helper";
+import { enqueueIngestionJob } from "./ingestionQueue";
+import { cleanPath, getFileType } from "../../shared/utils/helper";
 import { FILE_PERMISSION_KEYS, getAccessibleDepartmentIds, resolvePermission } from "../../shared/utils/access-control";
 
 const perPage = 12;
@@ -508,6 +509,8 @@ export const ensurePath = async (
           bucketName: bucketName,
           userId: userId,
           organizationId,
+          departmentId: userObj?.departmentId || null,
+          processingStatus: "processed",
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -554,6 +557,30 @@ export const insertUpdateFile = async (
   const logicalPath = cleanPath(data.fullPath);
   const physicalPath = blobPath || logicalPath;
 
+  let targetParentId = parentId || "root";
+  const pathParts = logicalPath.split("/").filter(Boolean);
+  const hasSubfolders = (pathParts[0] === bucketName && pathParts.length > 2) || (pathParts[0] !== bucketName && pathParts.length > 1);
+  const fileType = getFileType(data.contentType);
+  const preview = fileType === "image" ? physicalPath : null;
+
+  if (hasSubfolders) {
+    let parent = await ensurePath(bucketName, logicalPath, userId, true);
+    targetParentId = parent.id;
+    if (preview) {
+      await setFolderThumbnail(parent.id, preview);
+    }
+  }
+
+  let resolvedDepartmentId = data.departmentId || null;
+  if (!resolvedDepartmentId && targetParentId && targetParentId !== "root") {
+    resolvedDepartmentId = await getFileDepartmentId(targetParentId, organizationId);
+  }
+  if (!resolvedDepartmentId) {
+    resolvedDepartmentId = userObj?.departmentId || null;
+  }
+
+  const processingStatus = data.processingStatus || "pending_processing";
+
   const file = await getFile(bucketName, logicalPath, undefined, organizationId);
   if (file) {
     return await useDrizzle()
@@ -567,23 +594,10 @@ export const insertUpdateFile = async (
         storagePath: physicalPath,
         duplicateOfId: data.duplicateOfId || null,
         name: logicalPath.split("/").pop() || file.name,
+        departmentId: resolvedDepartmentId || file.departmentId,
+        processingStatus: processingStatus || file.processingStatus,
       })
       .where(eq(files.id, file.id));
-  }
-  const fileType = getFileType(data.contentType);
-  const preview = fileType === "image" ? physicalPath : null;
-
-  // Determine parent ID: keep "root" for root-level files, otherwise resolve folder parent
-  let targetParentId = parentId || "root";
-  const pathParts = logicalPath.split("/").filter(Boolean);
-  const hasSubfolders = (pathParts[0] === bucketName && pathParts.length > 2) || (pathParts[0] !== bucketName && pathParts.length > 1);
-
-  if (hasSubfolders) {
-    let parent = await ensurePath(bucketName, logicalPath, userId, true);
-    targetParentId = parent.id;
-    if (preview) {
-      await setFolderThumbnail(parent.id, preview);
-    }
   }
 
   const insertFile = {
@@ -598,6 +612,8 @@ export const insertUpdateFile = async (
     dimensions: data.dimensions,
     userId: data.userId,
     organizationId,
+    departmentId: resolvedDepartmentId,
+    processingStatus,
     bucketName: bucketName,
     parentId: targetParentId,
     createdAt: new Date(),
@@ -614,7 +630,19 @@ export const insertUpdateFile = async (
     if (targetParentId !== "root") {
       await updateCount(targetParentId);
     }
-    return response[0];
+    const createdRecord = response[0];
+    if (createdRecord.type !== "folder") {
+      enqueueIngestionJob({
+        fileId: createdRecord.id,
+        organizationId: createdRecord.organizationId,
+        departmentId: createdRecord.departmentId,
+        blobPath: createdRecord.storagePath || createdRecord.path,
+        contentType: createdRecord.contentType,
+      }).catch((err) => {
+        console.error("[insertUpdateFile] Failed to enqueue ingestion job:", err);
+      });
+    }
+    return createdRecord;
   }
 };
 

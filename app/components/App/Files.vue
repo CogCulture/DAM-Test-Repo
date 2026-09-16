@@ -58,8 +58,13 @@ watch(actionsOpen, async (open) => {
 });
 const uploadRef = ref();
 const onFilesDropped = async (filesList: File[] | DirectoryUploadSelection) => {
-  actionsOpen.value = true;
   await nextTick();
+
+  let attempts = 0;
+  while (!uploadRef.value && attempts < 20) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    attempts++;
+  }
 
   try {
     const result = await dispatchDroppedFiles(filesList, uploadRef.value);
@@ -69,6 +74,8 @@ const onFilesDropped = async (filesList: File[] | DirectoryUploadSelection) => {
         description: result.message,
         color: "error",
       });
+    } else {
+      refresh();
     }
   } catch (error: any) {
     toast.add({
@@ -153,14 +160,18 @@ watch(
   },
   { immediate: true },
 );
-const onOpen = (file: IFile, index: number) => {
-  const externalUrl = file.assetMetadata?.externalUrl;
-  if (externalUrl && typeof window !== "undefined") {
-    window.open(externalUrl, "_blank", "noopener,noreferrer");
-  } else if (file.type === "folder") {
+const onOpen = (file: IFile) => {
+  if (file.type === "folder") {
     router.push(`/${route.params.bucket}/${file.id}`);
-  } else {
-    showPreview(safeFiles.value, index);
+    return;
+  }
+  if (typeof window !== "undefined") {
+    const isDriveAsset = file.assetMetadata?.source === "google-drive";
+    const bucket = route.params.bucket || "org";
+    const fileUrl = file.assetMetadata?.externalUrl || (isDriveAsset
+      ? `/api/gdrive/download/${encodeURIComponent(file.id)}?inline=true`
+      : `/api/files/${encodeURIComponent(String(bucket))}/download/${encodeURIComponent(file.id)}?inline=true`);
+    window.open(fileUrl, "_blank", "noopener,noreferrer");
   }
 };
 defineShortcuts({
@@ -177,6 +188,9 @@ defineShortcuts({
   <Title v-if="title">{{ title }}</Title>
   <Title v-else-if="folder">{{ folder.name }}</Title>
   <Title v-else>{{ route.params.bucket }}</Title>
+
+  <!-- Always mounted upload ref controller -->
+  <Upload ref="uploadRef" controller-only @success="refresh" />
 
   <AppMain :title="displayTitle" :description="description" :icon="icon">
     <template #actions>
@@ -230,7 +244,7 @@ defineShortcuts({
         {{ safeFiles.length }} {{ safeFiles.length === 1 ? "asset" : "assets" }} in this view
         <span v-if="activeFilters" class="ml-2 text-primary-500">Filters applied</span>
       </span>
-      <span class="hidden sm:inline">Double-click to preview · Right-click for DAM + RAG actions</span>
+      <span class="hidden sm:inline">Double-click to open in new tab · Right-click for DAM + RAG actions</span>
     </div>
     <DropFiles v-if="!endpoint && canUpload" @dropped="onFilesDropped" @error="onDropError" />
     <AppView :name="view" v-slot="{ dir }" :loading="loading">
@@ -255,7 +269,16 @@ defineShortcuts({
         <p class="font-medium">Files could not be loaded</p>
         <p class="mt-1 text-sm text-neutral-500">{{ error }}</p>
       </div>
-      <UButton size="sm" variant="soft" icon="lucide:refresh-cw" label="Try again" @click="refresh" />
+      <UButton
+        v-if="error?.toLowerCase().includes('reconnect') || error?.toLowerCase().includes('expired')"
+        to="/api/auth/google?gdrive=true"
+        external
+        size="sm"
+        color="primary"
+        icon="lucide:log-in"
+        label="Reconnect Google Drive"
+      />
+      <UButton v-else size="sm" variant="soft" icon="lucide:refresh-cw" label="Try again" @click="refresh" />
     </div>
     <div
       v-else-if="!loading && safeFiles.length === 0"
@@ -277,46 +300,73 @@ defineShortcuts({
       leave-to-class="opacity-0 scale-95"
     >
       <div v-show="actionsOpen" class="fixed inset-0 z-[9998]">
-        <div class="fixed inset-0 bg-slate-950/40 backdrop-blur-xs" @click="closeActions" />
+        <div class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm" @click="closeActions" />
 
         <div
           id="asset-actions-panel"
           ref="assetControlsPanel"
-          class="asset-controls-panel fixed top-16 right-4 sm:right-6 z-[9999] w-[min(30rem,calc(100vw-2rem))] max-h-[calc(100vh-5rem)] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-4 text-slate-100 shadow-2xl"
+          class="asset-controls-panel fixed top-16 right-4 sm:right-6 z-[9999] w-[min(34rem,calc(100vw-2rem))] max-h-[calc(100vh-5rem)] overflow-y-auto rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] p-5 text-[var(--dam-ink)] shadow-2xl space-y-4"
           role="dialog"
           aria-label="Asset controls"
           data-testid="asset-actions-panel"
         >
-          <div class="asset-controls-header sticky -top-4 z-10 -mx-4 -mt-4 mb-3 flex items-start justify-between gap-4 border-b border-slate-700 bg-slate-900/95 px-4 py-4 backdrop-blur-md">
+          <!-- Header -->
+          <div class="asset-controls-header sticky -top-5 z-10 -mx-5 -mt-5 flex items-center justify-between gap-4 border-b border-[var(--dam-line)] bg-[var(--dam-panel-solid)] px-5 py-4 backdrop-blur-md">
             <div>
-              <p class="dam-kicker">Asset controls</p>
-              <p class="mt-1 text-xs text-slate-400">Upload, create, organize, and change the current view.</p>
+              <div class="flex items-center gap-2">
+                <Icon name="lucide:sliders-horizontal" class="size-4 text-[#ff5733]" />
+                <p class="text-sm font-bold tracking-wider uppercase text-[var(--dam-ink)]">Asset Controls</p>
+              </div>
+              <p class="mt-0.5 text-xs text-[var(--dam-muted)]">Upload, import, organize, and customize your workspace view.</p>
             </div>
-            <UButton icon="lucide:x" color="neutral" variant="ghost" size="xs" aria-label="Close asset actions" @click="closeActions" />
+            <UButton icon="lucide:x" color="neutral" variant="ghost" size="sm" class="rounded-xl hover:bg-[var(--dam-panel-raised)] text-[var(--dam-muted)] hover:text-[var(--dam-ink)]" aria-label="Close asset actions" @click="closeActions" />
           </div>
 
-          <div v-if="!endpoint && (canUpload || canCreateFolder)" class="asset-controls-section min-w-0 rounded-xl p-3">
-            <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Add assets</p>
-            <div class="grid min-w-0 grid-cols-1 items-center gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <Upload ref="uploadRef" v-if="canUpload" @success="refresh" />
-              <NewFile v-if="canCreateFolder" />
+          <!-- Section 1: Upload & Add Assets -->
+          <div v-if="!endpoint && (canUpload || canCreateFolder)" class="asset-controls-section rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] p-4 space-y-3">
+            <div class="flex items-center justify-between border-b border-[var(--dam-line)] pb-2">
+              <span class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[var(--dam-ink)]">
+                <Icon name="lucide:upload-cloud" class="size-3.5 text-[#ff5733]" />
+                1. Upload & Create
+              </span>
+              <NewFile v-if="canCreateFolder" size="xs" />
             </div>
-            <GoogleDriveLinkImport v-if="canUpload" @success="refresh" />
+            <Upload v-if="canUpload" @success="refresh" />
           </div>
 
-          <div class="mt-3 grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
-            <div class="asset-controls-section min-w-0 rounded-xl p-3">
-              <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Sort</p>
+          <!-- Section 2: Import from URL / Drive Link -->
+          <div v-if="!endpoint && canUpload" class="asset-controls-section rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] p-4 space-y-2">
+            <span class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[var(--dam-ink)]">
+              <Icon name="lucide:link-2" class="size-3.5 text-indigo-400" />
+              2. Import via URL / Drive
+            </span>
+            <GoogleDriveLinkImport @success="refresh" />
+          </div>
+
+          <!-- Section 3: Sort & Refine -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="asset-controls-section rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] p-3.5 space-y-2">
+              <span class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[var(--dam-ink)]">
+                <Icon name="lucide:arrow-up-down" class="size-3.5 text-emerald-400" />
+                Sort By
+              </span>
               <SortFiles @update="onSort" />
             </div>
-            <div class="asset-controls-section min-w-0 rounded-xl p-3">
-              <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Refine</p>
+            <div class="asset-controls-section rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] p-3.5 space-y-2">
+              <span class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[var(--dam-ink)]">
+                <Icon name="lucide:filter" class="size-3.5 text-amber-400" />
+                Refine
+              </span>
               <Filter @update="applyFilters" />
             </div>
           </div>
 
-          <div class="asset-controls-section mt-3 rounded-xl p-3">
-            <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">View</p>
+          <!-- Section 4: Layout View -->
+          <div class="asset-controls-section rounded-2xl border border-slate-700/60 bg-slate-800/40 p-3.5 space-y-2">
+            <span class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-200">
+              <Icon name="lucide:layout-grid" class="size-3.5 text-sky-400" />
+              View Mode
+            </span>
             <ToggleButton :model-value="view" @update:model-value="setView" />
           </div>
         </div>
@@ -324,47 +374,3 @@ defineShortcuts({
     </Transition>
   </Teleport>
 </template>
-<style>
-.asset-controls-panel {
-  isolation: isolate;
-  border: 1px solid var(--dam-line-strong, #334155);
-  background: var(--dam-panel-solid, #0f172a) !important;
-  color: var(--dam-ink, #f8fafc) !important;
-  opacity: 1 !important;
-  box-shadow: 0 28px 70px rgba(2, 8, 23, 0.38), 0 0 0 1px rgba(255, 255, 255, 0.025);
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-
-.asset-controls-header {
-  background: color-mix(in srgb, var(--dam-panel-solid, #0f172a) 96%, transparent);
-  backdrop-filter: blur(14px);
-}
-
-.asset-controls-section {
-  border: 1px solid var(--dam-line, #334155);
-  background: var(--dam-panel-raised, #1e293b);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.035);
-}
-
-.library-overview {
-  --feature-rgb: 53 120 246;
-  background:
-    radial-gradient(circle at 92% 12%, rgb(var(--feature-rgb) / 0.16), transparent 15rem),
-    linear-gradient(135deg, rgb(var(--feature-rgb) / 0.08), transparent 52%),
-    var(--dam-panel-solid);
-}
-
-.library-overview::before {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  content: "";
-  background: rgb(var(--feature-rgb));
-}
-
-.library-overview[data-feature="favorites"] { --feature-rgb: 53 120 246; }
-.library-overview[data-feature="shared"] { --feature-rgb: 139 92 246; }
-.library-overview[data-feature="published"] { --feature-rgb: 16 185 129; }
-.library-overview[data-feature="trash"] { --feature-rgb: 239 68 68; }
-</style>

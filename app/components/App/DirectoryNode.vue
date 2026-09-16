@@ -33,11 +33,13 @@ const isFolder = computed(() => props.file.type === 'folder');
 const previewFile = () => {
   if (isFolder.value) return;
   const externalUrl = props.file.assetMetadata?.externalUrl;
-  if (externalUrl && import.meta.client) {
-    window.open(externalUrl, '_blank', 'noopener,noreferrer');
-    return;
+  const isDriveAsset = props.file.assetMetadata?.source === "google-drive";
+  const fileUrl = externalUrl || (isDriveAsset
+    ? `/api/gdrive/download/${encodeURIComponent(props.file.id)}?inline=true`
+    : `/api/files/${encodeURIComponent(props.bucketName || 'org')}/download/${encodeURIComponent(props.file.id)}?inline=true`);
+  if (import.meta.client) {
+    window.open(fileUrl, '_blank', 'noopener,noreferrer');
   }
-  showPreview([props.file], 0);
 };
 
 const selectFolderForUpload = () => {
@@ -142,7 +144,7 @@ onMounted(() => {
         v-else
         type="button"
         class="grow truncate text-left text-[13px] font-medium text-[var(--dam-muted)] transition-colors group-hover:text-[var(--dam-ink)]"
-        :title="`Double-click to preview ${file.name}`"
+        :title="`Double-click to open in new tab ${file.name}`"
         @dblclick.stop.prevent="previewFile"
       >
         {{ file.name }}

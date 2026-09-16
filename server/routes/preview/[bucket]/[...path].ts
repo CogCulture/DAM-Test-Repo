@@ -10,9 +10,15 @@ export default defineEventHandler(async (event) => {
       message: "Page not found",
     });
   }
-  let deletedAt;
+  let deletedAt: Date | undefined;
   if (query.trashed) {
     deletedAt = new Date(query.trashed as string);
+    if (Number.isNaN(deletedAt.getTime())) {
+      throw createError({
+        status: 400,
+        message: "Invalid trashed date parameter.",
+      });
+    }
   }
   const fullPath = params.bucket + "/" + decodeURIComponent(params.path);
   const file = await getFile(params.bucket, fullPath, deletedAt);

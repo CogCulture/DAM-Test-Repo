@@ -29,7 +29,7 @@ const breadcrumbs = computed(() => {
 </script>
 <template>
   <UBreadcrumb
-    v-if="route.params.bucket"
+    v-if="route.params.bucket && breadcrumbs.length > 1"
     :items="breadcrumbs"
     :ui="{ list: 'gap-1' }"
   >

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useRole } from "~/composables/useRole";
+
 definePageMeta({ layout: "guest" });
 
 const { user, clear, fetch: fetchSession } = useUserSession();

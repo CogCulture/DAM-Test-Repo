@@ -9,13 +9,28 @@ export type FileRuleValidation = {
   message?: string;
 };
 
+const basename = (filename: string) =>
+  filename.replace(/\\/gu, "/").split("/").pop() || filename;
+
+const fileStem = (filename: string) => {
+  const name = basename(filename);
+  const lastDot = name.lastIndexOf(".");
+  return lastDot > 0 ? name.slice(0, lastDot) : name;
+};
+
+const fileExtension = (filename: string) => {
+  const name = basename(filename);
+  const lastDot = name.lastIndexOf(".");
+  return lastDot > 0 ? name.slice(lastDot + 1).toLocaleLowerCase() : "";
+};
+
 const validateNomenclatureStem = (
   name: string,
   segments: NomenclatureSegment[],
   kind: "File" | "Folder",
 ): FileRuleValidation => {
-  if (!segments.length) {
-    return { valid: false, message: `No ${kind.toLocaleLowerCase()} nomenclature template is configured for this department.` };
+  if (!segments || !segments.length) {
+    return { valid: true };
   }
 
   const values = name.split("_");
@@ -44,21 +59,6 @@ const validateNomenclatureStem = (
   }
 
   return { valid: true };
-};
-
-const basename = (filename: string) =>
-  filename.replace(/\\/gu, "/").split("/").pop() || filename;
-
-const fileStem = (filename: string) => {
-  const name = basename(filename);
-  const lastDot = name.lastIndexOf(".");
-  return lastDot > 0 ? name.slice(0, lastDot) : name;
-};
-
-const fileExtension = (filename: string) => {
-  const name = basename(filename);
-  const lastDot = name.lastIndexOf(".");
-  return lastDot > 0 ? name.slice(lastDot + 1).toLocaleLowerCase() : "";
 };
 
 export const normalizeAllowedExtensions = (
@@ -101,6 +101,7 @@ export const validateFolderPathNomenclature = (
   relativePath: string,
   segments: NomenclatureSegment[],
 ): FileRuleValidation => {
+  if (!segments || !segments.length) return { valid: true };
   const folderNames = relativePath
     .replace(/\\/gu, "/")
     .split("/")
@@ -123,12 +124,15 @@ export const validateFileExtension = (
 ): FileRuleValidation => {
   if (!allowedExtensions?.length) return { valid: true };
   const extension = fileExtension(filename);
-  if (allowedExtensions.map((value) => value.toLocaleLowerCase()).includes(extension)) {
+  const normalizedAllowed = allowedExtensions.map((value) =>
+    String(value).trim().replace(/^\./u, "").toLocaleLowerCase()
+  ).filter(Boolean);
+  if (!normalizedAllowed.length || normalizedAllowed.includes(extension)) {
     return { valid: true };
   }
   return {
     valid: false,
-    message: `File extension must be one of: ${allowedExtensions.join(", ")}.`,
+    message: `File extension must be one of: ${normalizedAllowed.join(", ")}.`,
   };
 };
 

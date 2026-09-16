@@ -59,12 +59,17 @@ export default defineEventHandler(async (event) => {
     }
     const contentType = validTextFiles[ext];
     await localBlob().put(fullPath, Buffer.alloc(0));
+    const departmentId = params.id !== "root"
+      ? (await getFileDepartmentId(params.id, orgId) || (user as any).departmentId || null)
+      : ((user as any).departmentId || null);
     return insertUpdateFile(params.bucket, parent.id, {
       name: fileName,
       fullPath,
       contentType: contentType,
       size: 0,
       userId,
+      departmentId,
+      processingStatus: "pending_processing",
     });
   } else {
     if (resolveFolderCreationMode({

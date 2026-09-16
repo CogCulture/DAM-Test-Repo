@@ -2,100 +2,86 @@
 @import "@nuxt/ui";
 
 @theme {
-  --font-sans: "Inter", "Aptos", "Segoe UI", sans-serif;
-  --color-primary-50: #edf5ff;
-  --color-primary-100: #d7e9ff;
-  --color-primary-200: #b8d8ff;
-  --color-primary-300: #88bdff;
-  --color-primary-400: #5599ff;
-  --color-primary-500: #3578f6;
-  --color-primary-600: #2563eb;
-  --color-primary-700: #1f4fc4;
-  --color-primary-800: #203f9b;
-  --color-primary-900: #203879;
-  --color-primary-950: #14234a;
+  --font-sans: "Inter", "Plus Jakarta Sans", "Aptos", sans-serif;
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-300: #a5b4fc;
+  --color-primary-400: #818cf8;
+  --color-primary-500: #6366f1;
+  --color-primary-600: #4f46e5;
+  --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
+  --color-primary-950: #1e1b4b;
 }
 
 :root {
   --ui-primary: var(--color-primary-500);
-  --ui-radius: 0.75rem;
-  --dam-bg: #ffffff;
-  --dam-bg-soft: #ffffff;
+  --ui-radius: 0.875rem;
+  --dam-bg: #f8fafc;
+  --dam-bg-soft: #f1f5f9;
   --dam-panel: #ffffff;
   --dam-panel-solid: #ffffff;
-  --dam-panel-raised: #f7f9fc;
-  --dam-line: #dbe2ec;
-  --dam-line-strong: #c8d2e1;
-  --dam-muted: #667085;
-  --dam-ink: #101828;
-  --dam-accent: #3578f6;
-  --dam-accent-soft: rgba(53, 120, 246, 0.12);
-  --dam-coral: #ff7259;
-  --dam-success: #34c38f;
-  --dam-shadow: 0 12px 32px rgba(31, 48, 78, 0.11);
-  --dam-shadow-soft: 0 4px 16px rgba(31, 48, 78, 0.07);
-}
-
-.dark {
-  --dam-bg: #08111d;
-  --dam-bg-soft: #0b1624;
-  --dam-panel: rgba(13, 24, 38, 0.84);
-  --dam-panel-solid: #0e1928;
-  --dam-panel-raised: #142237;
-  --dam-line: #23344c;
-  --dam-line-strong: #314765;
-  --dam-muted: #8fa0b8;
-  --dam-ink: #f1f6ff;
-  --dam-accent: #4d8cff;
-  --dam-accent-soft: rgba(77, 140, 255, 0.14);
-  --dam-coral: #ff795e;
-  --dam-success: #4bd6a2;
-  --dam-shadow: 0 14px 38px rgba(0, 0, 0, 0.3);
-  --dam-shadow-soft: 0 4px 18px rgba(0, 0, 0, 0.2);
-}
-
-.light {
-  --dam-bg: #ffffff;
-  --dam-bg-soft: #ffffff;
-  --dam-panel: #ffffff;
-  --dam-panel-solid: #ffffff;
-  --dam-panel-raised: #f8fafc;
+  --dam-panel-raised: #f1f5f9;
   --dam-line: #e2e8f0;
   --dam-line-strong: #cbd5e1;
   --dam-muted: #64748b;
   --dam-ink: #0f172a;
-  --dam-accent: #3578f6;
-  --dam-accent-soft: rgba(53, 120, 246, 0.1);
-  --dam-shadow: 0 10px 26px rgba(15, 23, 42, 0.09);
-  --dam-shadow-soft: 0 3px 12px rgba(15, 23, 42, 0.06);
+  --dam-accent: #6366f1;
+  --dam-accent-soft: rgba(99, 102, 241, 0.08);
+  --dam-coral: #ff5733;
+  --dam-glow: rgba(255, 87, 51, 0.18);
+  --dam-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+  --dam-shadow-soft: 0 4px 18px rgba(15, 23, 42, 0.05);
+}
+
+.dark, .dark-mode, html.dark {
+  --dam-bg: #08090d;
+  --dam-bg-soft: #0d0f17;
+  --dam-panel: #111420;
+  --dam-panel-solid: #161a29;
+  --dam-panel-raised: #1c2236;
+  --dam-line: #232a3f;
+  --dam-line-strong: #2f3854;
+  --dam-muted: #94a3b8;
+  --dam-ink: #f8fafc;
+  --dam-accent: #6366f1;
+  --dam-accent-soft: rgba(99, 102, 241, 0.16);
+  --dam-coral: #818cf8;
+  --dam-glow: rgba(99, 102, 241, 0.35);
+  --dam-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+  --dam-shadow-soft: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.light, .light-mode, html:not(.dark) {
+  --dam-bg: #f8fafc;
+  --dam-bg-soft: #f1f5f9;
+  --dam-panel: #ffffff;
+  --dam-panel-solid: #ffffff;
+  --dam-panel-raised: #f1f5f9;
+  --dam-line: #e2e8f0;
+  --dam-line-strong: #cbd5e1;
+  --dam-muted: #64748b;
+  --dam-ink: #0f172a;
+  --dam-accent: #4f46e5;
+  --dam-accent-soft: rgba(79, 70, 229, 0.08);
+  --dam-coral: #ff5733;
+  --dam-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+  --dam-shadow-soft: 0 4px 18px rgba(15, 23, 42, 0.05);
 }
 
 html {
   background: var(--dam-bg);
-  color-scheme: light;
+  color-scheme: dark;
 }
-
-html.light,
-html.light body,
-html.light #__nuxt {
-  background: #ffffff;
-}
-
-html.dark { color-scheme: dark; }
 
 body {
   min-width: 320px;
   background: var(--dam-bg);
   color: var(--dam-ink);
   font-feature-settings: "ss01" 1, "cv02" 1, "cv03" 1;
-  letter-spacing: -0.005em;
-}
-
-.dark body {
-  background:
-    radial-gradient(circle at 82% -10%, rgba(53, 120, 246, 0.12), transparent 30rem),
-    radial-gradient(circle at 14% 105%, rgba(255, 114, 89, 0.07), transparent 28rem),
-    var(--dam-bg);
+  letter-spacing: -0.01em;
 }
 
 body::before {
@@ -104,54 +90,47 @@ body::before {
   z-index: 0;
   pointer-events: none;
   content: "";
-  opacity: 0.26;
+  opacity: 0.15;
   background-image:
-    linear-gradient(rgba(53, 120, 246, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(53, 120, 246, 0.035) 1px, transparent 1px);
-  background-size: 42px 42px;
-  mask-image: linear-gradient(to bottom, black, transparent 60%);
-}
-
-.light body::before {
-  display: none;
-}
-
-html.light .dam-authenticated-shell,
-html.light .dam-authenticated-viewport,
-html.light .dam-workspace-header,
-html.light .dam-workspace-sidebar,
-html.light .dam-glass {
-  background: #ffffff;
-}
-
-html.light .dam-workspace-header,
-html.light .dam-workspace-sidebar,
-html.light .dam-glass {
-  backdrop-filter: none;
-}
-
-html.light .dam-dropzone {
-  background: #ffffff;
+    radial-gradient(circle at 80% -10%, rgba(255, 87, 51, 0.18), transparent 32rem),
+    radial-gradient(circle at 15% 90%, rgba(255, 107, 74, 0.12), transparent 28rem),
+    linear-gradient(rgba(255, 87, 51, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 87, 51, 0.03) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 48px 48px, 48px 48px;
+  mask-image: linear-gradient(to bottom, black, transparent 80%);
 }
 
 #__nuxt { position: relative; z-index: 1; }
 
-/* Reka portals are siblings of #__nuxt. Lift their positioning wrapper above
-   the application stacking context so popovers, menus, and tooltips stay visible. */
 [data-reka-popper-content-wrapper] {
   z-index: 1000 !important;
 }
 
-::selection { background: rgba(53, 120, 246, 0.3); }
+::selection { background: rgba(255, 87, 51, 0.35); color: #ffffff; }
 * { scrollbar-color: var(--dam-line-strong) transparent; scrollbar-width: thin; }
 button, a, input, select { outline-offset: 3px; }
 button, a { -webkit-tap-highlight-color: transparent; }
 
+/* Chrome/Edge/Safari autofill background color fix for dark mode */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+textarea:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #0e1015 inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
 .dam-kicker {
-  color: var(--dam-muted);
-  font-size: 0.66rem;
-  font-weight: 750;
-  letter-spacing: 0.16em;
+  color: #ff6b4a;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
@@ -159,35 +138,54 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .dam-glass {
   border: 1px solid var(--dam-line);
-  background: var(--dam-panel-solid);
+  background: var(--dam-panel);
   box-shadow: var(--dam-shadow-soft);
-  backdrop-filter: none;
+  backdrop-filter: blur(12px);
 }
 
 .dam-control {
   border: 1px solid var(--dam-line);
   background: var(--dam-panel-solid);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.05), var(--dam-shadow-soft);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.06), var(--dam-shadow-soft);
+}
+
+/* Aprimo/Genfy Coral Glowing Button Class */
+.dam-btn-primary {
+  background: linear-gradient(135deg, #ff5733 0%, #ff3b19 100%);
+  color: #ffffff;
+  font-weight: 700;
+  border-radius: 9999px;
+  box-shadow: 0 0 20px rgba(255, 87, 51, 0.38);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.dam-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 28px rgba(255, 87, 51, 0.55);
+  background: linear-gradient(135deg, #ff6b4a 0%, #ff4d2e 100%);
+}
+
+/* Aprimo/Genfy Pill Badges */
+.dam-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: rgba(255, 87, 51, 0.15);
+  border: 1px solid rgba(255, 87, 51, 0.35);
+  color: #ff6b4a;
 }
 
 .dam-dropzone {
   background:
-    radial-gradient(circle at 18% 20%, rgba(77, 140, 255, 0.11), transparent 18rem),
-    linear-gradient(135deg, rgba(77, 140, 255, 0.045), transparent 46%),
+    radial-gradient(circle at 18% 20%, rgba(255, 87, 51, 0.14), transparent 20rem),
+    linear-gradient(135deg, rgba(255, 87, 51, 0.05), transparent 50%),
     var(--dam-panel);
-}
-
-.dam-dropzone::after {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  content: "";
-  opacity: 0.18;
-  background-image:
-    radial-gradient(circle at 20% 35%, transparent 0 24px, var(--dam-line) 25px 26px, transparent 27px),
-    radial-gradient(circle at 78% 60%, transparent 0 38px, var(--dam-line) 39px 40px, transparent 41px);
-  background-size: 190px 130px, 240px 170px;
-  mask-image: linear-gradient(90deg, black, transparent 48%, black);
+  border: 1px dashed var(--dam-line-strong);
 }
 
 .dam-asset-card::before {
@@ -197,38 +195,35 @@ button, a { -webkit-tap-highlight-color: transparent; }
   pointer-events: none;
   content: "";
   border-radius: inherit;
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .dam-asset-card {
   content-visibility: auto;
   contain: layout paint style;
   contain-intrinsic-size: 280px 340px;
+  background: var(--dam-panel);
+  border: 1px solid var(--dam-line);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.dam-asset-card:hover .dam-asset-media { transform: scale(1.01); }
+.dam-asset-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(255, 87, 51, 0.55);
+  box-shadow: 0 12px 32px rgba(255, 87, 51, 0.15);
+}
 
-/* Let scrolled workspace actions remain clickable through empty header space. */
 .dam-workspace-header { pointer-events: none; }
 .dam-workspace-header :is(a, button, input, select, textarea, [role="button"], [role="link"]) {
   pointer-events: auto;
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .dam-enter { animation: dam-enter 160ms cubic-bezier(.2, .72, .2, 1) backwards; }
-  .dam-float { animation: none; }
+  .dam-enter { animation: dam-enter 180ms cubic-bezier(.2, .72, .2, 1) backwards; }
   @keyframes dam-enter {
-    from { opacity: 0; transform: translateY(10px); }
+    from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }
   }
-  @keyframes dam-float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-4px); }
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; }
 }
 
 @media (min-width: 640px) {

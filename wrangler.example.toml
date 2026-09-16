@@ -29,6 +29,19 @@ bucket_name = "" # Set your bucket name
 binding = "ASSETS"
 directory = "./dist/public/"
 
+# Cloudflare Queue Producers
+[[queues.producers]]
+binding = "INGESTION_QUEUE"
+queue = "dam-ingestion-queue"
+
+# Cloudflare Queue Consumers
+[[queues.consumers]]
+queue = "dam-ingestion-queue"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
+dead_letter_queue = "dam-ingestion-dlq"
+
 [vars]
 NUXT_SESSION_PASSWORD="" # Set your session password with at least 32 characters
 NUXT_OAUTH_GITHUB_CLIENT_ID="" # Set your GitHub OAuth client ID

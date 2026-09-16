@@ -11,8 +11,10 @@ export default defineNuxtConfig({
       enableGDriveStorage: parsePublicBooleanFlag(process.env.NUXT_PUBLIC_ENABLE_GDRIVE_STORAGE),
     },
   },
-  devtools: { enabled: process.env.NODE_ENV !== "production" },
-  // ssr: false,
+  devtools: { enabled: false },
+  telemetry: false,
+  ssr: false,
+  spaLoadingTemplate: false,
   nitro: {
     preset: process.env.NITRO_PRESET || "cloudflare_module",
     imports: {
@@ -55,9 +57,25 @@ export default defineNuxtConfig({
   hub: {
     blob: !isGcpRuntime,
     database: !isGcpRuntime,
+    remote: false,
   },
   icon: {
     mode: "svg",
+  },
+  vite: {
+    warmup: {
+      clientFiles: [
+        "./app/pages/index.vue",
+        "./app/pages/auth/signin.vue",
+        "./app/pages/auth/select-storage.vue",
+        "./app/pages/auth/complete-profile.vue",
+        "./app/components/App/Files.vue",
+        "./app/components/App/Header.vue",
+      ],
+    },
+    optimizeDeps: {
+      include: ["vue", "vue-router", "ulidx"],
+    },
   },
   future: {
     compatibilityVersion: 4,

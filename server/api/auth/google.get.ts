@@ -102,15 +102,14 @@ const oauthHandler = defineOAuthGoogleEventHandler({
 });
 
 function getRedirectUri(event: any) {
-  const config = useRuntimeConfig(event);
+  const reqUrl = getRequestURL(event);
   const configuredUri =
-    (config as any).oauth?.google?.redirectURL ||
-    (config as any).oauth?.google?.redirectUrl ||
     process.env.NUXT_OAUTH_GOOGLE_REDIRECT_URL;
-  if (configuredUri) {
+
+  if (configuredUri && !configuredUri.includes("localhost") && !configuredUri.includes("127.0.0.1")) {
     return configuredUri;
   }
-  const reqUrl = getRequestURL(event);
+
   return `${reqUrl.protocol}//${reqUrl.host}/api/auth/google`;
 }
 

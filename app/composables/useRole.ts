@@ -32,13 +32,13 @@ export function useRole() {
   const userPermissions = computed(() => (user.value as any)?.permissions || {});
 
   const canView = computed(() =>
-    isApproved.value && (userPermissions.value.canView ?? true)
+    isApproved.value && (userPermissions.value.canView !== false)
   );
   const canUpload = computed(() =>
-    isApproved.value && (userPermissions.value.canUpload ?? hasMinRole(role.value || "intern", "intern"))
+    isApproved.value && (userPermissions.value.canUpload !== false)
   );
   const canDownload = computed(() =>
-    isApproved.value && (userPermissions.value.canDownload ?? hasMinRole(role.value || "intern", "intern"))
+    isApproved.value && (userPermissions.value.canDownload !== false)
   );
   const canCreateFolder = computed(() =>
     isApproved.value && (userPermissions.value.canCreateFolder ?? hasMinRole(role.value || "intern", "team_lead"))

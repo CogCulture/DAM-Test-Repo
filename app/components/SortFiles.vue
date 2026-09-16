@@ -32,6 +32,8 @@ onMounted(() => emit("update", { ...sort.value }));
         @click="sort.order = sort.order === 'asc' ? 'desc' : 'asc'"
       />
     </UTooltip>
-    <USelect v-model="sort.sortBy" :items="sortOptions" :ui="{ content: 'z-50' }" class="min-w-0 flex-1 rounded-lg" aria-label="Sort assets by" />
+    <select v-model="sort.sortBy" class="min-w-0 flex-1 rounded-lg border-0 bg-transparent px-2.5 py-1 text-xs font-semibold text-[var(--dam-ink)] focus:outline-none cursor-pointer" aria-label="Sort assets by">
+      <option v-for="item in sortOptions" :key="item.value" :value="item.value" class="bg-[var(--dam-panel-solid)] text-[var(--dam-ink)]">{{ item.label }}</option>
+    </select>
   </UButtonGroup>
 </template>

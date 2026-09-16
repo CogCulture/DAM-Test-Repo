@@ -9,6 +9,56 @@ const toast = useToast();
 const { data: org, refresh, pending } = await useFetch<any>(`/api/superadmin/organizations/${orgId}`);
 
 const actionLoading = ref(false);
+const selectedNomenclatureDepartment = ref("");
+const nomenclatureLoading = ref(false);
+const nomenclatureSaving = ref(false);
+const nomenclaturePolicy = ref<any>(null);
+
+const nomenclatureDepartmentOptions = computed(() => (org.value?.departments || []).map((department: any) => ({
+  label: department.name,
+  value: department.id,
+})));
+
+const loadNomenclature = async () => {
+  if (!selectedNomenclatureDepartment.value) {
+    nomenclaturePolicy.value = null;
+    return;
+  }
+  nomenclatureLoading.value = true;
+  try {
+    nomenclaturePolicy.value = await $fetch(
+      `/api/superadmin/organizations/${orgId}/nomenclature/${selectedNomenclatureDepartment.value}`,
+    );
+  } catch (error: any) {
+    toast.add({ title: "Nomenclature could not be loaded", description: error?.data?.message || error?.message, color: "error" });
+  } finally {
+    nomenclatureLoading.value = false;
+  }
+};
+
+const saveNomenclature = async () => {
+  if (!selectedNomenclatureDepartment.value || !nomenclaturePolicy.value) return;
+  nomenclatureSaving.value = true;
+  try {
+    await $fetch(`/api/superadmin/organizations/${orgId}/nomenclature/${selectedNomenclatureDepartment.value}`, {
+      method: "PUT",
+      body: nomenclaturePolicy.value,
+    });
+    toast.add({ title: "Nomenclature saved", description: "New DAM uploads will use this department policy.", color: "success" });
+    await loadNomenclature();
+  } catch (error: any) {
+    toast.add({ title: "Nomenclature could not be saved", description: error?.data?.message || error?.message, color: "error" });
+  } finally {
+    nomenclatureSaving.value = false;
+  }
+};
+
+watch(() => org.value?.departments, (departments) => {
+  if (!selectedNomenclatureDepartment.value && departments?.length) {
+    selectedNomenclatureDepartment.value = departments[0].id;
+  }
+}, { immediate: true });
+watch(selectedNomenclatureDepartment, loadNomenclature);
 
 // Feature flags — kept as a separate reactive copy for editing
 const featureKeys = ["nomenclature", "hierarchy", "userPermissions", "templateFolders"] as const;
@@ -178,6 +228,21 @@ const filteredMembers = computed(() => {
           <p class="text-2xl font-bold text-white">{{ org?.departments?.length ?? 0 }}</p>
         </div>
       </div>
+
+      <section v-if="org?.departments?.length" class="rounded-2xl border border-[#1e1e2e] bg-[#0d0d14] p-5">
+        <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 class="flex items-center gap-2 font-semibold text-white"><Icon name="lucide:tags" class="size-4 text-violet-400" />DAM nomenclature</h2>
+            <p class="mt-1 text-xs text-slate-500">Define and enforce file and folder names for each department.</p>
+          </div>
+          <div class="w-full sm:w-72">
+            <label class="mb-1 block text-xs font-medium text-slate-400">Department</label>
+            <USelect v-model="selectedNomenclatureDepartment" :items="nomenclatureDepartmentOptions" value-key="value" label-key="label" class="w-full" />
+          </div>
+        </div>
+        <div v-if="nomenclatureLoading" class="flex justify-center py-10"><Icon name="lucide:loader" class="size-6 animate-spin text-violet-400" /></div>
+        <NomenclatureEditor v-else-if="nomenclaturePolicy" :policy="nomenclaturePolicy" :saving="nomenclatureSaving" @save="saveNomenclature" />
+      </section>
 
       <!-- Main grid -->
       <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">

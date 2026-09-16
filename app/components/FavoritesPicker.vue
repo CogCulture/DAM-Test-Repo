@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { damModalUi } from "~/utils/damModal";
 import { useToast } from "~/composables/useToast";
+import { useRole } from "~/composables/useRole";
 
 const route = useRoute();
 const toast = useToast();

@@ -3,28 +3,46 @@ import sys
 import argparse
 import base64
 import json
-import cv2
-from anthropic import Anthropic
+def _encode_image_b64(image_path: str, max_dim: int = 768) -> tuple[str, str]:
+    ext = os.path.splitext(image_path)[1].lower()
+    m_type = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
+
+    # Try cv2 first
+    try:
+        import cv2
+        img = cv2.imread(image_path)
+        if img is not None:
+            h, w = img.shape[:2]
+            if max(h, w) > max_dim:
+                scale = max_dim / max(h, w)
+                img = cv2.resize(img, (int(w * scale), int(h * scale)))
+            encode_ext = ".jpg" if m_type == "image/jpeg" else ext
+            _, buffer = cv2.imencode(encode_ext, img, [cv2.IMWRITE_JPEG_QUALITY, 85] if encode_ext == ".jpg" else [])
+            return base64.b64encode(buffer).decode("utf-8"), m_type
+    except Exception:
+        pass
+
+    # Try PIL/Pillow next
+    try:
+        from PIL import Image
+        import io
+        with Image.open(image_path) as img:
+            img.thumbnail((max_dim, max_dim))
+            fmt = "PNG" if m_type == "image/png" else ("WEBP" if m_type == "image/webp" else "JPEG")
+            buffer = io.BytesIO()
+            img.convert("RGB" if fmt == "JPEG" else img.mode).save(buffer, format=fmt, quality=85)
+            return base64.b64encode(buffer.getvalue()).decode("utf-8"), m_type
+    except Exception:
+        pass
+
+    # Fallback to direct raw binary file read
+    with open(image_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8"), m_type
 
 def process_image_single(image_path: str, anthropic_key: str, model: str) -> dict:
     client = Anthropic(api_key=anthropic_key)
     
-    MAX_DIM = 768
-    img = cv2.imread(image_path)
-    if img is None:
-        raise ValueError(f"Failed to read image: {image_path}")
-        
-    h, w = img.shape[:2]
-    if max(h, w) > MAX_DIM:
-        scale = MAX_DIM / max(h, w)
-        img = cv2.resize(img, (int(w * scale), int(h * scale)))
-    
-    ext = os.path.splitext(image_path)[1].lower()
-    m_type = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
-    encode_ext = ".jpg" if m_type == "image/jpeg" else ext
-    
-    _, buffer = cv2.imencode(encode_ext, img, [cv2.IMWRITE_JPEG_QUALITY, 85] if encode_ext==".jpg" else [])
-    b64 = base64.b64encode(buffer).decode("utf-8")
+    b64, m_type = _encode_image_b64(image_path, max_dim=768)
 
     resp = client.messages.create(
         model=model,

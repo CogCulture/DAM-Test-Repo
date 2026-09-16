@@ -57,13 +57,8 @@ export const buildDepartmentUploadOptions = ({
         id: department.id,
         name: department.name,
         type: "department" as const,
-        available: Boolean(folderId),
-        ...(!usesDrive && folderId ? { folderId } : {}),
-        ...(!folderId
-          ? { unavailableReason: usesDrive
-              ? "This department is not connected to Google Drive."
-              : "This department is not connected to a DAM folder." }
-          : {}),
+        available: true,
+        folderId: folderId || "root",
       };
     }),
   ];
@@ -87,14 +82,11 @@ export const resolveLocalDepartmentUploadTarget = ({
   if (actor.role !== "admin" && !accessibleIds.has(department.id)) {
     throw new Error("You do not have access to this upload department.");
   }
-  if (!department.folderId) {
-    throw new Error("This department is not connected to a DAM folder.");
-  }
 
   return {
     departmentId: department.id,
     departmentName: department.name,
-    folderId: department.folderId,
+    folderId: department.folderId || "root",
   };
 };
 

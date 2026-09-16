@@ -5,6 +5,7 @@ Integrates with job_store for pause/resume and error tracking.
 import os
 import sys
 import time
+import json
 
 # Add parent dir (RAGPush) to sys.path so we can import the parser scripts
 PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,7 +21,7 @@ USE_BATCH_API = os.environ.get("RAG_USE_BATCH", "false").strip().lower() in {
 }
 
 SUPPORTED_EXTENSIONS = {
-    ".txt", ".pdf", ".pptx", ".docx", ".xlsx", ".xls",
+    ".txt", ".md", ".markdown", ".pdf", ".pptx", ".docx", ".xlsx", ".xls",
     ".mp4", ".mov", ".avi", ".mkv",
     ".mp3", ".wav", ".m4a",
     ".jpg", ".jpeg", ".png", ".webp"
@@ -36,7 +37,7 @@ def route_file(file_path: str, file_type: str = "") -> dict:
     if ext and not ext.startswith("."):
         ext = f".{ext}"
 
-    if ext == ".txt":
+    if ext in (".txt", ".md", ".markdown"):
         return _process_text_file(file_path)
 
     elif ext == ".pdf":
@@ -75,9 +76,17 @@ def route_file(file_path: str, file_type: str = "") -> dict:
                 "server/utils/rag_parsers/requirements.txt with the same Python "
                 "used by the app."
             ) from exc
+        print(json.dumps({"type": "stage", "stage": "extracting", "message": "Extracting Word document content..."}), flush=True)
         text = extract_text_from_docx(file_path)
         images = extract_images_from_docx(file_path)
-        result_text, usage = analyze_with_claude_with_usage(text, images, ANTHROPIC_API_KEY, CLAUDE_MODEL)
+        print(json.dumps({"type": "stage", "stage": "analyzing", "message": "Analyzing document content..."}), flush=True)
+        result_text, usage = analyze_with_claude_with_usage(
+            text,
+            images,
+            ANTHROPIC_API_KEY,
+            CLAUDE_MODEL,
+            use_batch=USE_BATCH_API,
+        )
         out_path = os.path.splitext(file_path)[0] + "_parsed.md"
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(result_text or "")
@@ -151,10 +160,42 @@ def _run_transcribe(audio_path: str, out_path: str):
     )
 
 
-def analyze_with_claude_with_usage(text_content, images, api_key, model):
+def run_anthropic_analysis(client, requests_list, use_batch):
+    """Run one DOCX request interactively by default or through Batch when opted in."""
+    if not use_batch:
+        message = client.messages.create(**requests_list[0]["params"])
+        return (
+            message.content[0].text,
+            message.usage.input_tokens,
+            message.usage.output_tokens,
+        )
+
+    try:
+        batches = client.beta.messages.batches
+    except AttributeError:
+        batches = client.messages.batches
+
+    batch = batches.create(requests=requests_list)
+    while True:
+        status = batches.retrieve(batch.id)
+        if status.processing_status in ["ended", "canceled", "expired"]:
+            break
+        time.sleep(10)
+
+    result_text = ""
+    input_tokens, output_tokens = 0, 0
+    for result in batches.results(batch.id):
+        if result.result.type == "succeeded":
+            message = result.result.message
+            result_text = message.content[0].text
+            input_tokens = message.usage.input_tokens
+            output_tokens = message.usage.output_tokens
+    return result_text, input_tokens, output_tokens
+
+
+def analyze_with_claude_with_usage(text_content, images, api_key, model, use_batch=False):
     """Wrapper around parse_docx's analyze_with_claude that also returns usage."""
     import base64
-    import time as _time
     from anthropic import Anthropic
     client = Anthropic(api_key=api_key)
     content = []
@@ -169,65 +210,60 @@ def analyze_with_claude_with_usage(text_content, images, api_key, model):
         "1. **Per-Page/Section Summary**: Divide content into logical sections, summarize each with visual insights.\n"
         "2. **Overall Summary**: At the end, a cohesive overall summary."
     )})
-
     requests_list = [{"custom_id": "docx_1", "params": {"model": model, "max_tokens": 4096, "messages": [{"role": "user", "content": content}]}}]
-    try:
-        batch = client.beta.messages.batches.create(requests=requests_list)
-    except AttributeError:
-        batch = client.messages.batches.create(requests=requests_list)
-
-    while True:
-        try:
-            b_status = client.beta.messages.batches.retrieve(batch.id)
-        except AttributeError:
-            b_status = client.messages.batches.retrieve(batch.id)
-        if b_status.processing_status in ["ended", "canceled", "expired"]:
-            break
-        _time.sleep(10)
-
-    result_text = ""
-    in_tokens, out_tokens = 0, 0
-    try:
-        results_iter = client.beta.messages.batches.results(batch.id)
-    except AttributeError:
-        results_iter = client.messages.batches.results(batch.id)
-
-    for result in results_iter:
-        if result.result.type == "succeeded":
-            msg = result.result.message
-            result_text = msg.content[0].text
-            in_tokens = msg.usage.input_tokens
-            out_tokens = msg.usage.output_tokens
+    result_text, in_tokens, out_tokens = run_anthropic_analysis(client, requests_list, use_batch)
 
     cost = (in_tokens * 1.5 + out_tokens * 7.5) / 1_000_000
     out_path_placeholder = None  # Will be set by caller
     return result_text, {"output_path": out_path_placeholder, "input_tokens": in_tokens, "output_tokens": out_tokens, "cost": cost}
 
 
-def _process_image_single(image_path: str) -> dict:
-    """Sends a single image to Claude Vision for a quick analysis (Synchronous)."""
+def _encode_image_b64(image_path: str, max_dim: int = 768) -> tuple[str, str]:
     import base64
     import os
-    import cv2
+    ext = os.path.splitext(image_path)[1].lower()
+    m_type = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
+
+    # Try cv2 first
+    try:
+        import cv2
+        img = cv2.imread(image_path)
+        if img is not None:
+            h, w = img.shape[:2]
+            if max(h, w) > max_dim:
+                scale = max_dim / max(h, w)
+                img = cv2.resize(img, (int(w * scale), int(h * scale)))
+            encode_ext = ".jpg" if m_type == "image/jpeg" else ext
+            _, buffer = cv2.imencode(encode_ext, img, [cv2.IMWRITE_JPEG_QUALITY, 85] if encode_ext == ".jpg" else [])
+            return base64.b64encode(buffer).decode("utf-8"), m_type
+    except Exception:
+        pass
+
+    # Try PIL/Pillow next
+    try:
+        from PIL import Image
+        import io
+        with Image.open(image_path) as img:
+            img.thumbnail((max_dim, max_dim))
+            fmt = "PNG" if m_type == "image/png" else ("WEBP" if m_type == "image/webp" else "JPEG")
+            buffer = io.BytesIO()
+            img.convert("RGB" if fmt == "JPEG" else img.mode).save(buffer, format=fmt, quality=85)
+            return base64.b64encode(buffer.getvalue()).decode("utf-8"), m_type
+    except Exception:
+        pass
+
+    # Fallback to direct raw binary file read
+    with open(image_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8"), m_type
+
+
+def _process_image_single(image_path: str) -> dict:
+    """Sends a single image to Claude Vision for a quick analysis (Synchronous)."""
+    import os
     from anthropic import Anthropic
     client = Anthropic(api_key=ANTHROPIC_API_KEY)
     
-    MAX_DIM = 768
-    img = cv2.imread(image_path)
-    if img is None:
-        raise ValueError(f"Failed to read image: {image_path}")
-        
-    h, w = img.shape[:2]
-    if max(h, w) > MAX_DIM:
-        scale = MAX_DIM / max(h, w)
-        img = cv2.resize(img, (int(w * scale), int(h * scale)))
-    
-    ext = os.path.splitext(image_path)[1].lower()
-    m_type = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
-    encode_ext = ".jpg" if m_type == "image/jpeg" else ext
-    
-    _, buffer = cv2.imencode(encode_ext, img, [cv2.IMWRITE_JPEG_QUALITY, 85] if encode_ext==".jpg" else [])
-    b64 = base64.b64encode(buffer).decode("utf-8")
+    b64, m_type = _encode_image_b64(image_path, max_dim=768)
 
     resp = client.messages.create(
         model=CLAUDE_MODEL,
@@ -248,8 +284,6 @@ def _process_image_single(image_path: str) -> dict:
 
 def _process_image_batch(job_id: str, image_files: list, progress_callback):
     """Processes multiple images as a single Anthropic batch."""
-    import base64
-    import cv2
     import json
     import time
     from anthropic import Anthropic
@@ -258,51 +292,37 @@ def _process_image_batch(job_id: str, image_files: list, progress_callback):
     client = Anthropic(api_key=ANTHROPIC_API_KEY)
     
     requests_list = []
-    MAX_DIM = 768
     
     # 1. Optimize and pack images
     for idx, file_item in enumerate(image_files):
         img_path = file_item["path"]
         try:
-            img = cv2.imread(img_path)
-            if img is not None:
-                h, w = img.shape[:2]
-                if max(h, w) > MAX_DIM:
-                    scale = MAX_DIM / max(h, w)
-                    img = cv2.resize(img, (int(w * scale), int(h * scale)))
-                
-                ext = os.path.splitext(img_path)[1].lower()
-                m_type = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
-                encode_ext = ".jpg" if m_type == "image/jpeg" else ext
-                
-                _, buffer = cv2.imencode(encode_ext, img, [cv2.IMWRITE_JPEG_QUALITY, 85] if encode_ext==".jpg" else [])
-                b64 = base64.b64encode(buffer).decode("utf-8")
-                
-                prompt = (
-                    f"You are an expert visual analyst. Analyze the following image: '{file_item['name']}'\n"
-                    "Provide a highly structured JSON response explaining everything happening in the image. "
-                    "Do not invent details. Output ONLY valid JSON, with no markdown wrappers.\n\n"
-                    "Generate a JSON object with EXACTLY these keys:\n"
-                    "{\n"
-                    "  \"summary\": \"<A detailed, accurate paragraph describing the core subject, action, and setting.>\",\n"
-                    "  \"tone_and_mood\": \"<1-2 sentences describing the emotional tone or vibe of the image.>\",\n"
-                    "  \"lighting_and_composition\": \"<Description of lighting (e.g., harsh, soft, studio, natural) and composition / framing.>\",\n"
-                    "  \"visual_style\": \"<e.g., photographic, 3d render, vector art, minimalist, cinematic>\",\n"
-                    "  \"entities\": [\"<list>\", \"<of>\", \"<objects>\", \"<people>\", \"<locations>\"]\n"
-                    "}"
-                )
-                
-                requests_list.append({
-                    "custom_id": f"img_{idx}",
-                    "params": {
-                        "model": CLAUDE_MODEL,
-                        "max_tokens": 1024,
-                        "messages": [{"role": "user", "content": [
-                            {"type": "image", "source": {"type": "base64", "media_type": m_type, "data": b64}},
-                            {"type": "text", "text": prompt}
-                        ]}]
-                    }
-                })
+            b64, m_type = _encode_image_b64(img_path, max_dim=768)
+            prompt = (
+                f"You are an expert visual analyst. Analyze the following image: '{file_item['name']}'\n"
+                "Provide a highly structured JSON response explaining everything happening in the image. "
+                "Do not invent details. Output ONLY valid JSON, with no markdown wrappers.\n\n"
+                "Generate a JSON object with EXACTLY these keys:\n"
+                "{\n"
+                "  \"summary\": \"<A detailed, accurate paragraph describing the core subject, action, and setting.>\",\n"
+                "  \"tone_and_mood\": \"<1-2 sentences describing the emotional tone or vibe of the image.>\",\n"
+                "  \"lighting_and_composition\": \"<Description of lighting (e.g., harsh, soft, studio, natural) and composition / framing.>\",\n"
+                "  \"visual_style\": \"<e.g., photographic, 3d render, vector art, minimalist, cinematic>\",\n"
+                "  \"entities\": [\"<list>\", \"<of>\", \"<objects>\", \"<people>\", \"<locations>\"]\n"
+                "}"
+            )
+            
+            requests_list.append({
+                "custom_id": f"img_{idx}",
+                "params": {
+                    "model": CLAUDE_MODEL,
+                    "max_tokens": 1024,
+                    "messages": [{"role": "user", "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": m_type, "data": b64}},
+                        {"type": "text", "text": prompt}
+                    ]}]
+                }
+            })
         except Exception as e:
             err_msg = f"Failed to optimize image: {e}"
             js.update_file_status(job_id, file_item["index"], "failed", error=err_msg)
