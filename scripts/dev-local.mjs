@@ -5,6 +5,9 @@ import { rmSync, existsSync, readFileSync } from 'node:fs';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 
+process.env.HOME = resolve(projectRoot, '.data');
+process.env.USERPROFILE = resolve(projectRoot, '.data');
+
 function loadDotEnv(fileName) {
   const filePath = resolve(projectRoot, fileName);
   if (!existsSync(filePath)) return;
@@ -70,4 +73,10 @@ child.once('error', (error) => {
 
 child.once('exit', (code, signal) => {
   if (signal) {
-    process.stderr.write(`Dev server stopped by signal ${sign
+    process.stderr.write(`Dev server stopped by signal ${signal}.\n`);
+    process.exitCode = 1;
+    return;
+  }
+  process.exitCode = code ?? 1;
+});
+
