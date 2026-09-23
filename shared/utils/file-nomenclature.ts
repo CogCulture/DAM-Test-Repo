@@ -50,7 +50,7 @@ const validateNomenclatureStem = (
     if (typeof value !== "string") {
       return { valid: false, message: `${kind} name must follow ${expected}.` };
     }
-    if (allowedValues.length && !allowedValues.includes(value)) {
+    if (allowedValues.length && !allowedValues.some((item) => item.toLowerCase() === value.toLowerCase())) {
       return {
         valid: false,
         message: `${segment.label || segment.key} must be one of: ${allowedValues.join(", ")}.`,

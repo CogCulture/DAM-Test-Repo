@@ -41,6 +41,15 @@ const contextMenuRef = ref(null);
 const contextMenuPosition = reactive({ x: 0, y: 0 });
 const externalUrl = computed(() => props.file.assetMetadata?.externalUrl || null);
 const isDriveAsset = computed(() => isGoogleDriveAsset(props.file));
+const isRagIndexed = computed(() => {
+  const meta = props.file?.assetMetadata || {};
+  return Boolean(
+    meta.ragProcessedAt ||
+    meta.ragStatus === "processed" ||
+    meta.parsedFileId ||
+    meta.ragCost !== undefined
+  );
+});
 
 const contextMenuStyle = computed(() => ({
   left: `${contextMenuPosition.x}px`,
@@ -154,7 +163,7 @@ const fileMenuItems = computed(() => {
   const actionsGroup = [];
 
   const supportedExtensions = new Set([
-    ".txt", ".pdf", ".pptx", ".docx", ".xlsx", ".xls",
+    ".md", ".markdown", ".txt", ".pdf", ".pptx", ".docx", ".xlsx", ".xls",
     ".mp4", ".mov", ".avi", ".mkv",
     ".mp3", ".wav", ".m4a",
     ".jpg", ".jpeg", ".png", ".webp"
@@ -169,15 +178,18 @@ const fileMenuItems = computed(() => {
     .toLowerCase();
   const supportedContentTypes = new Set([
     "text/plain",
+    "text/markdown",
+    "text/x-markdown",
+    "application/markdown",
     "application/vnd.google-apps.document",
   ]);
   const isSupportedRagType = supportedExtensions.has(fileExt)
     || supportedContentTypes.has(contentType);
 
   actionsGroup.push({
-    label: "Move To RAG",
+    label: isRagIndexed.value ? "Re-index in RAG" : "Move To RAG",
     icon: "lucide:bot",
-    disabled: !canUseRag.value || props.file.type === "folder" || !isSupportedRagType,
+    disabled: !canUseRag.value || (props.file.type !== "folder" && !isSupportedRagType),
     onSelect: () => {
       startRagProcess(props.file);
     },

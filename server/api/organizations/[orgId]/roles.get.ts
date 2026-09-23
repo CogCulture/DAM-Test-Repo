@@ -21,7 +21,8 @@ export default defineEventHandler(async (event) => {
     dept_head: "Department Head",
     team_lead: "Team Lead",
     team_member: "Team Member",
-    intern: "Intern",
+    guest: "Guest",
+    intern: "Guest",
   };
 
   return uniqueRoles.map((r) => ({

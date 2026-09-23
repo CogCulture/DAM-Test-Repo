@@ -7,7 +7,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="dam-enter flex flex-col gap-6 pb-48">
+  <div class="dam-enter flex flex-col gap-6 pb-48 w-full">
     <!-- Header Visual Banner & Breadcrumbs -->
     <div class="mx-auto w-full max-w-5xl flex flex-col gap-5 rounded-3xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] p-6 shadow-[var(--dam-shadow-soft)] backdrop-blur-md">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -29,6 +29,8 @@ defineProps<{
         </div>
       </div>
     </div>
-    <slot />
+    <div class="w-full">
+      <slot />
+    </div>
   </div>
 </template>

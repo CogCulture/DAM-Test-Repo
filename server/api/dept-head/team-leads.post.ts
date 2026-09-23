@@ -5,10 +5,6 @@ import { requireDeptHead } from "~~/server/utils/permission";
 
 export default defineEventHandler(async (event) => {
   const user = await requireDeptHead(event);
-  
-  if (user.role !== "dept_head") {
-    throw createError({ status: 403, message: "Forbidden: Department heads only." });
-  }
 
   const body = await readBody(event);
   if (!body || !body.userId) {
@@ -17,14 +13,13 @@ export default defineEventHandler(async (event) => {
 
   const db = useDrizzle();
   
-  // Verify target user is in the same org and department
+  // Verify target user is in the same org
   const [targetUser] = await db
     .select()
     .from(users)
     .where(and(
       eq(users.id, body.userId),
-      eq(users.organizationId, user.organizationId),
-      eq(users.departmentId, user.departmentId)
+      eq(users.organizationId, user.organizationId)
     ));
 
   if (!targetUser) {

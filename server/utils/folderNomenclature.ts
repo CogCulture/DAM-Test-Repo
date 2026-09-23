@@ -19,8 +19,25 @@ const loadFolderSegments = async (
     getGDriveRules(organizationId),
     getNomenclatureForDept(organizationId, departmentId ?? user.departmentId),
   ]);
+
+  // Feature disabled or enforcement not toggled on — no restriction
   if (features.nomenclature === false || !rules.enforceNomenclature) return [];
-  return Array.isArray(nomenclature?.folderSegments) ? nomenclature.folderSegments : [];
+
+  // Prefer explicit folderSegments if configured.
+  // Fall back to file segments so that the SAME {Dept}_{Campaign} pattern
+  // enforces both folder names and file names without extra configuration.
+  const hasExplicitFolderSegs =
+    Array.isArray(nomenclature?.folderSegments) &&
+    (nomenclature.folderSegments as any[]).length > 0;
+
+  if (hasExplicitFolderSegs) {
+    return nomenclature!.folderSegments as any[];
+  }
+
+  // Fall back to file-naming segments
+  return Array.isArray(nomenclature?.segments)
+    ? (nomenclature!.segments as any[])
+    : [];
 };
 
 export const requireValidFolderName = async ({

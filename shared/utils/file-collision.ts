@@ -84,3 +84,79 @@ export const planFileUpload = ({
     reuseStoragePath: contentMatch.storagePath,
   };
 };
+
+export const getCollisionNumber = (filename: string): number => {
+  const { stem } = splitFileName(filename);
+  const match = stem.match(/\((\d+)\)$/u);
+  return match ? parseInt(match[1], 10) : 0;
+};
+
+export const processFileDuplicates = <T extends {
+  id: string;
+  name: string;
+  type?: string;
+  duplicateOfId?: string | null;
+  md5?: string | null;
+  createdAt?: string | Date | number;
+  [key: string]: any;
+}>(fileList: T[]): T[] => {
+  if (!Array.isArray(fileList) || fileList.length === 0) return fileList;
+
+  const folders = fileList.filter((item) => item.type === "folder");
+  const files = fileList.filter((item) => item.type !== "folder");
+
+  const groups = new Map<string, T[]>();
+
+  for (const item of files) {
+    const baseKey = stripCollisionSuffix(item.name || "").toLowerCase();
+    if (!groups.has(baseKey)) {
+      groups.set(baseKey, []);
+    }
+    groups.get(baseKey)!.push(item);
+  }
+
+  const processedItemMap = new Map<string, { duplicateOfId: string | null; isDuplicate: boolean }>();
+
+  for (const [, groupItems] of groups.entries()) {
+    if (groupItems.length > 1) {
+      groupItems.sort((a, b) => {
+        const numA = getCollisionNumber(a.name || "");
+        const numB = getCollisionNumber(b.name || "");
+        if (numA !== numB) return numA - numB;
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        if (timeA !== timeB) return timeA - timeB;
+        return (a.name || "").localeCompare(b.name || "");
+      });
+
+      const primary = groupItems[0];
+      groupItems.forEach((item, index) => {
+        processedItemMap.set(item.id, {
+          duplicateOfId: index === 0 ? null : (item.duplicateOfId || primary.id),
+          isDuplicate: index > 0,
+        });
+      });
+    }
+  }
+
+  const updatedFiles = files.map((item) => {
+    const info = processedItemMap.get(item.id);
+    if (!info) return item;
+    return {
+      ...item,
+      duplicateOfId: info.duplicateOfId,
+      isDuplicate: info.isDuplicate,
+    };
+  });
+
+  updatedFiles.sort((a, b) => {
+    const baseA = stripCollisionSuffix(a.name || "").toLowerCase();
+    const baseB = stripCollisionSuffix(b.name || "").toLowerCase();
+    if (baseA !== baseB) return baseA.localeCompare(baseB, undefined, { numeric: true });
+    const numA = getCollisionNumber(a.name || "");
+    const numB = getCollisionNumber(b.name || "");
+    return numA - numB;
+  });
+
+  return [...folders, ...updatedFiles];
+};

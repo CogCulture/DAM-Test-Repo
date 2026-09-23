@@ -129,6 +129,26 @@ export const permissionAuditLogs = sqliteTable(
   ],
 );
 
+export const pipelineAuditLogs = sqliteTable(
+  "pipeline_audit_logs",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id").notNull(),
+    departmentId: text("department_id"),
+    fileId: text("file_id").notNull(),
+    eventType: text("event_type").notNull(),
+    stage: text("stage").notNull(),
+    status: text("status").notNull(),
+    details: text("details", { mode: "json" }).$type<Record<string, unknown>>(),
+    createdAt: createdAt,
+  },
+  (t) => [
+    index("idx_pipeline_audit_org").on(t.organizationId),
+    index("idx_pipeline_audit_file").on(t.fileId),
+    index("idx_pipeline_audit_stage").on(t.stage),
+  ],
+);
+
 export const orgPermissions = sqliteTable(
   "org_permissions",
   {

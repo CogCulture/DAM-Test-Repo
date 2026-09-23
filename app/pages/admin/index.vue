@@ -60,7 +60,10 @@ const filteredAllUsers = computed(() => {
     const q = searchQuery.value.toLowerCase();
     const matchName = !q || user.name?.toLowerCase().includes(q) || user.email?.toLowerCase().includes(q);
     const matchStatus = statusFilter.value === "all" || user.approvalStatus === statusFilter.value;
-    const matchRole = roleFilter.value === "all" || user.role === roleFilter.value;
+    const matchRole =
+      roleFilter.value === "all" ||
+      user.role === roleFilter.value ||
+      (roleFilter.value === "guest" && user.role === "intern");
     return matchName && matchStatus && matchRole;
   });
 });
@@ -68,7 +71,7 @@ const filteredAllUsers = computed(() => {
 const openEditModal = (user: any) => {
   editingUser.value = user;
   editForm.value = {
-    role: user.role || "team_member",
+    role: user.role === "intern" ? "guest" : user.role || "team_member",
     departmentId: user.departmentId || "",
   };
 };
@@ -244,7 +247,7 @@ const handleAction = async (userId: string, action: "approve" | "reject" | "remo
               <option value="dept_head">Dept Head</option>
               <option value="team_lead">Team Lead</option>
               <option value="team_member">Team Member</option>
-              <option value="intern">Intern</option>
+              <option value="guest">Guest</option>
             </select>
           </div>
         </div>
@@ -446,7 +449,7 @@ const handleAction = async (userId: string, action: "approve" | "reject" | "remo
                   <option value="dept_head">Department Head</option>
                   <option value="team_lead">Team Lead</option>
                   <option value="team_member">Team Member</option>
-                  <option value="intern">Intern</option>
+                  <option value="guest">Guest</option>
                 </select>
               </div>
             </div>

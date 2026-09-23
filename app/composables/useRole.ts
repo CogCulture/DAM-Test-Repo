@@ -27,7 +27,8 @@ export function useRole() {
   const isDeptHead = computed(() => role.value === "dept_head");
   const isTeamLead = computed(() => role.value === "team_lead");
   const isTeamMember = computed(() => role.value === "team_member");
-  const isIntern = computed(() => role.value === "intern");
+  const isGuest = computed(() => role.value === "guest" || role.value === "intern");
+  const isIntern = isGuest;
 
   const userPermissions = computed(() => (user.value as any)?.permissions || {});
 
@@ -41,7 +42,7 @@ export function useRole() {
     isApproved.value && (userPermissions.value.canDownload !== false)
   );
   const canCreateFolder = computed(() =>
-    isApproved.value && (userPermissions.value.canCreateFolder ?? hasMinRole(role.value || "intern", "team_lead"))
+    isApproved.value && (userPermissions.value.canCreateFolder ?? hasMinRole(role.value || "guest", "team_lead"))
   );
   const canApproveUsers = computed(() =>
     isApproved.value && (userPermissions.value.canApproveUsers ?? (role.value === "admin" || role.value === "dept_head"))
@@ -56,19 +57,19 @@ export function useRole() {
   );
 
   const canShare = computed(() =>
-    isApproved.value && (userPermissions.value.canShare ?? hasMinRole(role.value || "intern", "team_lead"))
+    isApproved.value && (userPermissions.value.canShare ?? hasMinRole(role.value || "guest", "team_lead"))
   );
   const canDelete = computed(() =>
-    isApproved.value && (userPermissions.value.canDelete ?? hasMinRole(role.value || "intern", "team_lead"))
+    isApproved.value && (userPermissions.value.canDelete ?? hasMinRole(role.value || "guest", "team_lead"))
   );
   const canRename = computed(() =>
-    isApproved.value && (userPermissions.value.canRename ?? hasMinRole(role.value || "intern", "team_lead"))
+    isApproved.value && (userPermissions.value.canRename ?? hasMinRole(role.value || "guest", "team_lead"))
   );
   const canEditMetadata = computed(() =>
     isApproved.value && (userPermissions.value.canEditMetadata ?? false)
   );
   const canUseRag = computed(() =>
-    isApproved.value && (userPermissions.value.canUseRag ?? false)
+    isAdmin.value || (isApproved.value && (userPermissions.value.canUseRag ?? true))
   );
 
   const roleLabel = computed(() =>
@@ -89,6 +90,7 @@ export function useRole() {
     isDeptHead,
     isTeamLead,
     isTeamMember,
+    isGuest,
     isIntern,
     canView,
     canUpload,

@@ -3,6 +3,8 @@ import { useSelected } from "~/composables/useSelected";
 import { useFileActions } from "~/composables/useFileActions";
 import { useShare } from "~/composables/useShare";
 import { useMove } from "~/composables/useMove";
+import { useRole } from "~/composables/useRole";
+import { useRag } from "~/composables/useRag";
 
 const route = useRoute();
 // Reuse the list owned by <AppFiles>. Calling useFiles() here starts a second
@@ -16,8 +18,11 @@ const { selected, resetSelected } = useSelected();
 const { deleteFiles, deleting, downloadAsset, downloading } = useFileActions();
 const { openShare } = useShare();
 const { openMove } = useMove();
+const { canUseRag } = useRole();
+const { startRagProcess } = useRag();
+
 const selectedFiles = computed(() =>
-  selected.value.map((id) => files.value.find((file) => file.id === id)!)
+  selected.value.map((id) => files.value.find((file) => file.id === id)!).filter(Boolean)
 );
 watch(deleting, (value) => {
   if (!value) {
@@ -45,6 +50,12 @@ watch(deleting, (value) => {
           class="sm:hidden ml-auto"
         />
       </div>
+      <UButton
+        v-if="canUseRag"
+        icon="lucide:bot"
+        label="Move to RAG"
+        @click="startRagProcess(selectedFiles)"
+      />
       <UButton
         icon="lucide:users"
         label="Share"

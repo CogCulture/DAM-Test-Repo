@@ -25,31 +25,19 @@ const mainNavItems = computed(() => [
 
 const adminMenuItems = computed(() => {
   const items = [];
-  if (isAdmin.value) {
-    items.push(
-      { label: "Org Settings & Access", icon: "lucide:settings", to: "/admin/settings" },
-      { label: "Department Hierarchy", icon: "lucide:network", to: "/admin/departments" },
-      { label: "Template Folders", icon: "lucide:layout-template", to: "/admin/template-folders" },
-    );
-  }
-  if (isDeptHead.value) {
-    items.push(
-      { label: "Department Dashboard", icon: "lucide:layout-dashboard", to: "/dept-head" },
-      { label: "Department Permissions", icon: "lucide:shield-check", to: "/dept-head/permissions" },
-    );
-  }
-  if (canApproveUsers.value || isAdmin.value) {
-    items.push({ label: "User Approvals", icon: "lucide:users", to: "/admin" });
-  }
-  if (canEditNomenclature.value || isAdmin.value) {
-    items.push(
-      { label: "Nomenclature Rules", icon: "lucide:tag", to: "/admin/nomenclature" },
-      { label: "Taxonomy & Metadata", icon: "lucide:layers", to: "/admin/taxonomy" },
-      { label: "Folder Requests", icon: "lucide:folder-plus", to: "/admin/folder-requests" },
-    );
-    if (orgType.value === "gdrive") {
-      items.push({ label: "GDrive Requests", icon: "lucide:cloud", to: "/admin/gdrive-requests" });
-    }
+  items.push(
+    { label: "Org Settings & Access", icon: "lucide:settings", to: "/admin/settings" },
+    { label: "Department Hierarchy", icon: "lucide:network", to: "/admin/departments" },
+    { label: "Template Folders", icon: "lucide:layout-template", to: "/admin/template-folders" },
+    { label: "Department Dashboard", icon: "lucide:layout-dashboard", to: "/dept-head" },
+    { label: "Department Permissions", icon: "lucide:shield-check", to: "/dept-head/permissions" },
+    { label: "User Approvals", icon: "lucide:users", to: "/admin" },
+    { label: "Nomenclature Rules", icon: "lucide:tag", to: "/admin/nomenclature" },
+    { label: "Taxonomy & Metadata", icon: "lucide:layers", to: "/admin/taxonomy" },
+    { label: "Folder Requests", icon: "lucide:folder-plus", to: "/admin/folder-requests" },
+  );
+  if (orgType.value === "gdrive") {
+    items.push({ label: "GDrive Requests", icon: "lucide:cloud", to: "/admin/gdrive-requests" });
   }
   return items;
 });
@@ -105,16 +93,16 @@ const isNavItemActive = (to: string) => route.path === to;
       v-if="aside && showsWorkspaceControls"
       class="w-full border-t border-[var(--dam-line)] bg-[var(--dam-panel)] px-3 sm:px-6"
     >
-      <div class="flex items-center justify-between py-2 overflow-x-auto whitespace-nowrap scrollbar-hide">
-        <!-- Main Core Navigation Pills -->
-        <nav class="flex items-center gap-1.5" aria-label="Primary workspace navigation">
+      <div class="relative flex items-center justify-between py-2">
+        <!-- Main Core Navigation Pills (Scrollable) -->
+        <nav class="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap scrollbar-hide pr-4 min-w-0 grow" aria-label="Primary workspace navigation">
           <NuxtLink
             v-for="item in mainNavItems"
             :key="item.to"
             :to="item.to"
             :aria-current="isNavItemActive(item.to) ? 'page' : undefined"
             :class="[
-              'flex h-9 items-center gap-2 rounded-xl border px-3 text-xs font-semibold transition-all duration-150',
+              'flex h-9 items-center gap-2 rounded-xl border px-3 text-xs font-semibold transition-all duration-150 shrink-0',
               isNavItemActive(item.to)
                 ? 'border-indigo-500/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-xs'
                 : 'border-transparent text-[var(--dam-ink-muted)] hover:border-[var(--dam-line)] hover:bg-[var(--dam-panel-raised)] hover:text-[var(--dam-ink)]',
@@ -126,7 +114,7 @@ const isNavItemActive = (to: string) => route.path === to;
         </nav>
 
         <!-- Governance & Admin Dropdown Menu -->
-        <div v-if="adminMenuItems.length > 0" class="relative">
+        <div v-if="adminMenuItems.length > 0" class="relative shrink-0 z-50">
           <button
             class="flex h-9 items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3.5 text-xs font-bold text-indigo-500 hover:bg-indigo-500/20 transition shadow-xs"
             @click="isAdminDropdownOpen = !isAdminDropdownOpen"
@@ -139,12 +127,12 @@ const isNavItemActive = (to: string) => route.path === to;
           <!-- Dropdown Popup -->
           <div
             v-if="isAdminDropdownOpen"
-            class="fixed inset-0 z-30"
+            class="fixed inset-0 z-40"
             @click="isAdminDropdownOpen = false"
           />
           <div
             v-if="isAdminDropdownOpen"
-            class="absolute right-0 top-11 z-40 w-64 rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] p-2 shadow-2xl backdrop-blur-md space-y-1"
+            class="absolute right-0 top-11 z-50 w-64 rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] p-2 shadow-2xl backdrop-blur-md space-y-1 max-h-[80vh] overflow-y-auto"
             @click.stop
           >
             <div class="px-3 py-1.5 text-[10px] font-bold text-[var(--dam-ink-muted)] uppercase tracking-wider border-b border-[var(--dam-line)] mb-1">

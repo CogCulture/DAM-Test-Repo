@@ -20,6 +20,9 @@ export default defineEventHandler(async (event) => {
           "Content-Disposition",
           `inline; filename="${encodeURIComponent(item.name)}"`
         );
+        if (item.contentType) {
+          setHeader(event, "Content-Type", item.contentType);
+        }
       } else {
         // Set Content-Disposition to indicate this should be downloaded
         setHeader(

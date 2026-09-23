@@ -32,14 +32,7 @@ const isFolder = computed(() => props.file.type === 'folder');
 
 const previewFile = () => {
   if (isFolder.value) return;
-  const externalUrl = props.file.assetMetadata?.externalUrl;
-  const isDriveAsset = props.file.assetMetadata?.source === "google-drive";
-  const fileUrl = externalUrl || (isDriveAsset
-    ? `/api/gdrive/download/${encodeURIComponent(props.file.id)}?inline=true`
-    : `/api/files/${encodeURIComponent(props.bucketName || 'org')}/download/${encodeURIComponent(props.file.id)}?inline=true`);
-  if (import.meta.client) {
-    window.open(fileUrl, '_blank', 'noopener,noreferrer');
-  }
+  showPreview([props.file], 0);
 };
 
 const selectFolderForUpload = () => {
@@ -106,8 +99,8 @@ onMounted(() => {
     <!-- Node row -->
     <FileMenu :file="file" @delete="refreshTrigger++" @refresh="refreshTrigger++">
       <div
-        class="group flex cursor-pointer items-center gap-2 border border-transparent px-2 py-1.5 transition-colors hover:border-[var(--dam-line)] hover:bg-[var(--dam-panel-raised)]"
-        :style="{ paddingLeft: `${(level * 20) + 6}px` }"
+        class="group flex cursor-pointer items-center gap-2 border border-transparent px-2 py-1.5 transition-colors hover:border-[var(--dam-line)] hover:bg-[var(--dam-panel-raised)] min-w-max"
+        :style="{ paddingLeft: `${(level * 12) + 6}px` }"
         @dblclick.stop.prevent="previewFile"
       >
       <!-- Caret for folder -->
@@ -136,6 +129,7 @@ onMounted(() => {
         :to="`/${bucketName}/${file.id}`"
         class="grow truncate text-[13px] font-medium text-[var(--dam-muted)] transition-colors group-hover:text-[var(--dam-ink)]"
         :class="{ 'text-primary-500': route.params.id === file.id }"
+        :title="file.name"
         @click="selectFolderForUpload"
       >
         {{ file.name }}
@@ -144,7 +138,7 @@ onMounted(() => {
         v-else
         type="button"
         class="grow truncate text-left text-[13px] font-medium text-[var(--dam-muted)] transition-colors group-hover:text-[var(--dam-ink)]"
-        :title="`Double-click to open in new tab ${file.name}`"
+        :title="file.name"
         @dblclick.stop.prevent="previewFile"
       >
         {{ file.name }}

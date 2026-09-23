@@ -13,6 +13,8 @@ import { planFileUpload } from "~~/shared/utils/file-collision";
 import { isUploadRouteAllowed } from "~~/shared/utils/drive-storage";
 import { requireValidFolderPath } from "~~/server/utils/folderNomenclature";
 import { resolveLocalDepartmentUploadTarget } from "~~/shared/utils/department-upload";
+import { enqueueIngestionJob } from "~~/server/utils/ingestionQueue";
+import { logPipelineEvent } from "~~/server/utils/auditLogger";
 
 const normalizeRelativePath = (value: string) => {
   const normalized = value.replace(/\\/g, "/").replace(/^\/+/, "");
@@ -29,6 +31,7 @@ const normalizeRelativePath = (value: string) => {
 
 export default defineEventHandler(async (event) => {
   const { bucket, user } = await verifyBucket(event, "canUpload");
+  const orgId = (user as any).organizationId || "org_default";
   const query = getQuery(event);
   let parentId = String(query.parentId || "root");
   const requestedDepartmentId = String(query.departmentId || "").trim();
@@ -37,12 +40,12 @@ export default defineEventHandler(async (event) => {
   if (requestedDepartmentId === "root") {
     departmentId = parentId === "root"
       ? null
-      : await getFileDepartmentId(parentId, user.organizationId);
+      : await getFileDepartmentId(parentId, orgId);
   } else if (requestedDepartmentId) {
     try {
       const target = resolveLocalDepartmentUploadTarget({
         actor: user as any,
-        departments: await getOrgDepartments(user.organizationId),
+        departments: await getOrgDepartments(orgId),
         departmentId: requestedDepartmentId,
       });
       departmentId = target.departmentId;
@@ -54,9 +57,9 @@ export default defineEventHandler(async (event) => {
       departmentId = (user as any).departmentId || null;
     }
   } else if (parentId !== "root") {
-    departmentId = await getFileDepartmentId(parentId, user.organizationId) || departmentId;
+    departmentId = await getFileDepartmentId(parentId, orgId) || departmentId;
   } else if ((user as any).role !== "admin" && !departmentId) {
-    const depts = await getOrgDepartments(user.organizationId);
+    const depts = await getOrgDepartments(orgId);
     if (depts && depts.length > 0) {
       departmentId = depts[0].id;
       if (depts[0].folderId) parentId = depts[0].folderId;
@@ -76,9 +79,9 @@ export default defineEventHandler(async (event) => {
   });
 
   const [features, rules, nomenclature] = await Promise.all([
-    getOrgFeatures(user.organizationId),
-    getGDriveRules(user.organizationId),
-    getNomenclatureForDept(user.organizationId, departmentId),
+    getOrgFeatures(orgId),
+    getGDriveRules(orgId),
+    getNomenclatureForDept(orgId, departmentId),
   ]);
   const governanceEnabled = features.nomenclature !== false && rules.enforceNomenclature;
   const configuredSegments = Array.isArray(nomenclature?.segments) ? nomenclature.segments : [];
@@ -94,7 +97,7 @@ export default defineEventHandler(async (event) => {
 
   let parentPath = bucket.name;
   if (parentId !== "root") {
-    const parent = await getFolder(parentId, user.organizationId);
+    const parent = await getFolder(parentId, orgId);
     if (parent && parent.type === "folder") {
       parentPath = parent.path;
     }
@@ -221,9 +224,53 @@ export default defineEventHandler(async (event) => {
       duplicateOfId: uploadPlan.duplicate ? uploadPlan.duplicateOfId : null,
     });
 
+    const insertedFile = Array.isArray(record) ? record[0] : record;
+
+    // Log Stage 0 upload audit event
+    await logPipelineEvent({
+      organizationId: user.organizationId,
+      departmentId,
+      fileId: insertedFile.id,
+      eventType: "upload_received",
+      stage: "stage_0",
+      status: "success",
+      details: {
+        fileName,
+        contentType,
+        size: fileBuffer.length,
+        physicalPath,
+        duplicate: uploadPlan.duplicate,
+      },
+    });
+
+    // Enqueue Stage 1 background ingestion job
+    const queueRes = await enqueueIngestionJob(
+      {
+        fileId: insertedFile.id,
+        organizationId: user.organizationId,
+        departmentId,
+        blobPath: physicalPath,
+        contentType,
+      },
+      event
+    );
+
+    // Log Stage 1 queue enqueue audit event
+    await logPipelineEvent({
+      organizationId: user.organizationId,
+      departmentId,
+      fileId: insertedFile.id,
+      eventType: "ingestion_enqueued",
+      stage: "stage_1",
+      status: "info",
+      details: {
+        queueType: queueRes.queueType,
+      },
+    });
+
     return {
       success: true,
-      file: Array.isArray(record) ? record[0] : record,
+      file: insertedFile,
       storage: {
         type: "local",
         directoryName: getLocalDamStorageRoot().split(/[\\/]/).pop(),

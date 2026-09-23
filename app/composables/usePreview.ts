@@ -33,14 +33,9 @@ export function usePreview() {
 
   const showPreview = (items: IFile[], index = 0) => {
     if (!items || !items.length) return;
-    const item = items[index] || items[0];
-    if (item && typeof window !== "undefined") {
-      const isDriveAsset = item.assetMetadata?.source === "google-drive";
-      const fileUrl = item.assetMetadata?.externalUrl || (isDriveAsset
-        ? `/api/gdrive/download/${encodeURIComponent(item.id)}?inline=true`
-        : `/api/files/org/download/${encodeURIComponent(item.id)}?inline=true`);
-      window.open(fileUrl, "_blank", "noopener,noreferrer");
-    }
+    files.value = items;
+    opened.value = index >= 0 && index < items.length ? index : 0;
+    open.value = true;
   };
 
   watch(opened, (value) => {

@@ -5,10 +5,11 @@ export const moveBlob = async (source: string, target: string) => {
       await localBlob().put(target, blob);
       await localBlob().del(source);
     }
-  } catch (err) {
+  } catch (err: any) {
+    console.error(`[moveBlob] Failed to move blob from "${source}" to "${target}":`, err?.message || err);
     throw createError({
       status: 500,
-      message: "Can't move item",
+      message: err?.message || "Can't move item",
     });
   }
 };

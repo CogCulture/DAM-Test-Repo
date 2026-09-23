@@ -3,7 +3,7 @@ import { getApprovedUser } from "~~/server/utils/permission";
 
 export default defineEventHandler(async (event) => {
   const user = await getApprovedUser(event);
-  const orgId = (user as any).organizationId;
+  const orgId = (user as any).organizationId || "org_default";
   const role = user.role as string;
   // Admin sees all pending users; dept_head sees only their department
   if (role === "admin") {

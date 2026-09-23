@@ -6,6 +6,7 @@ import { users } from "~~/server/database/schema";
 import { eq, and } from "drizzle-orm";
 import { getFileType } from "~~/shared/utils/helper";
 import { mergeGDriveListing } from "~~/shared/utils/gdrive-listing";
+import { processFileDuplicates } from "~~/shared/utils/file-collision";
 
 export default defineEventHandler(async (event) => {
   const user = await requireFilePermission(event, "canView");
@@ -130,8 +131,9 @@ export default defineEventHandler(async (event) => {
     return (new Date(left[sortBy]).getTime() - new Date(right[sortBy]).getTime()) * direction;
   });
 
+  const processedData = processFileDuplicates(combinedData);
   return {
-    data: combinedData,
+    data: processedData,
     nextPage: localFiles?.nextPage ?? null,
     warning: driveWarning,
   };

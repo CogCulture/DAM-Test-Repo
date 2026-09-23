@@ -1,6 +1,11 @@
-import { requireFileDepartmentAccess, verifyBucket } from "~~/server/utils/permission";
+import { getFileDepartmentId, requireFileDepartmentAccess, verifyBucket } from "~~/server/utils/permission";
 import { resolveFolderCreationMode } from "~~/shared/utils/folder-creation-policy";
 import { requireValidFolderName } from "~~/server/utils/folderNomenclature";
+import { ensurePath, getFile, getParent, insertUpdateFile, getOrgFeatures, getGDriveRules, getNomenclatureForDept } from "~~/server/utils/db";
+import { validTextFiles } from "~~/shared/utils/constants";
+import { cleanPath } from "~~/shared/utils/helper";
+import { localBlob } from "~~/server/utils/localBlob";
+import { evaluateUploadGovernance } from "~~/shared/utils/file-nomenclature";
 
 export default defineEventHandler(async (event) => {
   const { user } = await verifyBucket(event);
@@ -57,11 +62,30 @@ export default defineEventHandler(async (event) => {
         status: 400,
       });
     }
-    const contentType = validTextFiles[ext];
-    await localBlob().put(fullPath, Buffer.alloc(0));
     const departmentId = params.id !== "root"
       ? (await getFileDepartmentId(params.id, orgId) || (user as any).departmentId || null)
       : ((user as any).departmentId || null);
+
+    // Enforce nomenclature and allowed extensions on new file creation
+    const [features, rules, nomenclature] = await Promise.all([
+      getOrgFeatures(orgId),
+      getGDriveRules(orgId),
+      getNomenclatureForDept(orgId, departmentId),
+    ]);
+    const governanceEnabled = features.nomenclature !== false && rules.enforceNomenclature;
+    const configuredSegments = Array.isArray(nomenclature?.segments) ? nomenclature.segments : [];
+    const initialGovernance = evaluateUploadGovernance({
+      enabled: governanceEnabled,
+      filename: fileName,
+      segments: configuredSegments as any[],
+      allowedExtensions: nomenclature?.allowedExtensions,
+    });
+    if (!initialGovernance.valid) {
+      throw createError({ status: 422, message: `${fileName}: ${initialGovernance.message}` });
+    }
+
+    const contentType = validTextFiles[ext];
+    await localBlob().put(fullPath, Buffer.alloc(0));
     return insertUpdateFile(params.bucket, parent.id, {
       name: fileName,
       fullPath,
@@ -81,7 +105,10 @@ export default defineEventHandler(async (event) => {
         status: 403,
       });
     }
-    await requireValidFolderName({ user, folderName: name });
+    const departmentId = params.id !== "root"
+      ? (await getFileDepartmentId(params.id, orgId) || (user as any).departmentId || null)
+      : ((user as any).departmentId || null);
+    await requireValidFolderName({ user, folderName: name, departmentId });
     return await ensurePath(params.bucket, fullPath, userId);
   }
 });

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   planFileUpload,
+  processFileDuplicates,
   resolveFileCollision,
   stripCollisionSuffix,
 } from "../shared/utils/file-collision.ts";
@@ -142,4 +143,27 @@ test("keeps different same-name content as a separately stored numbered asset", 
       duplicate: false,
     },
   );
+});
+
+test("marks every file of the same kind after the first file as duplicate and orders base file first", () => {
+  const input = [
+    { id: "file_2", name: "Org_Chart_Cog Culture_16-Sep-2026 (2).pdf", duplicateOfId: "file_orig" },
+    { id: "file_base", name: "Org_Chart_Cog Culture_16-Sep-2026.pdf", duplicateOfId: null },
+    { id: "file_3", name: "Org_Chart_Cog Culture_16-Sep-2026 (3).pdf", duplicateOfId: null },
+  ];
+
+  const processed = processFileDuplicates(input);
+
+  assert.equal(processed.length, 3);
+  assert.equal(processed[0].name, "Org_Chart_Cog Culture_16-Sep-2026.pdf");
+  assert.equal(processed[0].isDuplicate, false);
+  assert.equal(processed[0].duplicateOfId, null);
+
+  assert.equal(processed[1].name, "Org_Chart_Cog Culture_16-Sep-2026 (2).pdf");
+  assert.equal(processed[1].isDuplicate, true);
+  assert.equal(processed[1].duplicateOfId, "file_orig");
+
+  assert.equal(processed[2].name, "Org_Chart_Cog Culture_16-Sep-2026 (3).pdf");
+  assert.equal(processed[2].isDuplicate, true);
+  assert.equal(processed[2].duplicateOfId, "file_base");
 });

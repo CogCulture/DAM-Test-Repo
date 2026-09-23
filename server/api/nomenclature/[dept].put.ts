@@ -18,8 +18,9 @@ export default defineEventHandler(async (event) => {
   }
 
   // Check if it is a valid static department OR a valid custom department in the organization
+  const DEFAULT_DEPT_IDS = ["global", "dept_product", "dept_design", "dept_marketing", "dept_finance", "dept_ui", "dept_3d"];
   const baseDept = dept.split("_").pop() || "";
-  const isStaticValid = !!DEPARTMENT_MAP[baseDept] || !!DEPARTMENT_MAP[dept];
+  const isStaticValid = !!DEPARTMENT_MAP[baseDept] || !!DEPARTMENT_MAP[dept] || DEFAULT_DEPT_IDS.includes(dept) || DEFAULT_DEPT_IDS.includes(baseDept);
 
   let isValid = isStaticValid;
   if (!isValid) {
@@ -38,11 +39,11 @@ export default defineEventHandler(async (event) => {
     folderSegments?: { key: string; label: string; allowedValues: string[] }[] | null;
   }>(event);
 
-  if (!template || !segments?.length) {
-    throw createError({ status: 400, message: "template and segments are required." });
+  if (!template) {
+    throw createError({ status: 400, message: "template is required." });
   }
 
-  const normalizedSegments = normalizeNomenclatureSegments(segments);
+  const normalizedSegments = normalizeNomenclatureSegments(Array.isArray(segments) ? segments : []);
   if (normalizedSegments.some((segment) => !segment.key || !segment.label)) {
     throw createError({ status: 400, message: "Every nomenclature segment needs a key and label." });
   }

@@ -27,7 +27,12 @@ const filteredUsers = computed(() => {
   if (filterOrg.value) {
     list = list.filter((u: any) => (filterOrg.value === "unassigned" ? !u.organizationId : u.organizationId === filterOrg.value));
   }
-  if (filterRole.value) list = list.filter((u: any) => u.role === filterRole.value);
+  if (filterRole.value) {
+    list = list.filter((u: any) =>
+      u.role === filterRole.value ||
+      (filterRole.value === "guest" && u.role === "intern")
+    );
+  }
   if (filterStatus.value) list = list.filter((u: any) => u.approvalStatus === filterStatus.value);
   return list;
 });
@@ -41,7 +46,7 @@ const openEdit = (user: any) => {
   editingUser.value = user;
   editForm.value = {
     organizationId: user.organizationId ?? "",
-    role: user.role ?? "team_member",
+    role: user.role === "intern" ? "guest" : (user.role ?? "team_member"),
     approvalStatus: user.approvalStatus ?? "active",
   };
 };
@@ -93,6 +98,7 @@ const roleColors: Record<string, string> = {
   dept_head: "text-blue-400 bg-blue-500/10 border-blue-500/20",
   team_lead: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
   team_member: "text-slate-300 bg-slate-500/10 border-slate-500/20",
+  guest: "text-amber-400 bg-amber-500/10 border-amber-500/20",
   intern: "text-amber-400 bg-amber-500/10 border-amber-500/20",
 };
 
@@ -141,7 +147,7 @@ const formatDate = (d: any) => {
         <option value="dept_head">Dept Head</option>
         <option value="team_lead">Team Lead</option>
         <option value="team_member">Team Member</option>
-        <option value="intern">Intern</option>
+        <option value="guest">Guest</option>
       </select>
       <select v-model="filterStatus" class="bg-[#0d0d14] border border-[#1e1e2e] rounded-xl px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-violet-500">
         <option value="">All Statuses</option>
@@ -206,9 +212,9 @@ const formatDate = (d: any) => {
 
             <!-- Role -->
             <td class="px-4 py-4">
-              <span :class="roleColors[user.role] ?? 'text-slate-400 bg-slate-500/10 border-slate-500/20'"
+              <span :class="roleColors[user.role] ?? roleColors[user.role === 'intern' ? 'guest' : user.role] ?? 'text-slate-400 bg-slate-500/10 border-slate-500/20'"
                 class="text-xs font-semibold px-2.5 py-1 rounded-full border capitalize whitespace-nowrap">
-                {{ user.role?.replace('_', ' ') }}
+                {{ user.role === 'intern' ? 'guest' : user.role?.replace('_', ' ') }}
               </span>
             </td>
 
@@ -284,7 +290,7 @@ const formatDate = (d: any) => {
             <option value="dept_head">Department Head</option>
             <option value="team_lead">Team Lead</option>
             <option value="team_member">Team Member</option>
-            <option value="intern">Intern</option>
+            <option value="guest">Guest</option>
           </select>
         </div>
 

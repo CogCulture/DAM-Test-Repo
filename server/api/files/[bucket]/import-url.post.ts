@@ -13,8 +13,10 @@ import {
 } from "~~/server/utils/db";
 import { useDrizzle } from "~~/server/utils/drizzle";
 import { localBlob } from "~~/server/utils/localBlob";
-import { requireFileDepartmentAccess, verifyBucket } from "~~/server/utils/permission";
+import { requireFileDepartmentAccess, getFileDepartmentId, verifyBucket } from "~~/server/utils/permission";
 import { fetchRemoteFile } from "~~/server/utils/remoteFile";
+import { enqueueIngestionJob } from "~~/server/utils/ingestionQueue";
+import { logPipelineEvent } from "~~/server/utils/auditLogger";
 
 import { buildGoogleDrivePublicUrl, parseGoogleDriveFileLink } from "~~/shared/utils/google-drive-link";
 
@@ -35,6 +37,7 @@ const normalizeFilenameOverride = (value?: string) => {
 
 export default defineEventHandler(async (event) => {
   const { bucket, user } = await verifyBucket(event, "canUpload");
+  const orgId = (user as any).organizationId || "org_default";
   const body = await readBody<{ url?: string; parentId?: string; filename?: string }>(event);
   const sourceUrl = String(body?.url || "").trim();
   if (!sourceUrl) throw createError({ status: 400, message: "A public file URL is required." });
@@ -44,7 +47,7 @@ export default defineEventHandler(async (event) => {
 
   let parentPath = bucket.name;
   if (parentId !== "root") {
-    const parent = await getFolder(parentId, user.organizationId);
+    const parent = await getFolder(parentId, orgId);
     if (!parent || parent.type !== "folder" || parent.bucketName !== bucket.name) {
       throw createError({ status: 404, message: "Destination folder not found." });
     }
@@ -71,10 +74,14 @@ export default defineEventHandler(async (event) => {
   }
 
   const requestedName = normalizeFilenameOverride(body?.filename) || remoteFile.filename;
+  const departmentId = parentId !== "root"
+    ? (await getFileDepartmentId(parentId, orgId) || (user as any).departmentId || null)
+    : ((user as any).departmentId || null);
+
   const [features, rules, nomenclature] = await Promise.all([
-    getOrgFeatures(user.organizationId),
-    getGDriveRules(user.organizationId),
-    getNomenclatureForDept(user.organizationId, user.departmentId),
+    getOrgFeatures(orgId),
+    getGDriveRules(orgId),
+    getNomenclatureForDept(orgId, departmentId),
   ]);
   const governanceEnabled = features.nomenclature !== false && rules.enforceNomenclature;
   const configuredSegments = Array.isArray(nomenclature?.segments) ? nomenclature.segments : [];
@@ -155,9 +162,47 @@ export default defineEventHandler(async (event) => {
         duplicateOfName: uploadPlan.duplicate ? uploadPlan.duplicateOfName : null,
       },
     });
+    const insertedFile = Array.isArray(record) ? record[0] : record;
+
+    await logPipelineEvent({
+      organizationId: user.organizationId,
+      departmentId,
+      fileId: insertedFile.id,
+      eventType: "upload_received",
+      stage: "stage_0",
+      status: "success",
+      details: {
+        source: "url-import",
+        sourceUrl: remoteFile.finalUrl,
+        filename: requestedName,
+        duplicate: uploadPlan.duplicate,
+      },
+    });
+
+    const queueRes = await enqueueIngestionJob(
+      {
+        fileId: insertedFile.id,
+        organizationId: user.organizationId,
+        departmentId,
+        blobPath: physicalPath,
+        contentType: remoteFile.contentType,
+      },
+      event
+    );
+
+    await logPipelineEvent({
+      organizationId: user.organizationId,
+      departmentId,
+      fileId: insertedFile.id,
+      eventType: "ingestion_enqueued",
+      stage: "stage_1",
+      status: "info",
+      details: { queueType: queueRes.queueType },
+    });
+
     return {
       success: true,
-      file: Array.isArray(record) ? record[0] : record,
+      file: insertedFile,
       import: {
         sourceUrl: remoteFile.finalUrl,
         requestedName,

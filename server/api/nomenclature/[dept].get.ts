@@ -9,8 +9,9 @@ export default defineEventHandler(async (event) => {
   const orgId = (user as any)?.organizationId || "org_default";
 
   // Check if it is a valid static department OR a valid custom department in the organization
+  const DEFAULT_DEPT_IDS = ["global", "dept_product", "dept_design", "dept_marketing", "dept_finance", "dept_ui", "dept_3d"];
   const baseDept = dept.split("_").pop() || "";
-  const isStaticValid = !!DEPARTMENT_MAP[baseDept] || !!DEPARTMENT_MAP[dept];
+  const isStaticValid = !!DEPARTMENT_MAP[baseDept] || !!DEPARTMENT_MAP[dept] || DEFAULT_DEPT_IDS.includes(dept) || DEFAULT_DEPT_IDS.includes(baseDept);
 
   let isValid = isStaticValid;
   if (!isValid) {

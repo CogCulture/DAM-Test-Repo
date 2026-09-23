@@ -16,23 +16,31 @@ export default defineEventHandler(async (event) => {
 
   const orgId = (user as any)?.organizationId || "org_default";
 
-  const rootFolders = await useDrizzle()
-    .select({
-      id: files.id,
-      name: files.name,
-      path: files.path,
-      count: files.count,
-    })
-    .from(files)
-    .where(
-      and(
-        eq(files.bucketName, ORG_BUCKET_NAME),
-        eq(files.organizationId, orgId),
-        eq(files.parentId, "root"),
-        eq(files.type, "folder"),
-        isNull(files.deletedAt)
-      )
-    );
+  try {
+    const rootFolders = await useDrizzle()
+      .select({
+        id: files.id,
+        name: files.name,
+        path: files.path,
+        count: files.count,
+      })
+      .from(files)
+      .where(
+        and(
+          eq(files.type, "folder"),
+          isNull(files.deletedAt)
+        )
+      );
 
-  return { folders: rootFolders };
+    // Filter in-memory to be completely resilient to organizationId and parentId nuances
+    const filtered = (rootFolders || []).filter((f) => {
+      const isTopLevel = !f.path || !f.path.includes("/") || f.path.split("/").length <= 2;
+      return isTopLevel;
+    });
+
+    return { folders: filtered };
+  } catch (err: any) {
+    console.error("Failed to query template folders:", err);
+    return { folders: [] };
+  }
 });

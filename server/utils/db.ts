@@ -16,9 +16,10 @@ import { ulid } from "ulidx";
 import { users, files, buckets, favorites, shared, nomenclatures, folderRequests, organizations, orgDepartments, orgPermissions, gdriveFolders, orgGDriveRules, userPermissionOverrides, userDepartmentAccess, deptInvites, taxonomies } from "../database/schema";
 import { useDrizzle } from "./drizzle";
 import { copyBlob, moveBlob } from "./blob";
-import { localBlob } from "./localBlob";
 import { enqueueIngestionJob } from "./ingestionQueue";
-import { cleanPath, getFileType } from "../../shared/utils/helper";
+import { deletePineconeFileVectors } from "./pinecone";
+import { logPipelineEvent } from "./auditLogger";
+import { cleanPath, getFileType, formatTrashTimestamp } from "../../shared/utils/helper";
 import { FILE_PERMISSION_KEYS, getAccessibleDepartmentIds, resolvePermission } from "../../shared/utils/access-control";
 
 const perPage = 12;
@@ -141,11 +142,16 @@ export async function getUser(id: string) {
 
     if (userRow.role !== "admin") {
       const perms = await getOrgPermissions(userRow.organizationId);
+      const roleMatches = (permRole: string, userRole: string) =>
+        permRole === userRole ||
+        (userRole === "intern" && permRole === "guest") ||
+        (userRole === "guest" && permRole === "intern");
+
       const departmentRole = perms.find((p) =>
-        p.role === userRow.role && p.departmentId === userRow.departmentId
+        roleMatches(p.role, userRow.role) && p.departmentId === userRow.departmentId
       );
       const globalRole = perms.find((p) =>
-        p.role === userRow.role && p.departmentId === "global"
+        roleMatches(p.role, userRow.role) && p.departmentId === "global"
       );
       const [override] = await db
         .select()
@@ -349,6 +355,8 @@ export const getFiles = async (event, userId) => {
     .$dynamic();
 
   filters.push(isNull(files.deletedAt));
+  filters.push(sql`(json_extract(${files.assetMetadata}, '$.source') IS NULL OR json_extract(${files.assetMetadata}, '$.source') != 'rag')`);
+  filters.push(sql`${files.name} NOT LIKE '%_parsed.md'`);
   const includeEntireDrive = queryString["filters[drive]"] === "true";
   if (!includeEntireDrive) {
     if (parentId === "root") {
@@ -1321,9 +1329,10 @@ export const deleteFiles = async (bucketName: string, items: string[]) => {
         if (item.type !== "folder") {
           const storagePath = getStoragePath(item);
           if (!await hasOtherStorageReference(storagePath, item.id)) {
+            const safeTime = formatTrashTimestamp(item.deletedAt);
             await moveBlob(
               storagePath,
-              `.trash/${bucketName}/${item.deletedAt?.toISOString()}/${storagePath}`
+              `.trash/${bucketName}/${safeTime}/${storagePath}`
             );
           }
         }
@@ -1355,13 +1364,39 @@ export const deleteFiles = async (bucketName: string, items: string[]) => {
         try {
           if (await localBlob().head(storagePath)) await localBlob().del(storagePath);
           for (const item of group) {
-            await localBlob().del(`.trash/${bucketName}/${item.deletedAt?.toISOString()}/${storagePath}`);
+            const safeTime = formatTrashTimestamp(item.deletedAt);
+            await localBlob().del(`.trash/${bucketName}/${safeTime}/${storagePath}`);
+            try {
+              await localBlob().del(`.trash/${bucketName}/${item.deletedAt?.toISOString()}/${storagePath}`);
+            } catch {}
           }
         } catch (e) {
           // ignore if the final shared binary was already deleted
         }
       }
     }
+    for (const item of alreadyTrashed) {
+      if (item.type !== "folder") {
+        try {
+          const deletedVectors = await deletePineconeFileVectors(item.id, item.organizationId);
+          await logPipelineEvent({
+            organizationId: item.organizationId,
+            departmentId: item.departmentId,
+            fileId: item.id,
+            eventType: "file_deleted",
+            stage: "stage_5",
+            status: "info",
+            details: {
+              deletedVectorsCount: deletedVectors,
+              fileName: item.name,
+            },
+          });
+        } catch (err: any) {
+          console.warn(`[deleteFiles] Warning purging vectors for ${item.id}:`, err?.message || err);
+        }
+      }
+    }
+
     await useDrizzle()
       .delete(files)
       .where(inArray(files.id, alreadyTrashedIds));
@@ -1388,8 +1423,14 @@ export const restoreFiles = async (bucketName: string, items: string[]) => {
       if (item.type !== "folder" && item.deletedAt) {
         const storagePath = getStoragePath(item);
         if (!await localBlob().head(storagePath)) {
-          const trashPath = `.trash/${bucketName}/${item.deletedAt.toISOString()}/${storagePath}`;
-          await moveBlob(trashPath, storagePath);
+          const safeTime = formatTrashTimestamp(item.deletedAt);
+          const trashPath = `.trash/${bucketName}/${safeTime}/${storagePath}`;
+          const oldTrashPath = `.trash/${bucketName}/${item.deletedAt.toISOString()}/${storagePath}`;
+          if (await localBlob().head(trashPath)) {
+            await moveBlob(trashPath, storagePath);
+          } else if (await localBlob().head(oldTrashPath)) {
+            await moveBlob(oldTrashPath, storagePath);
+          }
         }
       }
     }),
@@ -1940,13 +1981,43 @@ export const renameItem = async (bucketName: string, itemId: string, newName: st
 
 // ─── Organization & Permission Helpers ────────────────────────────────────────
 
+const DEFAULT_DEPARTMENTS_LIST = [
+  { id: "dept_product", name: "Product & Engineering", parentId: null },
+  { id: "dept_design", name: "Creative & Design", parentId: null },
+  { id: "dept_marketing", name: "Marketing & Content", parentId: null },
+  { id: "dept_finance", name: "Finance & Operations", parentId: null },
+  { id: "dept_ui", name: "UI/UX & Graphics", parentId: "dept_design" },
+  { id: "dept_3d", name: "3D Motion & Studio", parentId: "dept_design" },
+];
+
 export const getOrgDepartments = async (organizationId: string) => {
-  const result = await useDrizzle()
+  const db = useDrizzle();
+  const result = await db
     .select()
     .from(orgDepartments)
     .where(eq(orgDepartments.organizationId, organizationId));
   
   if (!result || result.length === 0) {
+    const seeded: any[] = [];
+    for (const def of DEFAULT_DEPARTMENTS_LIST) {
+      const row = {
+        id: def.id,
+        organizationId,
+        name: def.name,
+        parentId: def.parentId,
+        folderId: null,
+        gdriveFolderId: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      try {
+        await db.insert(orgDepartments).values(row);
+        seeded.push(row);
+      } catch {
+        // Ignore if row already exists
+      }
+    }
+    if (seeded.length > 0) return seeded;
     return [];
   }
 
@@ -1960,7 +2031,7 @@ export const getOrgPermissions = async (organizationId: string) => {
     .where(eq(orgPermissions.organizationId, organizationId));
 
   if (!result || result.length === 0) {
-    const roles = ["dept_head", "team_lead", "team_member", "intern"];
+    const roles = ["dept_head", "team_lead", "team_member", "guest"];
     const db = useDrizzle();
     const inserted = [];
     for (const r of roles) {
@@ -1980,7 +2051,7 @@ export const getOrgPermissions = async (organizationId: string) => {
         canShare: r === "dept_head" || r === "team_lead",
         canRename: r === "dept_head" || r === "team_lead",
         canEditMetadata: r === "dept_head" || r === "team_lead",
-        canUseRag: r !== "intern",
+        canUseRag: r !== "guest" && r !== "intern",
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -2084,17 +2155,19 @@ export const updateOrganizationSettings = async (
 
   for (const perm of permissionsList) {
     const deptId = perm.departmentId || "global";
+    const rolesToMatch = perm.role === "guest" ? ["guest", "intern"] : [perm.role];
     const existing = await db.select()
       .from(orgPermissions)
       .where(and(
         eq(orgPermissions.organizationId, organizationId),
         eq(orgPermissions.departmentId, deptId),
-        eq(orgPermissions.role, perm.role)
+        inArray(orgPermissions.role, rolesToMatch)
       ));
 
     if (existing && existing.length > 0) {
       await db.update(orgPermissions)
         .set({
+          role: perm.role,
           canView: perm.canView ?? true,
           canUpload: perm.canUpload,
           canDownload: perm.canDownload,
@@ -2110,6 +2183,12 @@ export const updateOrganizationSettings = async (
           updatedAt: new Date(),
         })
         .where(eq(orgPermissions.id, existing[0].id));
+
+      if (existing.length > 1) {
+        for (let i = 1; i < existing.length; i++) {
+          await db.delete(orgPermissions).where(eq(orgPermissions.id, existing[i].id));
+        }
+      }
     } else {
       await db.insert(orgPermissions).values({
         id: ulid() as string,
@@ -2138,14 +2217,21 @@ export const updateOrganizationSettings = async (
 };
 
 export const getOrgFeatures = async (orgId: string) => {
-  const db = useDrizzle();
-  const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
-  return org?.features ?? {
+  const DEFAULT_FEATURES = {
     nomenclature: true,
     hierarchy: true,
     userPermissions: true,
     templateFolders: true,
   };
+  const db = useDrizzle();
+  const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
+  if (!org) return DEFAULT_FEATURES;
+  // features may be a JSON string (legacy) or an object; always parse and merge with defaults
+  let parsed = org.features as any;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch { parsed = null; }
+  }
+  return { ...DEFAULT_FEATURES, ...(parsed || {}) };
 };
 
 /**
@@ -2154,10 +2240,17 @@ export const getOrgFeatures = async (orgId: string) => {
  */
 export const getGDriveRules = async (orgId: string) => {
   const db = useDrizzle();
+  const effectiveOrgId = orgId || "org_default";
   const [rules] = await db
     .select()
     .from(orgGDriveRules)
-    .where(eq(orgGDriveRules.organizationId, orgId));
+    .where(
+      or(
+        eq(orgGDriveRules.organizationId, effectiveOrgId),
+        eq(orgGDriveRules.organizationId, "org_default")
+      )
+    )
+    .orderBy(desc(orgGDriveRules.updatedAt));
   return rules ?? {
     enforceNomenclature: false,
     enforceHierarchy: false,
@@ -2177,10 +2270,16 @@ export const upsertGDriveRules = async (
   }
 ) => {
   const db = useDrizzle();
+  const effectiveOrgId = orgId || "org_default";
   const existing = await db
     .select()
     .from(orgGDriveRules)
-    .where(eq(orgGDriveRules.organizationId, orgId));
+    .where(
+      or(
+        eq(orgGDriveRules.organizationId, effectiveOrgId),
+        eq(orgGDriveRules.organizationId, "org_default")
+      )
+    );
 
   if (existing && existing.length > 0) {
     await db
@@ -2191,11 +2290,16 @@ export const upsertGDriveRules = async (
         allowInterDeptVisibility: rules.allowInterDeptVisibility,
         updatedAt: new Date(),
       })
-      .where(eq(orgGDriveRules.organizationId, orgId));
+      .where(
+        or(
+          eq(orgGDriveRules.organizationId, effectiveOrgId),
+          eq(orgGDriveRules.organizationId, "org_default")
+        )
+      );
   } else {
     await db.insert(orgGDriveRules).values({
       id: ulid() as string,
-      organizationId: orgId,
+      organizationId: effectiveOrgId,
       enforceNomenclature: rules.enforceNomenclature,
       enforceHierarchy: rules.enforceHierarchy,
       allowInterDeptVisibility: rules.allowInterDeptVisibility,
@@ -2207,34 +2311,55 @@ export const upsertGDriveRules = async (
 };
 
 /**
- * Returns the nomenclature template for a department (or org-level if no dept match).
+ * Returns the nomenclature template for a department (or org-level / any configured department if no dept match).
  */
 export const getNomenclatureForDept = async (orgId: string, departmentId?: string | null) => {
   const db = useDrizzle();
+  const effectiveOrgId = orgId || "org_default";
+
+  // 1. Try exact department match within this org or org_default
   if (departmentId) {
     const [deptNomenclature] = await db
       .select()
       .from(nomenclatures)
       .where(
         and(
-          eq(nomenclatures.organizationId, orgId),
+          or(
+            eq(nomenclatures.organizationId, effectiveOrgId),
+            eq(nomenclatures.organizationId, "org_default")
+          ),
           eq(nomenclatures.departmentId, departmentId)
         )
       );
-    if (deptNomenclature) return deptNomenclature;
+    // If it has non-empty segments configured, return it
+    if (
+      deptNomenclature &&
+      ((Array.isArray(deptNomenclature.segments) && deptNomenclature.segments.length > 0) ||
+       (Array.isArray(deptNomenclature.folderSegments) && deptNomenclature.folderSegments.length > 0))
+    ) {
+      return deptNomenclature;
+    }
   }
-  // Fallback to org-level template
-  const [orgNomenclature] = await db
+
+  // 2. Fallback to any nomenclature record in this org (or org_default) that has configured segments
+  const allNomenclatures = await db
     .select()
     .from(nomenclatures)
     .where(
-      and(
-        eq(nomenclatures.organizationId, orgId),
-        isNotNull(nomenclatures.segments)
+      or(
+        eq(nomenclatures.organizationId, effectiveOrgId),
+        eq(nomenclatures.organizationId, "org_default")
       )
     )
     .orderBy(desc(nomenclatures.updatedAt));
-  return orgNomenclature ?? null;
+
+  const matchWithSegments = allNomenclatures.find(
+    (n) =>
+      (Array.isArray(n.segments) && n.segments.length > 0) ||
+      (Array.isArray(n.folderSegments) && n.folderSegments.length > 0)
+  );
+
+  return matchWithSegments ?? allNomenclatures[0] ?? null;
 };
 
 // ==========================================================

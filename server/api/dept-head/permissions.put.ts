@@ -6,12 +6,9 @@ import { ulid } from "ulidx";
 
 export default defineEventHandler(async (event) => {
   const user = await requireDeptHead(event);
-  
-  if (user.role !== "dept_head") {
-    throw createError({ status: 403, message: "Forbidden: Department heads only." });
-  }
 
   const body = await readBody<{
+    departmentId?: string;
     rolePermissions?: any[];
     userOverrides?: any[];
   }>(event);
@@ -22,14 +19,23 @@ export default defineEventHandler(async (event) => {
 
   const db = useDrizzle();
 
+  let targetDepartmentId = user.departmentId;
+  if (user.role === "admin" && body.departmentId) {
+    targetDepartmentId = String(body.departmentId);
+  }
+
+  if (!targetDepartmentId) {
+    throw createError({ status: 400, message: "Department ID is required." });
+  }
+
   if (body.userOverrides && Array.isArray(body.userOverrides)) {
     const managedUsers = await db.select({ id: users.id }).from(users).where(and(
       eq(users.organizationId, user.organizationId),
-      eq(users.departmentId, user.departmentId),
+      eq(users.departmentId, targetDepartmentId),
     ));
     const managedIds = new Set(managedUsers.map((managedUser) => managedUser.id));
     if (body.userOverrides.some((override) => !managedIds.has(override.userId))) {
-      throw createError({ status: 403, message: "You can only manage users in your department." });
+      throw createError({ status: 403, message: "You can only manage users in the selected department." });
     }
   }
 
@@ -40,7 +46,7 @@ export default defineEventHandler(async (event) => {
       .delete(orgPermissions)
       .where(and(
         eq(orgPermissions.organizationId, user.organizationId),
-        eq(orgPermissions.departmentId, user.departmentId)
+        eq(orgPermissions.departmentId, targetDepartmentId)
       ));
 
     // Insert new
@@ -48,7 +54,7 @@ export default defineEventHandler(async (event) => {
       await db.insert(orgPermissions).values({
         id: ulid(),
         organizationId: user.organizationId,
-        departmentId: user.departmentId,
+        departmentId: targetDepartmentId,
         role: rp.role,
         maxCount: rp.maxCount !== undefined ? rp.maxCount : null,
         canView: !!rp.canView,
@@ -75,7 +81,7 @@ export default defineEventHandler(async (event) => {
       .delete(userPermissionOverrides)
       .where(and(
         eq(userPermissionOverrides.organizationId, user.organizationId),
-        eq(userPermissionOverrides.departmentId, user.departmentId)
+        eq(userPermissionOverrides.departmentId, targetDepartmentId)
       ));
 
     // Insert new
@@ -84,7 +90,7 @@ export default defineEventHandler(async (event) => {
         id: ulid(),
         userId: uo.userId,
         organizationId: user.organizationId,
-        departmentId: user.departmentId,
+        departmentId: targetDepartmentId,
         canView: uo.canView,
         canUpload: uo.canUpload,
         canDownload: uo.canDownload,
@@ -105,7 +111,7 @@ export default defineEventHandler(async (event) => {
     organizationId: user.organizationId,
     actorUserId: user.id,
     targetRole: "department_permissions",
-    departmentId: user.departmentId,
+    departmentId: targetDepartmentId,
     changes: {
       rolePermissions: body.rolePermissions || [],
       userOverrides: body.userOverrides || [],

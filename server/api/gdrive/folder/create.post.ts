@@ -20,11 +20,21 @@ export default defineEventHandler(async (event) => {
   if (!folderName || !parentId) {
     throw createError({ status: 400, message: "Parent ID and Folder name are required." });
   }
-
-  await requireValidFolderName({ user, folderName });
-
-  const orgId = (user as any).organizationId;
   const db = useDrizzle();
+  const orgId = (user as any).organizationId || "org_default";
+
+  let targetDepartmentId: string | null = (user as any).departmentId || null;
+  if (parentId !== "root") {
+    const [dept] = await db
+      .select()
+      .from(orgDepartments)
+      .where(eq(orgDepartments.gdriveFolderId, parentId));
+    if (dept) {
+      targetDepartmentId = dept.id;
+    }
+  }
+
+  await requireValidFolderName({ user, folderName, departmentId: targetDepartmentId });
 
   // Find the admin of this organization to get their Google Drive connection credentials
   let adminUserId = user.id;

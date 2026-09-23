@@ -867,18 +867,33 @@ onMounted(fetchData);
             </div>
 
             <div v-else class="space-y-4">
-              <div class="bg-indigo-500/10 border border-indigo-500/30 p-4 rounded-xl space-y-2">
-                <p class="text-xs font-bold text-indigo-400 flex items-center gap-2">
-                  <Icon name="lucide:check-circle-2" class="size-4" />
-                  Invitation Link Generated
-                </p>
-                <div class="flex items-center gap-2 mt-2">
+              <div class="bg-indigo-500/10 border border-indigo-500/30 p-4 rounded-xl space-y-3">
+                <div class="flex items-center justify-between">
+                  <p class="text-xs font-bold text-indigo-400 flex items-center gap-2">
+                    <Icon name="lucide:check-circle-2" class="size-4" />
+                    Invitation Link Ready
+                  </p>
+                  <span class="text-[11px] text-indigo-300/70">Valid for 7 days</span>
+                </div>
+                <div class="flex items-center gap-2">
                   <input 
                     readonly 
                     :value="generatedInviteUrl" 
-                    class="flex-1 bg-[var(--dam-bg)] border border-[var(--dam-line)] rounded-lg px-3 py-2 text-xs font-mono text-indigo-300 focus:outline-none"
+                    class="flex-1 bg-[var(--dam-bg)] border border-[var(--dam-line)] rounded-lg px-3 py-2 text-xs font-mono text-indigo-300 focus:outline-none select-all"
                   />
                   <UButton color="primary" variant="solid" size="sm" icon="lucide:copy" @click="copyToClipboard(generatedInviteUrl)">Copy</UButton>
+                </div>
+                <p class="text-xs text-[var(--dam-ink-muted)] leading-relaxed">
+                  Send this link to <strong class="text-[var(--dam-ink)]">{{ inviteEmail }}</strong> via email, Slack, or chat. When they open the link and sign in, they will automatically be assigned as Department Head.
+                </p>
+                <div class="pt-1">
+                  <a
+                    :href="`mailto:${inviteEmail}?subject=${encodeURIComponent('Invitation to become Department Head')}&body=${encodeURIComponent('Hello,\n\nYou have been invited to become Department Head for ' + (selectedDeptForInvite?.name || 'your department') + '.\n\nPlease click the link below to accept:\n' + generatedInviteUrl + '\n\nBest regards.')}`"
+                    class="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                  >
+                    <Icon name="lucide:mail" class="size-3.5" />
+                    Open in default mail app
+                  </a>
                 </div>
               </div>
             </div>

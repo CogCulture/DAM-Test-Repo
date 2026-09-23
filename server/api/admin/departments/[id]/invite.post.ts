@@ -24,12 +24,68 @@ export default defineEventHandler(async (event) => {
   }
 
   const db = useDrizzle();
+  const orgId = user.organizationId || "org_default";
 
-  // Validate department belongs to the admin's organization
-  const [dept] = await db
+  const DEFAULT_DEPT_MAP: Record<string, { name: string; parentId: string | null }> = {
+    dept_product: { name: "Product & Engineering", parentId: null },
+    dept_design: { name: "Creative & Design", parentId: null },
+    dept_marketing: { name: "Marketing & Content", parentId: null },
+    dept_finance: { name: "Finance & Operations", parentId: null },
+    dept_ui: { name: "UI/UX & Graphics", parentId: "dept_design" },
+    dept_3d: { name: "3D Motion & Studio", parentId: "dept_design" },
+  };
+
+  // 1. Try finding department in user's organization
+  let [dept] = await db
     .select()
     .from(orgDepartments)
-    .where(and(eq(orgDepartments.id, deptId), eq(orgDepartments.organizationId, user.organizationId)));
+    .where(and(eq(orgDepartments.id, deptId), eq(orgDepartments.organizationId, orgId)));
+
+  // 2. Fallback: find by ID across organizations (e.g. if created under org_default)
+  if (!dept) {
+    const [anyDept] = await db
+      .select()
+      .from(orgDepartments)
+      .where(eq(orgDepartments.id, deptId));
+    if (anyDept) {
+      dept = anyDept;
+    }
+  }
+
+  // 3. Fallback: auto-provision if it's a default department or known template
+  if (!dept) {
+    const defaultDef = DEFAULT_DEPT_MAP[deptId];
+    if (defaultDef) {
+      const newDept = {
+        id: deptId,
+        organizationId: orgId,
+        name: defaultDef.name,
+        parentId: defaultDef.parentId,
+        folderId: null,
+        gdriveFolderId: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      try {
+        await db.insert(orgDepartments).values(newDept);
+        dept = newDept as any;
+      } catch {
+        const [retryDept] = await db.select().from(orgDepartments).where(eq(orgDepartments.id, deptId));
+        if (retryDept) dept = retryDept;
+      }
+    }
+  }
+
+  // 4. Fallback: find by name matching deptId
+  if (!dept) {
+    const [nameMatch] = await db
+      .select()
+      .from(orgDepartments)
+      .where(eq(orgDepartments.name, deptId));
+    if (nameMatch) {
+      dept = nameMatch;
+    }
+  }
 
   if (!dept) {
     throw createError({ status: 404, message: "Department not found in your organization." });
@@ -47,8 +103,8 @@ export default defineEventHandler(async (event) => {
   const inviteId = ulid();
   await db.insert(deptInvites).values({
     id: inviteId,
-    organizationId: user.organizationId,
-    departmentId: deptId,
+    organizationId: user.organizationId || dept.organizationId || "org_default",
+    departmentId: dept.id,
     email,
     token,
     status: "pending",

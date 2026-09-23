@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useToast } from "~/composables/useToast";
+
 const { data, refresh } = useFetch("/api/superadmin/session");
 const isSuperAdmin = computed(() => (data.value as any)?.authenticated === true);
 
@@ -23,6 +25,8 @@ const handleLogout = async () => {
   await $fetch("/api/superadmin/logout", { method: "POST" });
   navigateTo("/superadmin/login");
 };
+
+const { toasts, remove } = useToast();
 </script>
 
 <template>
@@ -78,5 +82,49 @@ const handleLogout = async () => {
     <main class="flex-1 overflow-y-auto">
       <slot />
     </main>
+
+    <!-- Toast Notification Stack -->
+    <div class="fixed bottom-6 right-6 z-[9999] flex flex-col gap-3 pointer-events-none" style="max-width: 380px;">
+      <TransitionGroup name="toast-slide">
+        <div
+          v-for="toast in toasts"
+          :key="toast.id"
+          class="pointer-events-auto flex items-start gap-3 rounded-2xl border px-4 py-3.5 shadow-2xl backdrop-blur-md"
+          :class="
+            toast.color === 'success' ? 'bg-emerald-950/90 border-emerald-500/40 text-emerald-200' :
+            toast.color === 'error'   ? 'bg-red-950/90 border-red-500/40 text-red-200' :
+            toast.color === 'warning' ? 'bg-amber-950/90 border-amber-500/40 text-amber-200' :
+            'bg-[#1a1a2e]/90 border-indigo-500/30 text-indigo-200'
+          "
+        >
+          <span class="mt-0.5 shrink-0 text-lg">
+            <span v-if="toast.color === 'success'">✅</span>
+            <span v-else-if="toast.color === 'error'">❌</span>
+            <span v-else-if="toast.color === 'warning'">⚠️</span>
+            <span v-else>ℹ️</span>
+          </span>
+          <div class="flex-1 min-w-0">
+            <p v-if="toast.title" class="text-sm font-semibold leading-snug">{{ toast.title }}</p>
+            <p v-if="toast.description" class="text-xs opacity-75 mt-0.5">{{ toast.description }}</p>
+          </div>
+          <button class="shrink-0 opacity-50 hover:opacity-100 transition-opacity text-xs mt-0.5" @click="remove(toast.id!)">✕</button>
+        </div>
+      </TransitionGroup>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.toast-slide-enter-active,
+.toast-slide-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.toast-slide-enter-from {
+  opacity: 0;
+  transform: translateX(100%);
+}
+.toast-slide-leave-to {
+  opacity: 0;
+  transform: translateX(100%);
+}
+</style>

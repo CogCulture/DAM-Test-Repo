@@ -49,6 +49,7 @@ type HierarchyRole =
   | "dept_head"
   | "team_lead"
   | "team_member"
+  | "guest"
   | "intern";
 
 type HierarchyUser = {
@@ -67,6 +68,7 @@ const ROLE_RANK: Record<HierarchyRole, number> = {
   dept_head: 4,
   team_lead: 3,
   team_member: 2,
+  guest: 1,
   intern: 1,
 };
 

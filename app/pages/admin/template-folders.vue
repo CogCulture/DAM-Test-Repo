@@ -86,9 +86,11 @@ const fetchRootFolders = async () => {
   loadingFolders.value = true;
   try {
     const res = await $fetch<{ folders: RootFolder[] }>("/api/admin/template-folders");
-    rootFolders.value = res.folders;
+    rootFolders.value = res?.folders || [];
   } catch (e: any) {
+    console.error("Failed to load template folders:", e);
     toast.add({ title: "Failed to load folder data", color: "error" });
+    rootFolders.value = [];
   } finally {
     loadingFolders.value = false;
   }
@@ -172,23 +174,35 @@ const addClient = async () => {
 };
 
 const goToFolder = (folderId: string) => {
-  if (folderId) router.push(`/org/${folderId}`);
+  if (folderId) {
+    const route = useRoute();
+    const activeBucket = (route.params.bucket as string) || "org";
+    router.push(`/${activeBucket}/${folderId}`);
+  }
 };
 </script>
 
 <template>
   <AppMain title="Automated Template Folders" description="Create pre-configured folder structures in the organization's shared drive.">
-    <div class="max-w-5xl mx-auto space-y-8">
+    <div class="w-full max-w-5xl mx-auto space-y-8">
       <!-- Loading Skeletons -->
-      <div v-if="loadingFolders" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div v-if="loadingFolders" class="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
         <div
           v-for="i in 5"
           :key="i"
-          class="h-44 rounded-2xl bg-[var(--dam-panel-solid)] animate-pulse border border-[var(--dam-line)]"
-        />
+          class="h-52 w-full rounded-2xl bg-[var(--dam-panel-solid)] p-5 border border-[var(--dam-line)] animate-pulse flex flex-col justify-between shadow-sm"
+        >
+          <div class="space-y-3">
+            <div class="size-10 rounded-xl bg-[var(--dam-panel-raised)]" />
+            <div class="h-5 w-2/5 rounded bg-[var(--dam-panel-raised)]" />
+            <div class="h-3 w-4/5 rounded bg-[var(--dam-panel-raised)]" />
+            <div class="h-3 w-3/5 rounded bg-[var(--dam-panel-raised)]" />
+          </div>
+          <div class="h-9 w-28 rounded-xl bg-[var(--dam-panel-raised)]" />
+        </div>
       </div>
 
-      <div v-else class="space-y-8">
+      <div v-else class="w-full space-y-8">
         <!-- Template Cards -->
         <section class="space-y-4">
           <h2 class="text-xs font-bold text-[var(--dam-ink-muted)] uppercase tracking-wider">

@@ -45,7 +45,7 @@ const keywordCount = computed(
 );
 
 const doSearch = useDebounceFn(async (q: string) => {
-  if (!q || q.trim().length < 2) {
+  if (!q || q.trim().length < 3) {
     results.value = [];
     hoveredFile.value = null;
     return;
@@ -62,7 +62,7 @@ const doSearch = useDebounceFn(async (q: string) => {
   } finally {
     loading.value = false;
   }
-}, 180);
+}, 500);
 
 watch(searchTerm, (val) => doSearch(val));
 
@@ -399,16 +399,7 @@ const formatDate = (d?: string) => {
                         >
                           Text
                         </span>
-                        <!-- Score -->
-                        <span
-                          v-if="file.score !== undefined"
-                          :class="[
-                            'ml-auto flex-shrink-0 text-[10px] font-mono font-semibold',
-                            getScoreColor(file.score),
-                          ]"
-                        >
-                          {{ (file.score * 100).toFixed(0) }}%
-                        </span>
+
                       </div>
 
                       <!-- Path -->

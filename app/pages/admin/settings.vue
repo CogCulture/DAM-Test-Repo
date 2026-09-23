@@ -92,7 +92,7 @@ const fetchSettings = async () => {
     }
 
     // Extract custom roles
-    const defaults = ["admin", "dept_head", "team_lead", "team_member", "intern"];
+    const defaults = ["admin", "dept_head", "team_lead", "team_member", "guest", "intern"];
     const foundCustom = data.permissions
       .map((p: any) => p.role)
       .filter((r: string) => !defaults.includes(r));
@@ -226,9 +226,9 @@ const deleteDepartment = (id: string, event?: Event) => {
 
 const getRolePermissionsForSelected = (role: string) => {
   const permsList = permissions.value || [];
-  let p = permsList.find((perm) => perm && perm.role === role && (perm.departmentId || "global") === selectedDeptId.value);
+  let p = permsList.find((perm) => perm && (perm.role === role || (role === "guest" && perm.role === "intern")) && (perm.departmentId || "global") === selectedDeptId.value);
   if (!p) {
-    const globalP = permsList.find((perm) => perm && perm.role === role && (perm.departmentId || "global") === "global");
+    const globalP = permsList.find((perm) => perm && (perm.role === role || (role === "guest" && perm.role === "intern")) && (perm.departmentId || "global") === "global");
     p = {
       role,
       departmentId: selectedDeptId.value,
@@ -253,7 +253,7 @@ const getRolePermissionsForSelected = (role: string) => {
 const addCustomRole = () => {
   const roleName = newRoleName.value.trim();
   if (!roleName) return;
-  const defaults = ["admin", "dept_head", "team_lead", "team_member", "intern"];
+  const defaults = ["admin", "dept_head", "team_lead", "team_member", "guest", "intern"];
   if (defaults.includes(roleName.toLowerCase())) {
     toast.add({ title: "Cannot add default role names", color: "error" });
     return;
@@ -294,7 +294,13 @@ const deleteCustomRole = (roleName: string) => {
 };
 
 const allAvailableRoles = computed(() => {
-  return ["dept_head", "team_lead", "team_member", "intern", ...customRoles.value];
+  return [
+    "dept_head",
+    "team_lead",
+    "team_member",
+    "guest",
+    ...customRoles.value.filter((r) => r !== "intern" && r !== "guest"),
+  ];
 });
 
 const saveSettings = async () => {
@@ -346,7 +352,8 @@ const roleLabelMap: Record<string, string> = {
   dept_head: "Department Head",
   team_lead: "Team Lead",
   team_member: "Team Member",
-  intern: "Intern",
+  guest: "Guest",
+  intern: "Guest",
 };
 </script>
 
@@ -562,7 +569,7 @@ const roleLabelMap: Record<string, string> = {
                   <td class="px-4 py-3.5 font-medium text-neutral-800 dark:text-neutral-200 flex items-center justify-between gap-2">
                     <span>{{ roleLabelMap[roleKey] || roleKey }}</span>
                     <UButton
-                      v-if="!['dept_head', 'team_lead', 'team_member', 'intern'].includes(roleKey)"
+                      v-if="!['dept_head', 'team_lead', 'team_member', 'guest', 'intern'].includes(roleKey)"
                       color="error"
                       variant="ghost"
                       icon="lucide:trash"

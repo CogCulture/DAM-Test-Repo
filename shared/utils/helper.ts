@@ -19,11 +19,18 @@ export const pathShouldStartWithBucketName = (
   }
 };
 
+export const formatTrashTimestamp = (d: Date | string | number | null | undefined): string => {
+  if (!d) return String(Date.now());
+  const date = new Date(d);
+  // Replace ':' and '.' which are forbidden in Windows file paths
+  return date.toISOString().replace(/[:.]/g, "-");
+};
+
 export const getPreviewUrl = (path: string, deletedAt?: string) => {
   return (
     "/preview/" +
     encodeURI(path) +
-    (deletedAt ? `?trashed=${new Date(deletedAt).toISOString()}` : "")
+    (deletedAt ? `?trashed=${formatTrashTimestamp(deletedAt)}` : "")
   );
 };
 

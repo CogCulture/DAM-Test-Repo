@@ -59,12 +59,26 @@ const SEGMENT_PRESETS = [
   { key: "Region", label: "Geographic Region", defaultValues: ["Global", "NA", "EU", "APAC", "LATAM"] }
 ];
 
+// Default starter departments if none in database
+const DEFAULT_DEPARTMENTS = [
+  { id: "dept_marketing", name: "Marketing & Content" },
+  { id: "dept_design", name: "Creative & Design" },
+  { id: "dept_product", name: "Product & Engineering" },
+  { id: "dept_finance", name: "Finance & Operations" },
+  { id: "dept_ui", name: "UI/UX & Graphics" },
+  { id: "dept_3d", name: "3D Motion & Studio" }
+];
+
 onMounted(async () => {
   if (isAdmin.value) {
     loadingDepartments.value = true;
     try {
       const data: any = await $fetch("/api/organizations/settings");
-      departmentsList.value = data.departments || [];
+      let fetchedDepts = data.departments || [];
+      if (!fetchedDepts || fetchedDepts.length === 0) {
+        fetchedDepts = DEFAULT_DEPARTMENTS;
+      }
+      departmentsList.value = fetchedDepts;
       if (data.gdriveRules) {
         governanceRules.value = {
           enforceNomenclature: !!data.gdriveRules.enforceNomenclature,
@@ -72,7 +86,7 @@ onMounted(async () => {
           allowInterDeptVisibility: data.gdriveRules.allowInterDeptVisibility !== false,
         };
       }
-      if (departmentsList.value.length > 0 && !selectedDept.value) {
+      if (!selectedDept.value && departmentsList.value.length > 0) {
         selectedDept.value = departmentsList.value[0].id;
       }
     } catch (e) {
@@ -80,6 +94,8 @@ onMounted(async () => {
     } finally {
       loadingDepartments.value = false;
     }
+  } else if (!selectedDept.value) {
+    selectedDept.value = departmentId.value || "dept_marketing";
   }
 });
 
@@ -256,26 +272,34 @@ const save = async () => {
   }
   saving.value = true;
   try {
+    const effectiveTemplate = segments.value.length
+      ? segments.value.map((s) => `{${s.key}}`).join("_") + ".ext"
+      : "free-form";
+
     await $fetch(`/api/nomenclature/${selectedDept.value}`, {
       method: "PUT",
       body: {
-        template: template.value,
+        template: effectiveTemplate,
         segments: segments.value,
-        allowedExtensions: allowedExtensions.value,
-        folderTemplate: folderTemplatePreview.value,
+        allowedExtensions: allowedExtensions.value.length ? allowedExtensions.value : null,
+        folderTemplate: folderTemplatePreview.value || null,
         folderSegments: folderSegments.value,
       },
     });
+
+    // Save enforcement rules — works for both S3 and GDrive orgs
     if (isAdmin.value) {
       await $fetch("/api/organizations/gdrive-rules", {
         method: "PUT",
         body: governanceRules.value,
       });
     }
+
     toast.add({ title: "Nomenclature configuration saved!", color: "success" });
     refresh();
   } catch (e: any) {
-    toast.add({ title: e?.data?.message ?? "Error saving nomenclature", color: "error" });
+    const msg = e?.data?.message ?? e?.statusMessage ?? e?.message ?? "Error saving nomenclature";
+    toast.add({ title: msg, color: "error" });
   } finally {
     saving.value = false;
   }

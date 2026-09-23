@@ -43,6 +43,8 @@ brain/
 __pycache__/
 *.py[cod]
 uploads/
+data/*.db-shm
+data/*.db-wal
 
 # Local DAM binary storage (keep the directory, never commit uploaded assets)
 local dam storage/*

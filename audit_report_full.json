@@ -1,0 +1,170 @@
+[
+  {
+    "stage": 0,
+    "task": "Add departmentId to files table",
+    "status": "PASS",
+    "details": "department_id column present"
+  },
+  {
+    "stage": 0,
+    "task": "Add processing status",
+    "status": "PASS",
+    "details": "processing_status column present"
+  },
+  {
+    "stage": 0,
+    "task": "Store department & trigger ingestion on upload",
+    "status": "PASS",
+    "details": "enqueueIngestionJob & logPipelineEvent wired on upload"
+  },
+  {
+    "stage": 1,
+    "task": "Build ingestion producer",
+    "status": "PASS",
+    "details": "enqueueIngestionJob function implemented"
+  },
+  {
+    "stage": 1,
+    "task": "Build consumer worker",
+    "status": "PASS",
+    "details": "processIngestionJob function implemented"
+  },
+  {
+    "stage": 1,
+    "task": "Retry mechanism",
+    "status": "PASS",
+    "details": "Exponential backoff retry logic implemented"
+  },
+  {
+    "stage": 1,
+    "task": "Dead-letter handling",
+    "status": "PASS",
+    "details": "DLQ queue store & retry functions implemented"
+  },
+  {
+    "stage": 1,
+    "task": "DLQ Admin Endpoints",
+    "status": "PASS",
+    "details": "/api/admin/dlq endpoints present"
+  },
+  {
+    "stage": 1,
+    "task": "Async progress tracking API",
+    "status": "PASS",
+    "details": "/api/files/ingestion-status endpoint present"
+  },
+  {
+    "stage": 2,
+    "task": "Content-type detection",
+    "status": "PASS",
+    "details": "Magic-byte fileTypeDetector present"
+  },
+  {
+    "stage": 2,
+    "task": "Image metadata + thumbnails",
+    "status": "PASS",
+    "details": "exifr EXIF metadata & rendition specs present"
+  },
+  {
+    "stage": 2,
+    "task": "Video metadata + thumbnail",
+    "status": "PASS",
+    "details": "Video duration/resolution/format processor present"
+  },
+  {
+    "stage": 2,
+    "task": "Audio processing & waveform",
+    "status": "PASS",
+    "details": "50-sample amplitude waveform algorithm present"
+  },
+  {
+    "stage": 2,
+    "task": "Document processing (wired parsers)",
+    "status": "PASS",
+    "details": "run_pipeline.py Python wrapper present"
+  },
+  {
+    "stage": 2,
+    "task": "OCR fallback",
+    "status": "PASS",
+    "details": "Anthropic Vision OCR fallback check present"
+  },
+  {
+    "stage": 2,
+    "task": "PSD/AI processing",
+    "status": "PASS",
+    "details": "PSD 8BPS header channel/color mode parser present"
+  },
+  {
+    "stage": 2,
+    "task": "Packaged design files (INDD-style)",
+    "status": "PASS",
+    "details": "InDesign INDD asset/font manifest parser present"
+  },
+  {
+    "stage": 2,
+    "task": "AI Auto-Tagging Engine",
+    "status": "PASS",
+    "details": "AI Auto-Tagging generator module & pipeline integration present"
+  },
+  {
+    "stage": 3,
+    "task": "Add department metadata to Pinecone",
+    "status": "PASS",
+    "details": "embed_to_pinecone.py sends department_id"
+  },
+  {
+    "stage": 3,
+    "task": "Permission validation",
+    "status": "PASS",
+    "details": "requireFileDepartmentAccess guard clause present"
+  },
+  {
+    "stage": 3,
+    "task": "Pinecone permission filtering",
+    "status": "PASS",
+    "details": "RAG endpoint enforces department access validation"
+  },
+  {
+    "stage": 3,
+    "task": "Remove hardcoded credentials",
+    "status": "PASS",
+    "details": "No hardcoded API keys in server utils"
+  },
+  {
+    "stage": 4,
+    "task": "Create audit log table",
+    "status": "PASS",
+    "details": "pipeline_audit_logs table exists in SQLite"
+  },
+  {
+    "stage": 4,
+    "task": "Pipeline audit events logger",
+    "status": "PASS",
+    "details": "logPipelineEvent audit logger present"
+  },
+  {
+    "stage": 4,
+    "task": "Final processing status & stage logs",
+    "status": "PASS",
+    "details": "ingestionPipeline logs status events"
+  },
+  {
+    "stage": 5,
+    "task": "Pinecone deletion on file delete",
+    "status": "PASS",
+    "details": "deleteFiles calls deletePineconeFileVectors"
+  },
+  {
+    "stage": 5,
+    "task": "Orphan vector cleanup (backfill script)",
+    "status": "PASS",
+    "details": "scripts/cleanup-orphan-vectors.mjs present"
+  },
+  {
+    "stage": 5,
+    "task": "Cleanup vector script command in package.json",
+    "status": "PASS",
+    "details": "storage:cleanup-vectors command configured"
+  }
+]

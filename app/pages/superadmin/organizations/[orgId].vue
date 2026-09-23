@@ -138,6 +138,7 @@ const roleColors: Record<string, string> = {
   dept_head: "text-blue-400 bg-blue-500/10 border-blue-500/20",
   team_lead: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
   team_member: "text-slate-300 bg-slate-500/10 border-slate-500/20",
+  guest: "text-amber-400 bg-amber-500/10 border-amber-500/20",
   intern: "text-amber-400 bg-amber-500/10 border-amber-500/20",
 };
 
@@ -414,9 +415,9 @@ const filteredMembers = computed(() => {
                   <!-- Role -->
                   <td class="py-3 pr-4">
                     <span
-                      :class="roleColors[member.role] ?? 'text-slate-400 bg-slate-500/10 border-slate-500/20'"
+                      :class="roleColors[member.role] ?? roleColors[member.role === 'intern' ? 'guest' : member.role] ?? 'text-slate-400 bg-slate-500/10 border-slate-500/20'"
                       class="text-xs font-semibold px-2.5 py-1 rounded-full border capitalize whitespace-nowrap"
-                    >{{ member.role?.replace('_', ' ') }}</span>
+                    >{{ member.role === 'intern' ? 'guest' : member.role?.replace('_', ' ') }}</span>
                   </td>
 
                   <!-- Department -->

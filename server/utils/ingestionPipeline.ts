@@ -19,6 +19,8 @@ import { processVideoFile } from "./mediaProcessors/videoProcessor";
 import { processAudioFile } from "./mediaProcessors/audioProcessor";
 import { processDocumentFile } from "./mediaProcessors/documentProcessor";
 import { processDesignFile } from "./mediaProcessors/designProcessor";
+import { logPipelineEvent } from "./auditLogger";
+import { generateAiAutoTags } from "./aiTagging";
 
 export interface PipelineExecutionResult {
   success: boolean;
@@ -268,7 +270,20 @@ export async function executeFileIngestion(job: IngestionJobPayload): Promise<Pi
     cleanupTempFile(tempDir, localFilePath);
   }
 
-  // 6. Update Target File with Enriched Metadata & Processed Status
+  // 6. AI Auto-Tagging
+  const autoTags = await generateAiAutoTags({
+    fileName: file.name,
+    contentType: file.contentType,
+    category: detected.category,
+    ext: detected.ext,
+    metadata: categoryMetadata,
+  });
+
+  // Combine existing manual tags with AI auto-generated tags
+  const existingTags = (file.tags as string[]) || [];
+  const mergedTags = Array.from(new Set([...existingTags, ...autoTags]));
+
+  // 7. Update Target File with Enriched Metadata, AI Tags & Processed Status
   const finalMetadata = {
     ...currentMeta,
     ...categoryMetadata,
@@ -283,10 +298,43 @@ export async function executeFileIngestion(job: IngestionJobPayload): Promise<Pi
     .update(files)
     .set({
       processingStatus: "processed",
+      tags: mergedTags,
       updatedAt: new Date(),
       assetMetadata: finalMetadata,
     })
     .where(eq(files.id, file.id));
+
+  await logPipelineEvent({
+    organizationId: file.organizationId,
+    departmentId: file.departmentId,
+    fileId: file.id,
+    eventType: "metadata_extracted",
+    stage: "stage_2",
+    status: "success",
+    details: { category: detected.category, ext: detected.ext, categoryMetadata },
+  });
+
+  if (parsedFileId) {
+    await logPipelineEvent({
+      organizationId: file.organizationId,
+      departmentId: file.departmentId,
+      fileId: file.id,
+      eventType: "vector_indexed",
+      stage: "stage_3",
+      status: "success",
+      details: { parsedFileId, ragCost },
+    });
+  }
+
+  await logPipelineEvent({
+    organizationId: file.organizationId,
+    departmentId: file.departmentId,
+    fileId: file.id,
+    eventType: "ingestion_completed",
+    stage: "stage_4",
+    status: "success",
+    details: { ragCost, parsedFileId },
+  });
 
   console.log(`[IngestionPipeline] Stage 2 Ingestion successfully completed for file ${file.id} (${file.name})`);
 

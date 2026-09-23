@@ -18,6 +18,16 @@ const localMeta = ref<Record<string, any>>({ ...(props.file.customMetadata ?? {}
 const newTagInput = ref("");
 const saving = ref(false);
 
+const isRagIndexed = computed(() => {
+  const meta = (props.file?.assetMetadata as Record<string, any>) || {};
+  return Boolean(
+    meta.ragProcessedAt ||
+    meta.ragStatus === "processed" ||
+    meta.parsedFileId ||
+    meta.ragCost !== undefined
+  );
+});
+
 watch(() => props.file, (f) => {
   localTags.value = [...(f.tags ?? [])];
   localMeta.value = { ...(f.customMetadata ?? {}) };
@@ -101,6 +111,20 @@ const saveMetadata = async () => {
       </div>
       <div class="text-[var(--dam-ink)] font-semibold text-sm">
         {{ file?.createdAt }}
+      </div>
+    </div>
+
+    <!-- AI / RAG Intelligence Status -->
+    <div v-if="isRagIndexed" class="w-full rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 shadow-sm">
+      <div class="flex items-center gap-2 font-bold text-emerald-700 dark:text-emerald-300">
+        <Icon name="lucide:bot" class="size-4" />
+        <span>Indexed in RAG</span>
+      </div>
+      <p class="mt-1 text-xs text-emerald-600 dark:text-emerald-400">
+        This document is indexed in the RAG knowledge base and searchable via Smart Search.
+      </p>
+      <div v-if="file?.assetMetadata?.ragProcessedAt" class="mt-2 text-[10px] text-emerald-700/80 dark:text-emerald-300/80">
+        Indexed on: {{ new Date(file.assetMetadata.ragProcessedAt).toLocaleString() }}
       </div>
     </div>
 

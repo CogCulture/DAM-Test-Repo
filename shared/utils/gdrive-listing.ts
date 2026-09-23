@@ -1,3 +1,5 @@
+import { isRagArtifactName } from "./rag-artifact";
+
 export type GDriveListEntry = {
   id: string;
   assetMetadata?: Record<string, any> | null;
@@ -9,12 +11,18 @@ export const mergeGDriveListing = (input: {
   localFiles: GDriveListEntry[];
   driveAvailable: boolean;
 }): GDriveListEntry[] => {
-  if (!input.driveAvailable) return [...input.localFiles];
+  const isRagArtifact = (file: GDriveListEntry) =>
+    file.assetMetadata?.source === "rag" || isRagArtifactName(file.name || "");
+
+  const cleanDriveFiles = input.driveFiles.filter((file) => !isRagArtifact(file));
+  const cleanLocalFiles = input.localFiles.filter((file) => !isRagArtifact(file));
+
+  if (!input.driveAvailable) return [...cleanLocalFiles];
 
   const isDriveMirror = (file: GDriveListEntry) =>
     file.assetMetadata?.source === "google-drive"
     || (typeof file.path === "string" && file.path.startsWith("gdrive/"));
-  const mirrorFiles = input.localFiles.filter(isDriveMirror);
+  const mirrorFiles = cleanLocalFiles.filter(isDriveMirror);
   const driveMirrors = new Map(
     mirrorFiles.map((file) => [file.assetMetadata?.googleDriveFileId || file.id, file]),
   );
@@ -23,11 +31,11 @@ export const mergeGDriveListing = (input: {
       .filter((file) => !file.assetMetadata?.googleDriveFileId)
       .map((file) => [file.name, file]),
   );
-  const physicalLocalFiles = input.localFiles.filter(
+  const physicalLocalFiles = cleanLocalFiles.filter(
     (file) => !isDriveMirror(file),
   );
   const matchedMirrorIds = new Set<string>();
-  const enrichedDriveFiles = input.driveFiles.map((file) => {
+  const enrichedDriveFiles = cleanDriveFiles.map((file) => {
     const mirror = driveMirrors.get(file.id) || legacyMirrorsByName.get(file.name);
     if (mirror) matchedMirrorIds.add(mirror.id);
     return {

@@ -2,7 +2,7 @@
 import { usePreview } from "~/composables/usePreview";
 import * as Vue from 'vue'
 import * as VueDemi from 'vue-demi'
-import { defineAsyncComponent } from 'vue'
+import { defineAsyncComponent, ref, watch } from 'vue'
 import { isGoogleDriveAsset } from '~/utils/damModal'
 
 type OfficeGlobal = 'vue-office-docx' | 'vue-office-excel' | 'vue-office-pptx'
@@ -51,6 +51,9 @@ useHead({
 const { files, opened, open, limit, prevPage, nextPage } = usePreview();
 const file = computed(() => files.value[opened.value]);
 
+const textContent = ref('');
+const loadingText = ref(false);
+
 const getFileUrl = (f: IFile, inline = false) => {
   if (isGoogleDriveAsset(f)) {
     return `/api/gdrive/download/${encodeURIComponent(f.id)}${inline ? '?inline=true' : ''}`;
@@ -58,17 +61,22 @@ const getFileUrl = (f: IFile, inline = false) => {
   return `/api/files/${encodeURIComponent(f.bucketName)}/download/${encodeURIComponent(f.id)}${inline ? '?inline=true' : ''}`;
 }
 
-const isTextFile = (f: IFile) => {
+const isTextFile = (f: IFile | null) => {
+  if (!f) return false;
   const contentType = (f.contentType || '').toLowerCase();
   const name = (f.name || '').toLowerCase();
   const ext = name.split('.').pop() || '';
-  const codeExts = new Set(['py', 'js', 'ts', 'jsx', 'tsx', 'vue', 'html', 'htm', 'css', 'txt', 'md', 'json', 'xml', 'yaml', 'yml', 'sh', 'sql', 'php', 'go', 'java', 'cpp', 'c', 'rs', 'rb', 'csv', 'env', 'toml', 'ini']);
+  const codeExts = new Set(['py', 'js', 'ts', 'jsx', 'tsx', 'vue', 'html', 'htm', 'css', 'txt', 'md', 'markdown', 'json', 'xml', 'yaml', 'yml', 'sh', 'sql', 'php', 'go', 'java', 'cpp', 'c', 'rs', 'rb', 'csv', 'env', 'toml', 'ini', 'log']);
   return contentType.startsWith('text/') || contentType === 'application/json' || contentType === 'application/javascript' || contentType === 'application/typescript' || contentType.endsWith('+json') || codeExts.has(ext);
 }
 
-const isOfficeFile = (contentType: string) => {
-  if (!contentType) return false;
-  return [
+const isOfficeFile = (f: IFile | null) => {
+  if (!f) return false;
+  const contentType = (f.contentType || '').toLowerCase();
+  const name = (f.name || '').toLowerCase();
+  const ext = name.split('.').pop() || '';
+  const officeExts = new Set(['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt']);
+  return officeExts.has(ext) || [
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/msword",
     "application/vnd.ms-excel",
@@ -78,13 +86,42 @@ const isOfficeFile = (contentType: string) => {
   ].includes(contentType);
 }
 
-const getOfficeComponent = (contentType: string) => {
-  if (contentType.includes("wordprocessingml") || contentType === "application/msword") return VueOfficeDocx;
-  if (contentType.includes("spreadsheetml") || contentType === "application/vnd.ms-excel") return VueOfficeExcel;
-  if (contentType.includes("presentationml") || contentType === "application/vnd.ms-powerpoint") return VueOfficePptx;
+const getOfficeComponent = (f: IFile | null) => {
+  if (!f) return null;
+  const contentType = (f.contentType || '').toLowerCase();
+  const name = (f.name || '').toLowerCase();
+  if (name.endsWith('.docx') || name.endsWith('.doc') || contentType.includes('word') || contentType.includes('wordprocessingml')) return VueOfficeDocx;
+  if (name.endsWith('.xlsx') || name.endsWith('.xls') || contentType.includes('excel') || contentType.includes('spreadsheet')) return VueOfficeExcel;
+  if (name.endsWith('.pptx') || name.endsWith('.ppt') || contentType.includes('powerpoint') || contentType.includes('presentation')) return VueOfficePptx;
   return null;
 }
+
+// Watch active preview file to load text content for markdown and code files
+watch(
+  () => file.value,
+  async (newFile) => {
+    if (newFile && isTextFile(newFile)) {
+      loadingText.value = true;
+      try {
+        const res = await fetch(getFileUrl(newFile, true));
+        if (res.ok) {
+          textContent.value = await res.text();
+        } else {
+          textContent.value = `Failed to load preview for ${newFile.name}`;
+        }
+      } catch (err: any) {
+        textContent.value = `Error loading text content: ${err?.message || err}`;
+      } finally {
+        loadingText.value = false;
+      }
+    } else {
+      textContent.value = '';
+    }
+  },
+  { immediate: true }
+);
 </script>
+
 <template>
   <UModal
     v-if="opened >= 0"
@@ -106,25 +143,36 @@ const getOfficeComponent = (contentType: string) => {
                 file?.type === 'folder' ? 'flex justify-center items-center max-w-96 max-h-96 m-auto' : 'block'
               ]"
             >
+              <!-- PDF Viewer -->
               <iframe
-                v-if="file.contentType === 'application/pdf'"
+                v-if="file.contentType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')"
                 :src="getFileUrl(file, true)"
                 class="w-full h-full border-none"
               ></iframe>
-              <iframe
+
+              <!-- Markdown & Text Content Viewer -->
+              <div
                 v-else-if="isTextFile(file)"
-                :src="getFileUrl(file, true)"
-                :title="`Preview of ${file.name}`"
-                class="h-full w-full border-none bg-white dark:bg-neutral-950"
-              ></iframe>
-              <ClientOnly v-else-if="isOfficeFile(file.contentType)">
+                class="h-full w-full overflow-auto bg-slate-50 p-6 font-mono text-xs text-slate-800 dark:bg-slate-950 dark:text-slate-200"
+              >
+                <div v-if="loadingText" class="flex h-full w-full flex-col items-center justify-center gap-2">
+                  <Icon name="lucide:loader-2" class="size-8 animate-spin text-blue-500" />
+                  <span>Loading text preview...</span>
+                </div>
+                <pre v-else class="whitespace-pre-wrap font-mono leading-relaxed">{{ textContent }}</pre>
+              </div>
+
+              <!-- Office Documents Viewer (Word, Excel, PowerPoint) -->
+              <ClientOnly v-else-if="isOfficeFile(file)">
                 <component
-                  :is="getOfficeComponent(file.contentType)"
+                  :is="getOfficeComponent(file)"
                   :src="getFileUrl(file, true)"
                   class="w-full h-full"
                   style="height: 100%;"
                 />
               </ClientOnly>
+
+              <!-- Fallback Viewer -->
               <div v-else class="w-full h-full flex justify-center items-center">
                 <Thumbnail :file="file!" layout="col" />
               </div>
@@ -139,6 +187,18 @@ const getOfficeComponent = (contentType: string) => {
           >
             <h4 class="truncate font-semibold text-neutral-800 dark:text-neutral-200" :title="file?.name">{{ file?.name }}</h4>
             <div class="flex items-center gap-1">
+              <UButton
+                v-if="file"
+                :to="getFileUrl(file, true)"
+                target="_blank"
+                icon="lucide:external-link"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="Open in new tab"
+                title="Open in new tab"
+                class="rounded-xl"
+              />
               <FileMenu v-if="file && !file.deletedAt" :file="file" dropdown>
                 <UButton
                   icon="lucide:ellipsis"
@@ -178,6 +238,7 @@ const getOfficeComponent = (contentType: string) => {
     </template>
   </UModal>
 </template>
+
 <style scoped>
 .fade-enter-active,
 .fade-leave-active {

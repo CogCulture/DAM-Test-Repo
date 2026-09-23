@@ -3,6 +3,7 @@ import { useRole } from "./useRole";
 import { resolveDriveRouteFolderId } from "~~/shared/utils/drive-storage";
 import { replaceFetchedFiles } from "~~/shared/utils/department-upload";
 import { loadCompleteAssetView } from "~~/shared/utils/directory-pagination";
+import { processFileDuplicates } from "~~/shared/utils/file-collision";
 
 export function useFiles(endpoint: MaybeRefOrGetter<string | undefined> = "root") {
   const route = useRoute();
@@ -76,9 +77,10 @@ export function useFiles(endpoint: MaybeRefOrGetter<string | undefined> = "root"
         ),
       );
       if (version !== requestVersion) return;
+      const processedFiles = processFileDuplicates(completeFiles);
       files.value = replaceFetchedFiles({
         current: files.value,
-        incoming: completeFiles,
+        incoming: processedFiles,
         reset: true,
         responseReady: true,
       });

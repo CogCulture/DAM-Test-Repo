@@ -48,10 +48,11 @@ const superAdminPassword = process.env.SUPERADMIN_PASSWORD || "SuperAdmin@12345"
 const superAdminSessionPassword =
   process.env.SUPERADMIN_SESSION_PASSWORD || "local-superadmin-session-password-32";
 
-console.log('[dev-local] Super Admin portal: http://localhost:3000/superadmin/login');
+console.log('[dev-local] Main portal: http://127.0.0.1:3000/ or http://localhost:3000/');
+console.log('[dev-local] Super Admin portal: http://127.0.0.1:3000/superadmin/login');
 console.log(`[dev-local] Super Admin email: ${superAdminEmail}`);
 
-const child = spawn(process.execPath, [nuxtCli, "dev", "--host", "0.0.0.0"], {
+const child = spawn(process.execPath, [nuxtCli, "dev", "--host", "127.0.0.1", "--port", "3000"], {
   env: {
     ...process.env,
     HOME: resolve(projectRoot, '.data'),

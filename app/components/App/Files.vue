@@ -160,19 +160,13 @@ watch(
   },
   { immediate: true },
 );
-const onOpen = (file: IFile) => {
+const onOpen = (file: IFile, index = 0) => {
   if (file.type === "folder") {
     router.push(`/${route.params.bucket}/${file.id}`);
     return;
   }
-  if (typeof window !== "undefined") {
-    const isDriveAsset = file.assetMetadata?.source === "google-drive";
-    const bucket = route.params.bucket || "org";
-    const fileUrl = file.assetMetadata?.externalUrl || (isDriveAsset
-      ? `/api/gdrive/download/${encodeURIComponent(file.id)}?inline=true`
-      : `/api/files/${encodeURIComponent(String(bucket))}/download/${encodeURIComponent(file.id)}?inline=true`);
-    window.open(fileUrl, "_blank", "noopener,noreferrer");
-  }
+  closeActions();
+  showPreview(safeFiles.value, index);
 };
 defineShortcuts({
   meta_a: () => {
@@ -299,13 +293,13 @@ defineShortcuts({
       leave-from-class="opacity-100 scale-100"
       leave-to-class="opacity-0 scale-95"
     >
-      <div v-show="actionsOpen" class="fixed inset-0 z-[9998]">
-        <div class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm" @click="closeActions" />
+      <div v-show="actionsOpen" class="fixed inset-0 z-[9998] flex items-center justify-center p-4">
+        <div class="fixed inset-0 bg-transparent" @click="closeActions" />
 
         <div
           id="asset-actions-panel"
           ref="assetControlsPanel"
-          class="asset-controls-panel fixed top-16 right-4 sm:right-6 z-[9999] w-[min(34rem,calc(100vw-2rem))] max-h-[calc(100vh-5rem)] overflow-y-auto rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] p-5 text-[var(--dam-ink)] shadow-2xl space-y-4"
+          class="asset-controls-panel relative z-[9999] w-[min(34rem,calc(100vw-2rem))] max-h-[calc(100vh-5rem)] overflow-y-auto rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] p-5 text-[var(--dam-ink)] shadow-2xl space-y-4"
           role="dialog"
           aria-label="Asset controls"
           data-testid="asset-actions-panel"
@@ -317,7 +311,7 @@ defineShortcuts({
                 <Icon name="lucide:sliders-horizontal" class="size-4 text-[#ff5733]" />
                 <p class="text-sm font-bold tracking-wider uppercase text-[var(--dam-ink)]">Asset Controls</p>
               </div>
-              <p class="mt-0.5 text-xs text-[var(--dam-muted)]">Upload, import, organize, and customize your workspace view.</p>
+              <p class="mt-0.5 text-xs text-[var(--dam-muted)]">Upload, organize, and customize your workspace view.</p>
             </div>
             <UButton icon="lucide:x" color="neutral" variant="ghost" size="sm" class="rounded-xl hover:bg-[var(--dam-panel-raised)] text-[var(--dam-muted)] hover:text-[var(--dam-ink)]" aria-label="Close asset actions" @click="closeActions" />
           </div>
@@ -334,21 +328,12 @@ defineShortcuts({
             <Upload v-if="canUpload" @success="refresh" />
           </div>
 
-          <!-- Section 2: Import from URL / Drive Link -->
-          <div v-if="!endpoint && canUpload" class="asset-controls-section rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] p-4 space-y-2">
-            <span class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[var(--dam-ink)]">
-              <Icon name="lucide:link-2" class="size-3.5 text-indigo-400" />
-              2. Import via URL / Drive
-            </span>
-            <GoogleDriveLinkImport @success="refresh" />
-          </div>
-
-          <!-- Section 3: Sort & Refine -->
+          <!-- Section 2: Sort & Refine -->
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div class="asset-controls-section rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] p-3.5 space-y-2">
               <span class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[var(--dam-ink)]">
                 <Icon name="lucide:arrow-up-down" class="size-3.5 text-emerald-400" />
-                Sort By
+                2. Sort By
               </span>
               <SortFiles @update="onSort" />
             </div>
@@ -361,11 +346,11 @@ defineShortcuts({
             </div>
           </div>
 
-          <!-- Section 4: Layout View -->
+          <!-- Section 3: Layout View Mode -->
           <div class="asset-controls-section rounded-2xl border border-slate-700/60 bg-slate-800/40 p-3.5 space-y-2">
             <span class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-200">
               <Icon name="lucide:layout-grid" class="size-3.5 text-sky-400" />
-              View Mode
+              3. View Mode
             </span>
             <ToggleButton :model-value="view" @update:model-value="setView" />
           </div>

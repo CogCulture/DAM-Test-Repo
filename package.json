@@ -21,6 +21,7 @@
     "storage:set": "node scripts/set-organization-storage.mjs",
     "storage:backup": "node scripts/backup-local-storage.mjs",
     "storage:restore": "node scripts/restore-local-storage.mjs",
+    "storage:cleanup-vectors": "node scripts/cleanup-orphan-vectors.mjs",
     "verify:gcp": "node --test --test-isolation=none tests/*.test.mjs",
     "verify:gcp:runtime": "npm run build:gcp && node --test tests/runtime/gcp-built-runtime.test.mjs"
   },

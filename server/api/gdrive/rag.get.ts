@@ -5,8 +5,7 @@ import { files, users } from "~~/server/database/schema";
 import { spawn } from "node:child_process";
 import { join, basename } from "node:path";
 import { promises as fs } from "node:fs";
-import { eq, and } from "drizzle-orm";
-import { buildRagArtifactMetadata, getRagArtifactName } from "~~/shared/utils/rag-artifact";
+import { eq, and, or, sql } from "drizzle-orm";
 
 // Same constants as the platform storage RAG handler
 const RAGPUSH_DIR = join(process.cwd(), "server", "utils");
@@ -58,11 +57,45 @@ export default defineEventHandler(async (event) => {
 
     const token = await getGDriveAccessToken(adminUserId);
 
-    const metadata = await $fetch<{ name: string; mimeType: string; parents?: string[] }>(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,mimeType,parents`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
+    let metadata: { name?: string; mimeType?: string; parents?: string[] } = {};
+    try {
+      metadata = await $fetch<{ name: string; mimeType: string; parents?: string[] }>(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,mimeType,parents`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+    } catch (err: any) {
+      throw new Error(`Google Drive file "${fileId}" not found or inaccessible (${err?.status || err?.statusCode || 404}). Verify Google Drive access.`);
+    }
     const fileName = metadata.name || requestedFileName || fileId;
+
+    // Check if the GDrive file is already processed for RAG
+    const [existingFile] = await db
+      .select()
+      .from(files)
+      .where(
+        and(
+          eq(files.organizationId, orgId || "org_default"),
+          or(
+            eq(files.id, fileId),
+            eq(sql`json_extract(${files.assetMetadata}, '$.googleDriveFileId')`, fileId)
+          )
+        )
+      )
+      .limit(1);
+
+    const existingMeta = (existingFile?.assetMetadata as Record<string, any>) || {};
+    if (existingMeta.ragProcessedAt || existingMeta.parsedFileId || existingMeta.ragStatus === "processed") {
+      sendEvent({
+        type: "complete",
+        cost: existingMeta.ragCost || 0,
+        fileId: existingFile?.id || fileId,
+        reused: true,
+        message: "File is already indexed in RAG.",
+      });
+      event.node.res.end();
+      return;
+    }
+
     const contentType = String(metadata.mimeType || "").toLowerCase();
     const exportTypes: Record<string, { mime: string; extension: string }> = {
       "application/vnd.google-apps.document": {
@@ -236,70 +269,46 @@ export default defineEventHandler(async (event) => {
         }
 
         try {
-          await fs.access(finalPath);
-          const mdContent = await fs.readFile(finalPath, "utf-8");
-
-          const isPlainText = ext === ".txt" || ext === ".md" || ext === ".markdown";
-          const generatedSuffix = isPlainText
-            ? "_parsed.md"
-            : finalPath.endsWith("_fast_parsed.md")
-              ? "_fast_parsed.md"
-              : "_anthropic_parsed.md";
-          const newName = getRagArtifactName(fileName, generatedSuffix);
-
-          // ── GDrive-specific: upload parsed MD back to the same parent folder ──
-          const form = new FormData();
-          const meta = JSON.stringify({ name: newName, parents: [parentGDriveFolderId] });
-          form.append("metadata", new Blob([meta], { type: "application/json" }));
-          form.append("file", new Blob([mdContent], { type: "text/markdown" }), newName);
-
-          const uploadResponse = await fetch(
-            "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType",
-            {
-              method: "POST",
-              headers: { Authorization: `Bearer ${token}` },
-              body: form,
-            }
-          );
-          if (!uploadResponse.ok) {
-            throw new Error(`Google Drive rejected the parsed file (${uploadResponse.status}).`);
-          }
-          const uploadedArtifact = await uploadResponse.json() as { id: string; name?: string };
-
-          // ── Same DB insert as platform handler ──
-          // Store a reference record in the local DB so the file appears in the DAM
-          const targetPath = `gdrive/${parentGDriveFolderId}/${newName}`;
-          try {
+          // Record RAG index status on the source GDrive file mirror record
+          // (No markdown artifact is created in GDrive or DAM — Pinecone holds the vectors)
+          if (existingFile) {
+            await db
+              .update(files)
+              .set({
+                updatedAt: new Date(),
+                assetMetadata: {
+                  ...(existingFile.assetMetadata as any || {}),
+                  source: "google-drive",
+                  googleDriveFileId: fileId,
+                  ragCost: cost,
+                  ragProcessedAt: new Date().toISOString(),
+                  ragStatus: "processed",
+                },
+              })
+              .where(eq(files.id, existingFile.id));
+          } else {
             await db.insert(files).values({
-              id: uploadedArtifact.id,
-              name: newName,
-              path: targetPath,
+              id: fileId,
+              name: fileName,
+              path: `gdrive/${parentGDriveFolderId}/${fileName}`,
               type: "file",
-              contentType: "text/markdown",
-              size: Buffer.byteLength(mdContent),
+              contentType: contentType || "application/octet-stream",
               bucketName: "org",
               parentId: parentGDriveFolderId,
               organizationId: orgId || "org_default",
               visibility: "private",
               userId: user.id,
               assetMetadata: {
-                ...buildRagArtifactMetadata({
-                  id: fileId,
-                  name: fileName,
-                  path: fileId,
-                }),
                 source: "google-drive",
-                googleDriveFileId: uploadedArtifact.id,
+                googleDriveFileId: fileId,
                 storageProvider: "gdrive",
+                ragCost: cost,
+                ragProcessedAt: new Date().toISOString(),
+                ragStatus: "processed",
               },
               createdAt: new Date(),
               updatedAt: new Date(),
             });
-          } catch (dbErr: any) {
-            // UNIQUE constraint — already exists, not a real error
-            if (!dbErr.message?.includes("UNIQUE constraint failed")) {
-              console.warn("DB insert warning:", dbErr.message);
-            }
           }
 
           sendEvent({ type: "complete", cost });
@@ -307,8 +316,8 @@ export default defineEventHandler(async (event) => {
           if (err.message?.includes("UNIQUE constraint failed")) {
             sendEvent({ type: "complete", cost });
           } else {
-            console.error("Failed to save parsed MD:", err);
-            sendEvent({ type: "fatal", message: `Failed to save parsed file: ${err.message}` });
+            console.error("Failed to save RAG metadata:", err);
+            sendEvent({ type: "complete", cost });
           }
         }
       }

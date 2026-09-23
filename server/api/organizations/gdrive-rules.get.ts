@@ -8,11 +8,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ status: 403, message: "Only organization administrators can view GDrive rules." });
   }
 
-  const orgId = (user as any)?.organizationId;
-  if (!orgId || orgId === "org_default") {
-    throw createError({ status: 400, message: "No organization found." });
-  }
-
+  const orgId = (user as any)?.organizationId || "org_default";
   const rules = await getGDriveRules(orgId);
   return rules;
 });

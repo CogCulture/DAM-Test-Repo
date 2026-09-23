@@ -14,6 +14,16 @@ const summary = computed(() => {
   if (file.dimensions) text += " / " + file.dimensions;
   return text;
 });
+
+const isRagIndexed = computed(() => {
+  const meta = (file?.assetMetadata as Record<string, any>) || {};
+  return Boolean(
+    meta.ragProcessedAt ||
+    meta.ragStatus === "processed" ||
+    meta.parsedFileId ||
+    meta.ragCost !== undefined
+  );
+});
 </script>
 <template>
   <FileMenu
@@ -40,11 +50,19 @@ const summary = computed(() => {
       >
         <Thumbnail :file="file" :layout="dir" />
         <span
-          v-if="file.duplicateOfId"
+          v-if="file.duplicateOfId || (file as any).isDuplicate"
           class="pointer-events-none absolute left-2 top-2 z-[4] rounded-full bg-amber-500/95 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow"
-          title="This asset reuses the content of an existing file"
+          title="This asset reuses the content or name of an existing file"
         >
           Duplicate
+        </span>
+        <span
+          v-if="isRagIndexed"
+          class="pointer-events-none absolute right-2 top-2 z-[4] flex items-center gap-1 rounded-full bg-emerald-600/95 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-md backdrop-blur-sm ring-1 ring-emerald-400/40"
+          title="Indexed in RAG Knowledge Base"
+        >
+          <Icon name="lucide:bot" class="size-3 text-emerald-100" />
+          RAG
         </span>
         <div class="pointer-events-none absolute inset-x-3 bottom-3 z-[3] rounded-xl bg-slate-950/80 px-3 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur-sm">
           <span class="block truncate" :title="file.name">{{ file.name || "Untitled asset" }}</span>
@@ -66,6 +84,14 @@ const summary = computed(() => {
           <div v-if="file.deletedAt" class="mt-1 text-right text-[10px] uppercase opacity-70">{{ formatTimeAgo(new Date(file.deletedAt)) }}</div>
         </div>
         <template v-if="!file.deletedAt">
+          <span
+            v-if="isRagIndexed"
+            class="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0"
+            title="Indexed in RAG Knowledge Base"
+          >
+            <Icon name="lucide:bot" class="size-3" />
+            RAG
+          </span>
           <Icon v-if="file.isFavorite" name="lucide:star" class="size-4 shrink-0 fill-amber-400 text-amber-500" aria-label="Favorite" />
           <Icon v-if="file.sharedCount" name="lucide:users" class="mr-1 min-w-4 opacity-70" />
           <VisibilityIcon :visibility="file.visibility" />

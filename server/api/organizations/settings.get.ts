@@ -46,11 +46,8 @@ export default defineEventHandler(async (event) => {
   const org = orgResult[0];
   const orgType = (org as any).orgType ?? "s3";
 
-  // 4. Get GDrive rules if applicable
-  let gdriveRules = null;
-  if (orgType === "gdrive") {
-    gdriveRules = await getGDriveRules(orgId);
-  }
+  // 4. Get governance rules (enforceNomenclature applies to all org types: s3, gdrive, byos)
+  const gdriveRules = await getGDriveRules(orgId);
 
   let orgFeatures = (org as any).features;
   if (typeof orgFeatures === "string") {

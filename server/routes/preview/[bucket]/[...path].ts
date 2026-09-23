@@ -1,4 +1,5 @@
 import { verifyBucket } from "~~/server/utils/permission";
+import { formatTrashTimestamp } from "~~/shared/utils/helper";
 
 export default defineEventHandler(async (event) => {
   await verifyBucket(event);
@@ -29,9 +30,14 @@ export default defineEventHandler(async (event) => {
     });
   }
   if (file.type !== "folder") {
-    const filePath = deletedAt
-      ? `.trash/${params.bucket}/${deletedAt.toISOString()}/${fullPath}`
-      : (file.storagePath || fullPath);
+    let filePath = file.storagePath || fullPath;
+    if (deletedAt) {
+      const safeTime = formatTrashTimestamp(deletedAt);
+      const safePath = `.trash/${params.bucket}/${safeTime}/${fullPath}`;
+      filePath = (await localBlob().head(safePath))
+        ? safePath
+        : `.trash/${params.bucket}/${deletedAt.toISOString()}/${fullPath}`;
+    }
     return await localBlob().serve(event, filePath);
   } else {
     throw createError({

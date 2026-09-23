@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed, watch } from "vue";
 import { useRole } from "~/composables/useRole";
 import { useToast } from "~/composables/useToast";
 import { getDepartmentName } from "~~/shared/constants/departments";
 import { getRoleLabel } from "~~/shared/constants/roles";
 
-const { isDeptHead, departmentId } = useRole();
-if (!isDeptHead.value) {
+const { isAdmin, isDeptHead, departmentId: userDepartmentId } = useRole();
+if (!isAdmin.value && !isDeptHead.value) {
   navigateTo("/");
 }
 
 const toast = useToast();
 const loading = ref(true);
+const selectedDepartmentId = ref<string | null>(userDepartmentId.value || null);
+const departments = ref<any[]>([]);
+
 const stats = ref({
   pendingRequests: 0,
   deptUsers: 0
@@ -23,23 +26,35 @@ const promotingId = ref<string | null>(null);
 const fetchDashboardData = async () => {
   loading.value = true;
   try {
+    const url = selectedDepartmentId.value
+      ? `/api/dept-head/permissions?departmentId=${encodeURIComponent(selectedDepartmentId.value)}`
+      : "/api/dept-head/permissions";
+
     const [permsData, reqsData]: [any, any] = await Promise.all([
-      $fetch("/api/dept-head/permissions"),
+      $fetch(url),
       $fetch("/api/folder-requests")
     ]);
     
     users.value = permsData.users || [];
     folderRequests.value = reqsData || [];
+    departments.value = permsData.departments || [];
+    
+    if (permsData.targetDepartmentId) {
+      selectedDepartmentId.value = permsData.targetDepartmentId;
+    }
     
     // Filter pending requests for current department
-    const pendingReqs = folderRequests.value.filter(r => r.status === "pending" && r.departmentId === departmentId.value);
+    const currentDept = selectedDepartmentId.value;
+    const pendingReqs = folderRequests.value.filter(
+      r => r.status === "pending" && (!currentDept || r.departmentId === currentDept)
+    );
     
     stats.value = {
       pendingRequests: pendingReqs.length,
       deptUsers: users.value.length
     };
-  } catch (e) {
-    toast.add({ title: "Failed to load dashboard data", color: "error" });
+  } catch (e: any) {
+    toast.add({ title: e?.data?.message || "Failed to load dashboard data", color: "error" });
   } finally {
     loading.value = false;
   }
@@ -61,16 +76,36 @@ const promoteToLead = async (userId: string) => {
   }
 };
 
+watch(selectedDepartmentId, () => {
+  fetchDashboardData();
+});
+
 onMounted(fetchDashboardData);
 </script>
 
 <template>
-  <AppMain :title="`Department Governance — ${getDepartmentName(departmentId || '')}`">
-    <div v-if="loading" class="flex items-center justify-center min-h-[50vh]">
-      <Icon name="lucide:loader" class="animate-spin size-8 text-neutral-400" />
+  <AppMain :title="`Department Governance — ${getDepartmentName(selectedDepartmentId || '')}`">
+    <div v-if="loading && !users.length" class="flex items-center justify-center min-h-[50vh]">
+      <UIcon name="lucide:loader-2" class="animate-spin text-3xl text-neutral-400" />
     </div>
 
     <div v-else class="max-w-5xl mx-auto space-y-8">
+      <!-- Admin Department Selector -->
+      <div v-if="isAdmin && departments.length > 0" class="flex items-center justify-between bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-4 shadow-sm">
+        <div class="flex items-center gap-2">
+          <UIcon name="lucide:building" class="text-primary-500 text-xl" />
+          <span class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Select Department:</span>
+        </div>
+        <select
+          v-model="selectedDepartmentId"
+          class="bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border border-neutral-300 dark:border-neutral-700 rounded-xl px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary-500"
+        >
+          <option v-for="dept in departments" :key="dept.id" :value="dept.id">
+            {{ dept.name }} ({{ dept.code }})
+          </option>
+        </select>
+      </div>
+
       <!-- Summary Stats -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-6 flex items-center justify-between shadow-sm">
@@ -79,7 +114,7 @@ onMounted(fetchDashboardData);
             <h3 class="text-3xl font-extrabold text-neutral-800 dark:text-white">{{ stats.pendingRequests }}</h3>
           </div>
           <div class="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-2xl">
-            <Icon name="lucide:folder-git" class="size-8" />
+            <UIcon name="lucide:folder-git-2" class="text-2xl" />
           </div>
         </div>
 
@@ -89,7 +124,7 @@ onMounted(fetchDashboardData);
             <h3 class="text-3xl font-extrabold text-neutral-800 dark:text-white">{{ stats.deptUsers }}</h3>
           </div>
           <div class="p-3 bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 rounded-2xl">
-            <Icon name="lucide:users" class="size-8" />
+            <UIcon name="lucide:users" class="text-2xl" />
           </div>
         </div>
       </div>
@@ -100,28 +135,28 @@ onMounted(fetchDashboardData);
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <NuxtLink 
             to="/admin/nomenclature" 
-            class="flex flex-col items-center justify-center p-6 bg-slate-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800/80 rounded-2xl hover:border-indigo-500/40 hover:bg-indigo-500/5 transition text-center space-y-3"
+            class="flex flex-col items-center justify-center p-6 bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800/80 rounded-2xl hover:border-indigo-500/40 hover:bg-indigo-500/5 transition text-center space-y-3"
           >
-            <Icon name="lucide:tags" class="text-violet-500 size-8" />
-            <div class="text-sm font-bold">Nomenclature Settings</div>
+            <UIcon name="lucide:tags" class="text-violet-500 text-2xl" />
+            <div class="text-sm font-bold text-neutral-900 dark:text-white">Nomenclature Settings</div>
             <p class="text-xs text-neutral-500">Configure file naming rules for uploads</p>
           </NuxtLink>
 
           <NuxtLink 
-            to="/dept-head/permissions" 
-            class="flex flex-col items-center justify-center p-6 bg-slate-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800/80 rounded-2xl hover:border-indigo-500/40 hover:bg-indigo-500/5 transition text-center space-y-3"
+            :to="selectedDepartmentId ? `/dept-head/permissions?departmentId=${selectedDepartmentId}` : '/dept-head/permissions'" 
+            class="flex flex-col items-center justify-center p-6 bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800/80 rounded-2xl hover:border-indigo-500/40 hover:bg-indigo-500/5 transition text-center space-y-3"
           >
-            <Icon name="lucide:shield-check" class="text-emerald-500 size-8" />
-            <div class="text-sm font-bold">Manage Permissions</div>
+            <UIcon name="lucide:shield-check" class="text-emerald-500 text-2xl" />
+            <div class="text-sm font-bold text-neutral-900 dark:text-white">Manage Permissions</div>
             <p class="text-xs text-neutral-500">Set role permissions & user overrides</p>
           </NuxtLink>
 
           <NuxtLink 
             to="/admin/folder-requests" 
-            class="flex flex-col items-center justify-center p-6 bg-slate-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800/80 rounded-2xl hover:border-indigo-500/40 hover:bg-indigo-500/5 transition text-center space-y-3"
+            class="flex flex-col items-center justify-center p-6 bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800/80 rounded-2xl hover:border-indigo-500/40 hover:bg-indigo-500/5 transition text-center space-y-3"
           >
-            <Icon name="lucide:folder-open" class="text-amber-500 size-8" />
-            <div class="text-sm font-bold">Folder Requests</div>
+            <UIcon name="lucide:folder-open" class="text-amber-500 text-2xl" />
+            <div class="text-sm font-bold text-neutral-900 dark:text-white">Folder Requests</div>
             <p class="text-xs text-neutral-500">Review pending folder creations</p>
           </NuxtLink>
         </div>
@@ -131,7 +166,7 @@ onMounted(fetchDashboardData);
       <section class="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
         <h2 class="text-lg font-semibold text-neutral-800 dark:text-neutral-200">Department Members</h2>
         
-        <div class="border border-neutral-200 dark:border-neutral-800 rounded-xl overflow-hidden">
+        <div v-if="users.length > 0" class="border border-neutral-200 dark:border-neutral-800 rounded-xl overflow-hidden">
           <table class="w-full text-sm text-left">
             <thead class="bg-neutral-50 dark:bg-neutral-950 text-neutral-700 dark:text-neutral-300 uppercase text-xs font-semibold border-b border-neutral-200 dark:border-neutral-800">
               <tr>
@@ -150,7 +185,7 @@ onMounted(fetchDashboardData);
                   </div>
                 </td>
                 <td class="px-4 py-3.5">
-                  <UBadge variant="soft" color="indigo" size="xs">
+                  <UBadge variant="soft" color="primary" size="xs">
                     {{ getRoleLabel(deptUser.role) }}
                   </UBadge>
                 </td>
@@ -169,13 +204,17 @@ onMounted(fetchDashboardData);
                   <span v-else-if="deptUser.role === 'dept_head'" class="text-xs text-neutral-500 font-semibold italic">
                     Department Head
                   </span>
-                  <span v-else class="text-xs text-indigo-400 font-semibold flex items-center justify-end gap-1">
-                    <Icon name="lucide:check-circle" class="size-4" /> Team Lead
+                  <span v-else class="text-xs text-indigo-400 font-semibold inline-flex items-center justify-end gap-1">
+                    <UIcon name="lucide:check-circle" class="text-sm" /> Team Lead
                   </span>
                 </td>
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <div v-else class="text-center py-8 text-neutral-400">
+          <p>No members found in this department.</p>
         </div>
       </section>
     </div>

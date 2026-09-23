@@ -65,7 +65,7 @@ const libraryOpen = useState<boolean>("dam-sidebar-library-open", () => true);
 const foldersOpen = useState<boolean>("dam-sidebar-folders-open", () => true);
 const storageOpen = useState<boolean>("dam-sidebar-storage-open", () => true);
 const SIDEBAR_PREFERENCES_KEY = "dam-sidebar-preferences";
-const clampSidebarWidth = (value: number) => Math.min(440, Math.max(232, value));
+const clampSidebarWidth = (value: number) => Math.min(720, Math.max(232, value));
 type SidebarSegment = "library" | "storage";
 const resizingSegment = ref<SidebarSegment | null>(null);
 const segmentResizeStart = reactive({ y: 0, height: 0 });
@@ -240,7 +240,7 @@ const isLibraryLinkActive = (to: string) => route.path === to;
         <NewFile compact size="xs" parentId="root" @click.stop />
       </div>
 
-      <div v-show="foldersOpen" id="dam-folders-section" class="min-h-0 grow overflow-y-auto p-2">
+      <div v-show="foldersOpen" id="dam-folders-section" class="min-h-0 grow overflow-x-auto overflow-y-auto p-2">
         <AppDirectoryNode
           v-for="file in files"
           :key="file.id"

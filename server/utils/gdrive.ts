@@ -29,13 +29,12 @@ export async function getGDriveItem(
       {
         headers: { Authorization: `Bearer ${accessToken}` },
         query: {
-          fields: "id,name,mimeType,parents,trashed",
+          fields: "id,name,mimeType,parents,trashed,shortcutDetails",
         },
         timeout: 15000,
       },
     );
   } catch (err: any) {
-    console.error("Google Drive API item lookup failed:", err?.data || err);
     throw createError({ status: 404, message: "Google Drive folder was not found." });
   }
 }
@@ -58,7 +57,8 @@ export async function getAuthorizedGDriveFolder(
     visited.add(current.id);
 
     const item = await getGDriveItem(accessToken, current.id);
-    if (item.trashed || (current.id === folderId && item.mimeType !== "application/vnd.google-apps.folder")) {
+    const effectiveMimeType = item.shortcutDetails?.targetMimeType || item.mimeType;
+    if (item.trashed || (current.id === folderId && effectiveMimeType !== "application/vnd.google-apps.folder")) {
       throw createError({ status: 409, message: "The selected upload destination is not an active folder." });
     }
 
@@ -151,7 +151,19 @@ export async function listGDriveFolder(
   folderId: string
 ): Promise<GDriveItem[]> {
   try {
-    const q = `'${folderId}' in parents and trashed = false`;
+    let targetFolderId = folderId;
+    if (folderId && folderId !== "root") {
+      try {
+        const item = await getGDriveItem(accessToken, folderId);
+        if (item.mimeType === "application/vnd.google-apps.shortcut" && item.shortcutDetails?.targetId) {
+          targetFolderId = item.shortcutDetails.targetId;
+        }
+      } catch (e) {
+        // Fallback to original folderId if item metadata lookup fails
+      }
+    }
+
+    const q = `'${targetFolderId}' in parents and trashed = false`;
     const response = await $fetch<{ files: GDriveItem[] }>(
       "https://www.googleapis.com/drive/v3/files",
       {
