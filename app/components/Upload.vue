@@ -300,12 +300,20 @@ const processSelection = async (selection: DirectoryUploadSelection) => {
   }
 };
 
-const processFiles = async (filesList: File[]) => processSelection({
-  files: filesList,
-  directories: getUploadDirectoryPaths(filesList.map(
-    file => (file as any).customPath || file.webkitRelativePath || file.name,
-  )),
-});
+const processFiles = async (filesList: File[]) => {
+  const hasStructure = filesList.some(
+    (f) => (f as any).customPath || f.webkitRelativePath
+  );
+  return processSelection({
+    files: filesList,
+    directories: hasStructure
+      ? getUploadDirectoryPaths(filesList.map(
+          (f) => (f as any).customPath || f.webkitRelativePath || f.name
+        ))
+      : [],
+  });
+};
+
 
 const uploadFiles = async (event: any) => {
   const files = event?.target?.files;

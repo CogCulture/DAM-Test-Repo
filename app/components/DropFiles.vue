@@ -51,16 +51,18 @@ const onDrop = async (e: DragEvent) => {
   e.preventDefault();
   isOverDropZone.value = false;
   if (!e.dataTransfer) return;
-  
+
   const items = e.dataTransfer.items;
   let allFiles: File[] = [];
-  
+  let hasDirectory = false;
+
   if (items) {
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (item.kind === "file") {
         const entry = item.webkitGetAsEntry();
         if (entry) {
+          if (entry.isDirectory) hasDirectory = true;
           const files = await readEntry(entry);
           allFiles = allFiles.concat(files);
         } else {
@@ -72,11 +74,23 @@ const onDrop = async (e: DragEvent) => {
   } else {
     allFiles = Array.from(e.dataTransfer.files);
   }
-  
-  if (allFiles.length > 0) {
+
+  if (allFiles.length === 0) return;
+
+  if (hasDirectory) {
+    // Build full directory manifest from customPath so folder tree gets created
+    const selection: DirectoryUploadSelection = {
+      files: allFiles,
+      directories: getUploadDirectoryPaths(
+        allFiles.map((f) => (f as any).customPath || f.webkitRelativePath || f.name)
+      ),
+    };
+    emit("dropped", selection);
+  } else {
     emit("dropped", allFiles);
   }
 };
+
 
 const onDragOver = (e: DragEvent) => {
   e.preventDefault();
