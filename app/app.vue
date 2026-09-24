@@ -4,5 +4,6 @@
       <NuxtPage />
     </NuxtLayout>
     <FilePreview />
+    <UploadProgressBar />
   </UApp>
 </template>

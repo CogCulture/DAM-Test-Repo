@@ -6,6 +6,7 @@ import { useRole } from "~/composables/useRole";
 import { resolveDriveRouteFolderId, resolveUploadStorageTarget } from "~~/shared/utils/drive-storage";
 import { buildDriveUploadUrl } from "~~/shared/utils/department-upload";
 import { getUploadDirectoryPaths } from "~~/shared/utils/folder-upload-target";
+import { useUploadProgress } from "~/composables/useUploadProgress";
 
 const props = defineProps<{
   open: boolean;
@@ -21,6 +22,7 @@ const emit = defineEmits(["update:open", "success", "close"]);
 const route = useRoute();
 const { orgType } = useRole();
 const { user } = useUserSession();
+const uploadProgressTracker = useUploadProgress();
 const storageTarget = useState<"local" | "gdrive">("upload-storage-target", () =>
   resolveUploadStorageTarget({ orgType: orgType.value }),
 );
@@ -162,6 +164,15 @@ const handleUpload = async () => {
       });
     }
 
+    const destination = props.destinationName || (orgType.value === "gdrive" && storageTarget.value === "gdrive" ? "Google Drive" : "DAM Storage");
+    uploadProgressTracker.startUpload(
+      props.files.map((file, idx) => ({
+        name: getTargetFileName(file, idx),
+        size: file.size,
+      })),
+      destination,
+    );
+
     let uploadResult: any = null;
     const uploadPromises = props.files.map(async (file, index) => {
       const finalName = getTargetFileName(file, index);
@@ -182,6 +193,7 @@ const handleUpload = async () => {
       }
 
       uploadProgress.value[finalName] = 0;
+      uploadProgressTracker.updateItemProgress(finalName, 5);
 
       const isGDrive = orgType.value === "gdrive" && storageTarget.value === "gdrive";
 
@@ -196,39 +208,57 @@ const handleUpload = async () => {
         const targetRelativePath = originalParts.length ? `${originalParts.join("/")}/${finalName}` : finalName;
         const formData = new FormData();
         formData.append("files", renamedFile, finalName);
-        uploadProgress.value[finalName] = 10;
+        
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 120000);
-          const res = await fetch(buildDriveUploadUrl({
-            parentId: resolvedId,
-            folderId: props.folderId,
-            relativePath: targetRelativePath,
-            departmentId: props.destinationId,
-          }), {
-            method: "POST",
-            body: formData,
-            signal: controller.signal,
+          const res = await new Promise<any>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", buildDriveUploadUrl({
+              parentId: resolvedId,
+              folderId: props.folderId,
+              relativePath: targetRelativePath,
+              departmentId: props.destinationId,
+            }));
+            xhr.responseType = "json";
+            xhr.timeout = 180000;
+            xhr.upload.onprogress = (event) => {
+              if (event.lengthComputable) {
+                const pct = Math.round((event.loaded / event.total) * 100);
+                uploadProgress.value[finalName] = pct;
+                uploadProgressTracker.updateItemProgress(finalName, pct);
+              }
+            };
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                uploadProgress.value[finalName] = 100;
+                uploadProgressTracker.setItemComplete(finalName);
+                resolve(xhr.response || { success: true });
+              } else {
+                const errText = xhr.response?.message || xhr.statusText || `Upload failed (${xhr.status})`;
+                uploadProgressTracker.setItemError(finalName, errText);
+                reject(new Error(errText));
+              }
+            };
+            xhr.onerror = () => {
+              uploadProgressTracker.setItemError(finalName, "Connection lost");
+              reject(new Error("Upload connection failed."));
+            };
+            xhr.ontimeout = () => {
+              uploadProgressTracker.setItemError(finalName, "Timed out");
+              reject(new Error("Upload timed out."));
+            };
+            xhr.send(formData);
           });
-          clearTimeout(timeoutId);
-          if (!res.ok) {
-            const errText = await res.text().catch(() => "Unknown error");
-            let parsedMessage = errText;
-            try {
-              const json = JSON.parse(errText);
-              if (json.message) parsedMessage = json.message;
-            } catch {}
-            throw new Error(parsedMessage);
-          }
-          uploadResult = await res.json().catch(() => ({ success: true }));
+          uploadResult = res;
         } catch (err: any) {
           console.error("GDrive upload failed for", finalName, err);
           errorMessage.value = err?.message || "Upload failed.";
           uploadProgress.value[finalName] = 100;
+          uploadProgressTracker.setItemError(finalName, err?.message || "Upload failed");
           uploadedCount.value++;
           throw err;
         }
         uploadProgress.value[finalName] = 100;
+        uploadProgressTracker.setItemComplete(finalName);
         uploadedCount.value++;
         return;
       }
@@ -248,17 +278,21 @@ const handleUpload = async () => {
         dimensions,
         onProgress: (value) => {
           uploadProgress.value[finalName] = value;
+          uploadProgressTracker.updateItemProgress(finalName, value);
         },
       });
       uploadedCount.value++;
       uploadProgress.value[finalName] = 100;
+      uploadProgressTracker.setItemComplete(finalName);
     });
 
     await Promise.all(uploadPromises);
+    uploadProgressTracker.completeUpload();
     emit("success", uploadResult);
     emit("update:open", false);
   } catch (error: any) {
     console.error("Upload failed:", error);
+    uploadProgressTracker.failUpload(error?.message);
     errorMessage.value = error?.message || "An error occurred during upload. Please try again.";
   } finally {
     isUploading.value = false;

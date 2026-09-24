@@ -10,6 +10,7 @@ import { useUploadDestination, type ActiveUploadFolder } from "~/composables/use
 import { getUploadDirectoryPaths, normalizeDirectoryManifest, resolveLocalUploadParentId } from "~~/shared/utils/folder-upload-target";
 import { chooseUploadSource, type DirectoryUploadSelection } from "~~/shared/utils/directory-upload";
 import { findEffectiveUploadGovernanceViolation } from "~~/shared/utils/file-nomenclature";
+import { useUploadProgress } from "~/composables/useUploadProgress";
 
 const props = withDefaults(defineProps<{
   type?: "files" | "folder";
@@ -24,6 +25,7 @@ const toast = useToast();
 const { folder } = useFolder();
 const { orgType } = useRole();
 const { user } = useUserSession();
+const uploadProgressTracker = useUploadProgress();
 const type = ref(resolveUploadPickerMode(props.type));
 const storageTarget = useState<"local" | "gdrive">("upload-storage-target", () =>
   resolveUploadStorageTarget({ orgType: orgType.value }),
@@ -252,6 +254,10 @@ const processSelection = async (selection: DirectoryUploadSelection) => {
   isUploading.value = true;
   uploadPhase.value = "uploading";
   const destination = canUseGDrive.value && storageTarget.value === "gdrive" ? "Google Drive" : "local DAM storage";
+  uploadProgressTracker.startUpload(
+    filesList.map(f => ({ name: f.name, size: f.size })),
+    destination
+  );
   toast.add({ title: "Uploading...", description: `Uploading ${filesList.length} file(s) to ${destination}...`, color: "blue" });
 
   try {
@@ -276,6 +282,8 @@ const processSelection = async (selection: DirectoryUploadSelection) => {
       color: "green",
     });
     uploadPhase.value = "syncing";
+    uploadProgressTracker.setPhase("syncing");
+    uploadProgressTracker.completeUpload();
     filesRefreshTrigger.value++;
     emit("success");
     const responseDestination = results.find((result) => result?.destination)?.destination;
@@ -284,6 +292,7 @@ const processSelection = async (selection: DirectoryUploadSelection) => {
     }
   } catch (err: any) {
     console.error("Upload error:", err);
+    uploadProgressTracker.failUpload(err?.message);
     toast.add({ title: "Upload Failed", description: err?.message || "File upload failed.", color: "red" });
   } finally {
     isUploading.value = false;
@@ -341,42 +350,59 @@ const uploadFile = async (file: File) => {
       organizationId: (user.value as any)?.organizationId,
     });
     uploadProgress.value[relativePath] = 0;
+    uploadProgressTracker.updateItemProgress(file.name, 5);
     const formData = new FormData();
     formData.append("files", file);
 
     try {
-      uploadProgress.value[relativePath] = 10;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 180000);
-
-      const res = await fetch(buildDriveUploadUrl({
-        parentId: resolvedId,
-        folderId: selectedFolderId.value,
-        relativePath,
-        departmentId: selectedDestinationId.value,
-      }), {
-        method: "POST",
-        body: formData,
-        signal: controller.signal,
+      const gdriveUploadPromise = new Promise<any>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", buildDriveUploadUrl({
+          parentId: resolvedId,
+          folderId: selectedFolderId.value,
+          relativePath,
+          departmentId: selectedDestinationId.value,
+        }));
+        xhr.responseType = "json";
+        xhr.timeout = 180000;
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const pct = Math.round((event.loaded / event.total) * 100);
+            uploadProgress.value[relativePath] = pct;
+            uploadProgressTracker.updateItemProgress(file.name, pct);
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            uploadProgress.value[relativePath] = 100;
+            uploadProgressTracker.setItemComplete(file.name);
+            resolve(xhr.response || { success: true, files: [] });
+          } else {
+            const errText = xhr.response?.message || xhr.statusText || `Upload failed (${xhr.status})`;
+            uploadProgressTracker.setItemError(file.name, errText);
+            reject(new Error(errText));
+          }
+        };
+        xhr.onerror = () => {
+          uploadProgressTracker.setItemError(file.name, "Connection lost");
+          reject(new Error("Google Drive upload connection failed."));
+        };
+        xhr.ontimeout = () => {
+          uploadProgressTracker.setItemError(file.name, "Timed out");
+          reject(new Error("Google Drive upload timed out."));
+        };
+        xhr.send(formData);
       });
-      clearTimeout(timeoutId);
 
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "Unknown error");
-        let parsedMessage = errText;
-        try {
-          const json = JSON.parse(errText);
-          if (json.message) parsedMessage = json.message;
-        } catch {}
-        throw new Error(parsedMessage);
-      }
-      const uploadResult = await res.json().catch(() => ({ success: true, files: [] }));
+      const uploadResult = await gdriveUploadPromise;
       uploadProgress.value[relativePath] = 100;
+      uploadProgressTracker.setItemComplete(file.name);
       uploadedFiles.value++;
       return { ...uploadResult, storage: { type: "gdrive" } };
     } catch (err: any) {
       console.error("Google Drive upload failed:", err);
       uploadProgress.value[relativePath] = 100;
+      uploadProgressTracker.setItemError(file.name, err?.message || "Upload failed");
       throw err;
     }
   }
@@ -395,6 +421,7 @@ const uploadFile = async (file: File) => {
     });
   }
   uploadProgress.value[relativePath] = 0;
+  uploadProgressTracker.updateItemProgress(file.name, 0);
 
   const pathForFolder = (file as any).customPath || file.webkitRelativePath;
   let targetRelativePath = file.name;
@@ -415,10 +442,12 @@ const uploadFile = async (file: File) => {
     dimensions,
     onProgress: (value) => {
       uploadProgress.value[relativePath] = value;
+      uploadProgressTracker.updateItemProgress(file.name, value);
     },
   });
   uploadedFiles.value++;
   uploadProgress.value[relativePath] = 100;
+  uploadProgressTracker.setItemComplete(file.name);
   return result;
 };
 
@@ -490,14 +519,20 @@ defineExpose({ processFiles, processSelection });
       />
     </div>
 
-    <!-- Upload Progress Bar -->
-    <div v-if="isUploading" class="w-full">
-      <div class="mb-1 flex justify-between text-[10px] font-medium uppercase tracking-wider text-[var(--dam-muted)]">
-        <span>{{ uploadPhase === "syncing" ? "Syncing with Google Drive" : `Uploading...` }}</span>
-        <span>{{ overallProgress }}%</span>
+    <!-- Upload Progress Bar (Inline) -->
+    <div v-if="isUploading" class="w-full rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] p-3 space-y-2 shadow-sm">
+      <div class="flex items-center justify-between text-xs font-semibold text-[var(--dam-ink)]">
+        <span class="flex items-center gap-1.5">
+          <Icon name="lucide:loader" class="size-3.5 animate-spin text-[#ff5733]" />
+          {{ uploadPhase === "syncing" ? "Syncing with Storage..." : `Uploading ${uploadedFiles}/${totalFiles}...` }}
+        </span>
+        <span class="font-mono text-xs font-bold text-[#ff5733]">{{ overallProgress }}%</span>
       </div>
-      <div class="h-1.5 overflow-hidden rounded-full bg-[var(--dam-line)]">
-        <div class="h-full rounded-full bg-gradient-to-r from-[#ff5733] to-orange-400 transition-all duration-200" :style="{ width: `${overallProgress}%` }" />
+      <div class="relative h-2 w-full overflow-hidden rounded-full bg-[var(--dam-line)]">
+        <div
+          class="h-full rounded-full bg-gradient-to-r from-[#ff5733] via-orange-500 to-amber-400 transition-all duration-300 ease-out"
+          :style="{ width: `${overallProgress}%` }"
+        />
       </div>
     </div>
   </div>
