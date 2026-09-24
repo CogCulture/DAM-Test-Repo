@@ -31,6 +31,8 @@ export function usePublish() {
           method: "POST",
           body: {
             id: file.id,
+            name: file.name,
+            type: file.type,
             visibility: targetVisibility,
             domain: status.domain,
           },

@@ -19,7 +19,7 @@ import { copyBlob, moveBlob } from "./blob";
 import { enqueueIngestionJob } from "./ingestionQueue";
 import { deletePineconeFileVectors } from "./pinecone";
 import { logPipelineEvent } from "./auditLogger";
-import { cleanPath, getFileType, formatTrashTimestamp } from "../../shared/utils/helper";
+import { cleanPath, getFileType, formatTrashTimestamp, getVisibility } from "../../shared/utils/helper";
 import { FILE_PERMISSION_KEYS, getAccessibleDepartmentIds, resolvePermission } from "../../shared/utils/access-control";
 
 const perPage = 12;
@@ -753,8 +753,16 @@ export const unsetFavorite = async (userId: string, fileId: string) => {
     .where(and(eq(favorites.userId, userId), eq(favorites.fileId, fileId)));
 };
 export const ensureFile = async (bucketName: string, id: string) => {
-  const file = await getFolder(id);
-  if (!file || file.bucketName !== bucketName) {
+  let file = await getFolder(id);
+  if (!file) {
+    const [byPath] = await useDrizzle()
+      .select()
+      .from(files)
+      .where(or(eq(files.id, id), eq(files.path, id), eq(files.storagePath, id)))
+      .limit(1);
+    file = byPath || null;
+  }
+  if (!file) {
     throw createError({
       status: 404,
       message: "File not found",
@@ -939,7 +947,7 @@ export const getSharedWithMe = async (userId: string, queryString: any) => {
   };
 };
 
-export const getPublished = async (event: any, userId: string) => {
+export const getPublished = async (event: any, userId: string, orgId?: string) => {
   const queryString = getQuery(event);
   const filters = [];
 
@@ -956,9 +964,23 @@ export const getPublished = async (event: any, userId: string) => {
     .$dynamic();
 
   // 🔸 Filtering
-  filters.push(eq(files.userId, userId));
+  if (orgId && orgId !== "org_default") {
+    filters.push(or(eq(files.organizationId, orgId), eq(files.userId, userId)));
+  } else {
+    filters.push(eq(files.userId, userId));
+  }
   filters.push(eq(files.visibility, "public"));
   filters.push(isNull(files.deletedAt));
+
+  if (queryString["filters[contentType]"]) {
+    filters.push(eq(files.type, queryString["filters[contentType]"] as string));
+  }
+  if (queryString["filters[shared]"]) {
+    if (queryString["filters[shared]"] === "no")
+      filters.push(eq(files.sharedCount, 0));
+    if (queryString["filters[shared]"] === "yes")
+      filters.push(ne(files.sharedCount, 0));
+  }
 
   dataQuery = dataQuery.where(and(...filters));
 
@@ -1015,8 +1037,16 @@ export const getRecent = async (event: any, userId: string) => {
 };
 
 export const setVisibility = async (bucketName: string, data: IFile) => {
-  const file = await getFolder(data.id);
-  if (file && file.bucketName === bucketName) {
+  let file = await getFolder(data.id);
+  if (!file) {
+    const [byPath] = await useDrizzle()
+      .select()
+      .from(files)
+      .where(or(eq(files.id, data.id), eq(files.path, data.id), eq(files.storagePath, data.id)))
+      .limit(1);
+    file = byPath || null;
+  }
+  if (file) {
     return await useDrizzle()
       .update(files)
       .set({

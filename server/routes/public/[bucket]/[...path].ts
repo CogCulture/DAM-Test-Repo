@@ -1,4 +1,8 @@
-import { isParentPublic } from "~~/server/utils/db";
+import { getFile, getFolder, isParentPublic } from "~~/server/utils/db";
+import { localBlob } from "~~/server/utils/localBlob";
+import { useDrizzle } from "~~/server/utils/drizzle";
+import { files } from "~~/server/database/schema";
+import { and, eq, isNull } from "drizzle-orm";
 
 export default defineEventHandler(async (event) => {
   const params = getRouterParams(event);
@@ -8,35 +12,61 @@ export default defineEventHandler(async (event) => {
       message: "Page not found",
     });
   }
-  const fullPath = params.bucket + "/" + decodeURIComponent(params.path);
-  const file = await getFile(params.bucket, fullPath);
+
+  const rawPath = decodeURIComponent(params.path);
+  const fullPath = params.bucket + "/" + rawPath;
+
+  // Resolve file by ID first, then by full path (bucket/path), then by path, then by name
+  let file = await getFolder(rawPath);
+  if (!file) {
+    file = await getFile(params.bucket, fullPath);
+  }
+  if (!file) {
+    file = await getFile(params.bucket, rawPath);
+  }
+  if (!file) {
+    const db = useDrizzle();
+    const matches = await db.select().from(files).where(and(
+      eq(files.bucketName, params.bucket),
+      eq(files.name, rawPath),
+      isNull(files.deletedAt),
+    )).limit(1);
+    file = matches[0] || null;
+  }
+
   if (!file) {
     throw createError({
       status: 404,
-      message: "Page not found",
+      message: "File not found",
     });
   }
-  // check if the file is public.
-  if (file.visibility === "public") {
-    return await localBlob().serve(event, file.storagePath || `${params.bucket}/${params.path}`);
+
+  // Check if the file itself or any parent folder is public
+  let isPublic = file.visibility === "public";
+  if (!isPublic) {
+    isPublic = await isParentPublic(params.bucket, rawPath);
   }
-  const isPublic = await isParentPublic(params.bucket, params.path);
+
   if (!isPublic) {
     throw createError({
-      status: 404,
-      message: "Page not found",
+      status: 403,
+      message: "This asset is private. Public access is not permitted.",
     });
   }
+
   if (file.type === "folder") {
-    // Create Index if has index.html
-    const indexFile = await getFile(params.bucket, `${params.path}/index.html`);
+    const indexFile = await getFile(params.bucket, `${rawPath}/index.html`);
     if (indexFile) {
       return await localBlob().serve(
         event,
-        indexFile.storagePath || `${params.bucket}/${params.path}/index.html`
+        indexFile.storagePath || `${params.bucket}/${rawPath}/index.html`
       );
     }
-  } else {
-    return await localBlob().serve(event, file.storagePath || `${params.bucket}/${params.path}`);
+    throw createError({
+      status: 400,
+      message: "Folder does not contain an index.html file to serve.",
+    });
   }
+
+  return await localBlob().serve(event, file.storagePath || file.path || `${params.bucket}/${rawPath}`);
 });

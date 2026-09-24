@@ -5,7 +5,7 @@ import { ulid } from "ulidx";
 
 export default defineEventHandler(async (event) => {
   const db = useDrizzle();
-  const now = Math.floor(Date.now() / 1000);
+  const now = new Date();
 
   // Find or create default local org
   let org = (await db.select().from(organizations).limit(1))[0];
@@ -14,8 +14,9 @@ export default defineEventHandler(async (event) => {
     await db.insert(organizations).values({
       id: orgId,
       name: "Default Local Org",
-      status: "approved",
-      type: "s3",
+      status: "active",
+      orgType: "s3",
+      setupComplete: true,
       createdAt: now,
       updatedAt: now,
     });
@@ -45,16 +46,16 @@ export default defineEventHandler(async (event) => {
       name: "Dev Admin",
       role: "admin",
       organizationId: org.id,
-      approvalStatus: "approved",
+      approvalStatus: "active",
       createdAt: now,
     });
     user = (await db.select().from(users).where(eq(users.id, userId)))[0];
-  } else if (!user.organizationId || user.approvalStatus !== "approved") {
+  } else if (!user.organizationId || user.approvalStatus !== "active") {
     await db
       .update(users)
       .set({
         organizationId: org.id,
-        approvalStatus: "approved",
+        approvalStatus: "active",
         role: "admin",
       })
       .where(eq(users.id, user.id));
@@ -69,10 +70,10 @@ export default defineEventHandler(async (event) => {
       name: user.name,
       role: user.role,
       organizationId: user.organizationId,
-      approvalStatus: "approved",
+      approvalStatus: "active",
       avatar: user.avatar,
     },
   });
 
-  return { success: true, redirect: "/auth/select-storage" };
+  return { success: true, redirect: "/org" };
 });

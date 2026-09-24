@@ -42,6 +42,7 @@ const onClose = () => {
   >
     <template #body>
       <div class="flex flex-col gap-4">
+        <!-- Visibility Selector -->
         <div class="flex flex-row items-center justify-between gap-4">
           <label class="text-sm font-medium min-w-24 text-[var(--dam-ink)]">Visibility</label>
           <USelect
@@ -52,6 +53,7 @@ const onClose = () => {
             class="w-full"
           />
         </div>
+
         <template v-if="visibility === 'public' && file.type === 'folder'">
           <div class="text-xs text-[var(--dam-ink-muted)]">
             If you want to publish this folder as a website, specify a domain.
