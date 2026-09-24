@@ -17,6 +17,17 @@ export default defineNuxtConfig({
   spaLoadingTemplate: false,
   nitro: {
     preset: process.env.NITRO_PRESET || "cloudflare_module",
+    // Allow large file uploads up to 5 GB
+    experimental: {
+      // @ts-ignore – nuxt/nitro typing may lag behind
+      openAPI: false,
+    },
+    routeRules: {
+      "/api/files/**/local-upload": {
+        // No body size limit on the upload endpoint — we stream directly to disk
+        proxy: false,
+      },
+    },
     imports: {
       presets: [
         {

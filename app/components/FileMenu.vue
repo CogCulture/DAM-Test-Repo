@@ -44,10 +44,8 @@ const isDriveAsset = computed(() => isGoogleDriveAsset(props.file));
 const isRagIndexed = computed(() => {
   const meta = props.file?.assetMetadata || {};
   return Boolean(
-    meta.ragProcessedAt ||
     meta.ragStatus === "processed" ||
-    meta.parsedFileId ||
-    meta.ragCost !== undefined
+    meta.ragProcessedAt
   );
 });
 
@@ -109,27 +107,34 @@ const fileMenuItems = computed(() => {
   const list = [];
 
   // Group 1
-  list.push([
-    {
+  const group1 = [];
+  if (props.file.type === "folder") {
+    group1.push({
+      label: "Open Folder",
+      icon: "lucide:folder-open",
+      onSelect: () => emit("open", props.file.id),
+    });
+  } else {
+    group1.push({
       label: "Open in New Tab",
       icon: "lucide:external-link",
       href: externalUrl.value || (isDriveAsset.value
         ? `/api/gdrive/download/${encodeURIComponent(props.file.id)}?inline=true`
         : `/api/files/${encodeURIComponent(route.params.bucket || 'org')}/download/${encodeURIComponent(props.file.id)}?inline=true`),
       target: "_blank",
-      disabled: props.file.type === "folder",
+    });
+  }
+  group1.push({
+    label: props.file.isFavorite
+      ? "Remove from Favorites"
+      : "Add to Favorites",
+    icon: "lucide:star",
+    color: props.file.isFavorite && "error",
+    onSelect: () => {
+      setFavorite(props.file, !props.file.isFavorite);
     },
-    {
-      label: props.file.isFavorite
-        ? "Remove from Favorites"
-        : "Add to Favorites",
-      icon: "lucide:star",
-      color: props.file.isFavorite && "error",
-      onSelect: () => {
-        setFavorite(props.file, !props.file.isFavorite);
-      },
-    },
-  ]);
+  });
+  list.push(group1);
 
   // Group 2
   list.push([

@@ -6,6 +6,7 @@ import { usePreview } from '~/composables/usePreview';
 import { useUploadDestination } from '~/composables/useUploadDestination';
 import { replaceDirectoryBranch } from '~~/shared/utils/folder-upload-target';
 import { loadAllDirectoryPages } from '~~/shared/utils/directory-pagination';
+import { useAssetDragDrop } from '~/composables/useAssetDragDrop';
 
 const props = defineProps<{
   file: any;
@@ -17,6 +18,35 @@ const route = useRoute();
 const { orgType } = useRole();
 const { showPreview } = usePreview();
 const { selectUploadFolder } = useUploadDestination();
+const { startDrag, endDrag, canDropOn, isDropTargetActive, setDropTarget, dropOnFolder } = useAssetDragDrop();
+
+// ─── Drag helpers ──────────────────────────────────────────────────────────
+const onNodeDragStart = (event: DragEvent) => {
+  if (props.file.deletedAt) return;
+  startDrag(props.file, event);
+};
+const onNodeDragEnd = () => endDrag();
+
+const isDropActive = computed(() => isFolder.value && isDropTargetActive(props.file.id));
+
+const onFolderDragOver = (event: DragEvent) => {
+  if (!isFolder.value || !canDropOn(props.file)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  setDropTarget(props.file.id);
+};
+const onFolderDragLeave = (event: DragEvent) => {
+  const rel = event.relatedTarget as HTMLElement | null;
+  const cur = event.currentTarget as HTMLElement | null;
+  if (cur && rel && cur.contains(rel)) return;
+  if (isDropTargetActive(props.file.id)) setDropTarget(null);
+};
+const onFolderDrop = (event: DragEvent) => {
+  if (!isFolder.value) return;
+  event.preventDefault();
+  if (!canDropOn(props.file)) return;
+  dropOnFolder({ id: props.file.id, name: props.file.name });
+};
 const openStates = useState<Record<string, boolean>>("directory-node-open-states", () => ({}));
 const open = computed({
   get: () => !!openStates.value[props.file.id],
@@ -99,9 +129,18 @@ onMounted(() => {
     <!-- Node row -->
     <FileMenu :file="file" @delete="refreshTrigger++" @refresh="refreshTrigger++">
       <div
-        class="group flex cursor-pointer items-center gap-2 border border-transparent px-2 py-1.5 transition-colors hover:border-[var(--dam-line)] hover:bg-[var(--dam-panel-raised)] min-w-max"
+        :draggable="!file.deletedAt"
+        :class="[
+          'group flex cursor-pointer items-center gap-2 border border-transparent px-2 py-1.5 transition-colors hover:border-[var(--dam-line)] hover:bg-[var(--dam-panel-raised)] min-w-max',
+          isDropActive && 'border-primary-500 bg-primary-500/10 ring-1 ring-primary-500 rounded',
+        ]"
         :style="{ paddingLeft: `${(level * 12) + 6}px` }"
         @dblclick.stop.prevent="previewFile"
+        @dragstart="onNodeDragStart"
+        @dragend="onNodeDragEnd"
+        @dragover="isFolder ? onFolderDragOver($event) : undefined"
+        @dragleave="isFolder ? onFolderDragLeave($event) : undefined"
+        @drop.prevent="isFolder ? onFolderDrop($event) : undefined"
       >
       <!-- Caret for folder -->
       <div

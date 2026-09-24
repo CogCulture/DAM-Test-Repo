@@ -5,7 +5,7 @@ import { useRole } from "~/composables/useRole";
 import { useToast } from "~/composables/useToast";
 import { resolveDriveRouteFolderId, resolveUploadStorageTarget } from "~~/shared/utils/drive-storage";
 import { resolveUploadPickerMode } from "~~/shared/utils/upload-picker";
-import { buildDriveUploadUrl, type UploadDestination } from "~~/shared/utils/department-upload";
+import { type UploadDestination } from "~~/shared/utils/department-upload";
 import { useUploadDestination, type ActiveUploadFolder } from "~/composables/useUploadDestination";
 import { getUploadDirectoryPaths, normalizeDirectoryManifest, resolveLocalUploadParentId } from "~~/shared/utils/folder-upload-target";
 import { chooseUploadSource, type DirectoryUploadSelection } from "~~/shared/utils/directory-upload";
@@ -161,11 +161,7 @@ watch(selectedFolderId, async (folderId) => {
   try {
     await loadFolderChildren(destination.id);
   } catch (error: any) {
-    toast.add({
-      title: "Folder could not be expanded",
-      description: error?.data?.message || error?.message || "Unable to load child folders.",
-      color: "error",
-    });
+    console.warn("Folder expansion notice:", error?.message || error);
   }
 });
 
@@ -345,64 +341,157 @@ const uploadFile = async (file: File) => {
   const isGDrive = canUseGDrive.value && storageTarget.value === "gdrive";
 
   if (isGDrive) {
-    const resolvedId = resolveDriveRouteFolderId({
-      idParam: route.params.id as string | string[] | undefined,
-      organizationId: (user.value as any)?.organizationId,
-    });
     uploadProgress.value[relativePath] = 0;
-    uploadProgressTracker.updateItemProgress(file.name, 5);
-    const formData = new FormData();
-    formData.append("files", file);
+    uploadProgressTracker.updateItemProgress(file.name, 2);
 
     try {
-      const gdriveUploadPromise = new Promise<any>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", buildDriveUploadUrl({
+      // Step 1: Get a resumable upload session URL from our server (tiny JSON call, no file data)
+      const resolvedId = resolveDriveRouteFolderId({
+        idParam: route.params.id as string | string[] | undefined,
+        organizationId: (user.value as any)?.organizationId,
+      });
+
+      const session = await $fetch<{
+        sessionUrl: string;
+        folderId: string;
+        finalName: string;
+        renamed: boolean;
+        originalName: string;
+        destination: { id: string; name: string; path: string; route: string };
+      }>("/api/gdrive/upload-session", {
+        method: "POST",
+        body: {
+          fileName: file.name,
+          fileSize: file.size,
+          contentType: file.type || "application/octet-stream",
           parentId: resolvedId,
           folderId: selectedFolderId.value,
           relativePath,
           departmentId: selectedDestinationId.value,
-        }));
-        xhr.responseType = "json";
-        xhr.timeout = 180000;
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const pct = Math.round((event.loaded / event.total) * 100);
-            uploadProgress.value[relativePath] = pct;
-            uploadProgressTracker.updateItemProgress(file.name, pct);
-          }
-        };
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            uploadProgress.value[relativePath] = 100;
-            uploadProgressTracker.setItemComplete(file.name);
-            resolve(xhr.response || { success: true, files: [] });
-          } else {
-            const errText = xhr.response?.message || xhr.statusText || `Upload failed (${xhr.status})`;
-            uploadProgressTracker.setItemError(file.name, errText);
-            reject(new Error(errText));
-          }
-        };
-        xhr.onerror = () => {
-          uploadProgressTracker.setItemError(file.name, "Connection lost");
-          reject(new Error("Google Drive upload connection failed."));
-        };
-        xhr.ontimeout = () => {
-          uploadProgressTracker.setItemError(file.name, "Timed out");
-          reject(new Error("Google Drive upload timed out."));
-        };
-        xhr.send(formData);
+        },
       });
 
-      const uploadResult = await gdriveUploadPromise;
+      uploadProgressTracker.updateItemProgress(file.name, 5);
+
+      // Step 2: Upload file in optimized chunks through our server (OAuth token stays server-side)
+      // Larger chunks drastically reduce HTTP request overhead, round-trip latency, and maximize throughput.
+      // Must be a multiple of 256 KB (262,144 bytes) for Google Drive Resumable Upload.
+      const getOptimalChunkSize = (size: number): number => {
+        if (size >= 1024 * 1024 * 1024) {
+          // Files >= 1 GB: 64 MB chunks (256 * 256 KB)
+          return 64 * 1024 * 1024;
+        }
+        if (size >= 100 * 1024 * 1024) {
+          // Files 100 MB - 1 GB: 32 MB chunks (128 * 256 KB)
+          return 32 * 1024 * 1024;
+        }
+        if (size >= 25 * 1024 * 1024) {
+          // Files 25 MB - 100 MB: 16 MB chunks (64 * 256 KB)
+          return 16 * 1024 * 1024;
+        }
+        // Files < 25 MB: 8 MB chunks (32 * 256 KB)
+        return 8 * 1024 * 1024;
+      };
+
+      const CHUNK_SIZE = getOptimalChunkSize(file.size);
+      const totalSize = file.size;
+      const totalChunks = Math.ceil(totalSize / CHUNK_SIZE);
+      const contentType = file.type || "application/octet-stream";
+      let uploadedFile: any = null;
+
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const rangeStart = chunkIndex * CHUNK_SIZE;
+        const rangeEnd = Math.min(rangeStart + CHUNK_SIZE - 1, totalSize - 1);
+        const chunk = file.slice(rangeStart, rangeEnd + 1);
+        const isFinalChunk = chunkIndex === totalChunks - 1;
+
+        let chunkResult: { done: boolean; file?: any } | null = null;
+        let lastError: any = null;
+
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            chunkResult = await new Promise<{ done: boolean; file?: any }>((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              const params = new URLSearchParams({
+                sessionUrl: session.sessionUrl,
+                rangeStart: String(rangeStart),
+                rangeEnd: String(rangeEnd),
+                totalSize: String(totalSize),
+                contentType,
+              });
+              xhr.open("POST", `/api/gdrive/upload-chunk?${params}`);
+              xhr.responseType = "json";
+              // Final chunk requires longer timeout for Google Drive to assemble and commit large files
+              xhr.timeout = isFinalChunk ? 10 * 60 * 1000 : 5 * 60 * 1000;
+
+              xhr.upload.onprogress = (ev) => {
+                if (ev.lengthComputable) {
+                  const chunkFraction = (chunkIndex + ev.loaded / ev.total) / totalChunks;
+                  const pct = 5 + Math.round(chunkFraction * 90);
+                  uploadProgress.value[relativePath] = pct;
+                  uploadProgressTracker.updateItemProgress(file.name, pct);
+                }
+              };
+
+              xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  resolve(xhr.response);
+                } else {
+                  const errMsg = xhr.response?.message || xhr.response?.statusMessage || `Chunk ${chunkIndex + 1}/${totalChunks} failed (${xhr.status})`;
+                  reject(new Error(errMsg));
+                }
+              };
+              xhr.onerror = () => reject(new Error("Connection to server lost during chunk upload."));
+              xhr.ontimeout = () => reject(new Error(`Chunk ${chunkIndex + 1} timed out while processing.`));
+
+              xhr.setRequestHeader("Content-Type", "application/octet-stream");
+              xhr.setRequestHeader("X-Session-Url", session.sessionUrl);
+              xhr.setRequestHeader("X-Range-Start", String(rangeStart));
+              xhr.setRequestHeader("X-Range-End", String(rangeEnd));
+              xhr.setRequestHeader("X-Total-Size", String(totalSize));
+              xhr.setRequestHeader("X-Content-Type", contentType);
+
+              xhr.send(chunk);
+            });
+
+            break; // Chunk succeeded
+          } catch (err: any) {
+            lastError = err;
+            if (attempt < 3) {
+              console.warn(`[Upload] Chunk ${chunkIndex + 1}/${totalChunks} attempt ${attempt} failed: ${err.message}. Retrying in ${attempt * 1.5}s...`);
+              await new Promise((r) => setTimeout(r, attempt * 1500));
+            }
+          }
+        }
+
+        if (!chunkResult) {
+          throw lastError || new Error(`Chunk ${chunkIndex + 1}/${totalChunks} failed after 3 attempts.`);
+        }
+
+        if (chunkResult.done) {
+          uploadedFile = chunkResult.file;
+          break;
+        }
+      }
+
       uploadProgress.value[relativePath] = 100;
       uploadProgressTracker.setItemComplete(file.name);
       uploadedFiles.value++;
-      return { ...uploadResult, storage: { type: "gdrive" } };
+      return {
+        success: true,
+        files: [{
+          id: uploadedFile?.id,
+          originalName: session.originalName,
+          finalName: session.finalName,
+          renamed: session.renamed,
+          duplicate: false,
+        }],
+        destination: session.destination,
+        storage: { type: "gdrive" },
+      };
     } catch (err: any) {
       console.error("Google Drive upload failed:", err);
-      uploadProgress.value[relativePath] = 100;
-      uploadProgressTracker.setItemError(file.name, err?.message || "Upload failed");
+      uploadProgressTracker.setItemError(file.name, err?.data?.message || err?.message || "Upload failed");
       throw err;
     }
   }

@@ -170,6 +170,22 @@ function fallbackFromExtension(fileName: string): DetectedFileType {
       return { ext, mime: "application/x-indesign", category: "design", description: "Adobe InDesign Document" };
     case ".zip":
       return { ext, mime: "application/zip", category: "package", description: "ZIP Archive / Package" };
+    case ".exe":
+      return { ext, mime: "application/x-msdownload", category: "unknown", description: "Windows Executable" };
+    case ".msi":
+      return { ext, mime: "application/x-msi", category: "unknown", description: "Windows Installer Package" };
+    case ".dmg":
+      return { ext, mime: "application/x-apple-diskimage", category: "unknown", description: "macOS Disk Image" };
+    case ".deb":
+      return { ext, mime: "application/vnd.debian.binary-package", category: "unknown", description: "Debian Package" };
+    case ".rpm":
+      return { ext, mime: "application/x-rpm", category: "unknown", description: "RPM Package" };
+    case ".apk":
+      return { ext, mime: "application/vnd.android.package-archive", category: "unknown", description: "Android Package" };
+    case ".iso":
+      return { ext, mime: "application/x-iso9660-image", category: "unknown", description: "Disk Image (ISO)" };
+    case ".bin":
+      return { ext, mime: "application/octet-stream", category: "unknown", description: "Binary File" };
     default:
       return { ext: ext || ".bin", mime: "application/octet-stream", category: "unknown", description: "Binary Asset" };
   }

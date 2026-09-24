@@ -18,7 +18,7 @@ export function uploadFileToLocalStorage(options: LocalUploadOptions) {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `/api/files/${encodeURIComponent(options.bucket)}/local-upload?${query.toString()}`);
     xhr.responseType = "json";
-    xhr.timeout = 10 * 60 * 1000;
+    xhr.timeout = 2 * 60 * 60 * 1000; // 2 hours — supports multi-GB uploads on slower connections
     xhr.setRequestHeader("Content-Type", options.file.type || "application/octet-stream");
     if (options.dimensions) xhr.setRequestHeader("x-dam-dimensions", options.dimensions);
 

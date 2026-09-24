@@ -290,7 +290,7 @@ export async function executeFileIngestion(job: IngestionJobPayload): Promise<Pi
     detectedFileType: detected,
     renditions: Object.keys(renditions).length > 0 ? renditions : currentMeta.renditions,
     ingestionCompletedAt: new Date().toISOString(),
-    ragCost: ragCost || currentMeta.ragCost || 0,
+    ragCost: ragCost || currentMeta.ragCost || undefined,
     parsedFileId: parsedFileId || currentMeta.parsedFileId || undefined,
   };
 

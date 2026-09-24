@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { formatTimeAgo } from "@vueuse/core";
 import { formatBytes } from "~/utils/helper";
+import { useAssetDragDrop } from "~/composables/useAssetDragDrop";
 const { file, dir, selected, allowDeletedSelection = false } = defineProps<{
   file: IFile;
   dir: "row" | "col";
@@ -8,6 +9,37 @@ const { file, dir, selected, allowDeletedSelection = false } = defineProps<{
   allowDeletedSelection?: boolean;
 }>();
 const emit = defineEmits(["select", "open", "delete"]);
+
+const { startDrag, endDrag, canDropOn, isDropTargetActive, setDropTarget, dropOnFolder, isDragging } = useAssetDragDrop();
+
+const isDraggable = computed(() => !file.deletedAt);
+
+const onDragStart = (event: DragEvent) => {
+  if (!isDraggable.value) return;
+  startDrag(file, event);
+};
+const onDragEnd = () => endDrag();
+
+const isDropActive = computed(() => file.type === 'folder' && isDropTargetActive(file.id));
+
+const onDragOver = (event: DragEvent) => {
+  if (file.type !== 'folder' || !canDropOn(file)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  setDropTarget(file.id);
+};
+const onDragLeave = (event: DragEvent) => {
+  const rel = event.relatedTarget as HTMLElement | null;
+  const cur = event.currentTarget as HTMLElement | null;
+  if (cur && rel && cur.contains(rel)) return;
+  if (isDropTargetActive(file.id)) setDropTarget(null);
+};
+const onDrop = (event: DragEvent) => {
+  if (file.type !== 'folder') return;
+  event.preventDefault();
+  if (!canDropOn(file)) return;
+  dropOnFolder({ id: file.id, name: file.name });
+};
 const summary = computed(() => {
   let text = file.type;
   if (file.size) text += " / " + formatBytes(file.size as number);
@@ -18,12 +50,22 @@ const summary = computed(() => {
 const isRagIndexed = computed(() => {
   const meta = (file?.assetMetadata as Record<string, any>) || {};
   return Boolean(
-    meta.ragProcessedAt ||
     meta.ragStatus === "processed" ||
-    meta.parsedFileId ||
-    meta.ragCost !== undefined
+    meta.ragProcessedAt
   );
 });
+const handleCardClick = (event: MouseEvent) => {
+  if (file.deletedAt && !allowDeletedSelection) return;
+  if (event.ctrlKey || event.metaKey || event.shiftKey) {
+    emit("select", file.id);
+    return;
+  }
+  if (file.type === "folder") {
+    emit("open", file.id);
+    return;
+  }
+  emit("select", file.id);
+};
 </script>
 <template>
   <FileMenu
@@ -33,13 +75,20 @@ const isRagIndexed = computed(() => {
     @delete="emit('delete')"
   >
     <div
+      :draggable="isDraggable"
       :class="[
         'dam-asset-card group relative flex w-full cursor-pointer overflow-hidden rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel)] transition duration-300 hover:-translate-y-1 hover:border-primary-500/55 hover:shadow-[var(--dam-shadow)]',
         selected && 'border-primary-500 ring-1 ring-primary-500',
         dir === 'row' ? 'flex-row' : 'flex-col',
+        isDropActive && 'ring-2 ring-primary-500 border-primary-500 scale-[1.02] shadow-xl',
       ]"
-      @click.stop="(!file.deletedAt || allowDeletedSelection) && emit('select', file.id)"
+      @click.stop="handleCardClick"
       @dblclick="!file.deletedAt && emit('open', file.id)"
+      @dragstart="onDragStart"
+      @dragend="onDragEnd"
+      @dragover.prevent="file.type === 'folder' ? onDragOver($event) : undefined"
+      @dragleave="file.type === 'folder' ? onDragLeave($event) : undefined"
+      @drop.prevent="file.type === 'folder' ? onDrop($event) : undefined"
     >
       <div
         :class="[
@@ -49,6 +98,18 @@ const isRagIndexed = computed(() => {
         ]"
       >
         <Thumbnail :file="file" :layout="dir" />
+        <!-- Drop-zone overlay shown when dragging over a folder -->
+        <Transition name="fade">
+          <div
+            v-if="isDropActive"
+            class="pointer-events-none absolute inset-0 z-[6] flex items-center justify-center bg-primary-500/25 backdrop-blur-[2px]"
+          >
+            <div class="flex flex-col items-center gap-1.5 rounded-xl bg-primary-600/95 px-5 py-3 shadow-lg text-white">
+              <Icon name="lucide:folder-input" class="size-6" />
+              <span class="text-xs font-bold tracking-wide">Move here</span>
+            </div>
+          </div>
+        </Transition>
         <span
           v-if="file.duplicateOfId || (file as any).isDuplicate"
           class="pointer-events-none absolute left-2 top-2 z-[4] rounded-full bg-amber-500/95 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow"

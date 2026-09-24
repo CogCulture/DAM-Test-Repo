@@ -1,16 +1,19 @@
 import crypto from "node:crypto";
+import { createWriteStream } from "node:fs";
+import { promises as fs, createReadStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
+import { join, dirname } from "node:path";
 import exifr from "exifr";
 import { cleanPath, getContentType } from "~~/shared/utils/helper";
 import { getFolder, getGDriveRules, getNomenclatureForDept, getOrgDepartments, getOrgFeatures, insertUpdateFile } from "~~/server/utils/db";
-import { getLocalDamStorageRoot, localBlob } from "~~/server/utils/localBlob";
-import { getFileDepartmentId, requireFileDepartmentAccess, verifyBucket } from "~~/server/utils/permission";
-import { readZipContents } from "~~/server/utils/zip";
+import { getLocalDamStorageRoot, getLocalDamStoragePath, localBlob } from "~~/server/utils/localBlob";
+import { getFileDepartmentId, verifyBucket } from "~~/server/utils/permission";
+import { readZipContentsFromFile } from "~~/server/utils/zip";
 import { evaluateUploadGovernance } from "~~/shared/utils/file-nomenclature";
 import { files } from "~~/server/database/schema";
 import { useDrizzle } from "~~/server/utils/drizzle";
 import { and, eq, isNull } from "drizzle-orm";
 import { planFileUpload } from "~~/shared/utils/file-collision";
-import { isUploadRouteAllowed } from "~~/shared/utils/drive-storage";
 import { requireValidFolderPath } from "~~/server/utils/folderNomenclature";
 import { resolveLocalDepartmentUploadTarget } from "~~/shared/utils/department-upload";
 import { enqueueIngestionJob } from "~~/server/utils/ingestionQueue";
@@ -28,6 +31,41 @@ const normalizeRelativePath = (value: string) => {
   }
   return parts.join("/");
 };
+
+/**
+ * Stream the incoming HTTP request body to a temp file on disk.
+ * Simultaneously computes the MD5 hash without holding the file in memory.
+ * Supports files of any size (up to disk space / OS limits).
+ */
+async function streamBodyToFile(
+  req: import("node:http").IncomingMessage,
+  destPath: string,
+): Promise<{ md5: string; size: number }> {
+  await fs.mkdir(dirname(destPath), { recursive: true });
+  const hash = crypto.createHash("md5");
+  let size = 0;
+
+  const writeStream = createWriteStream(destPath);
+
+  await new Promise<void>((resolve, reject) => {
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      hash.update(chunk);
+      if (!writeStream.write(chunk)) {
+        req.pause();
+        writeStream.once("drain", () => req.resume());
+      }
+    });
+    req.on("end", () => {
+      writeStream.end();
+    });
+    req.on("error", reject);
+    writeStream.on("finish", resolve);
+    writeStream.on("error", reject);
+  });
+
+  return { md5: hash.digest("hex"), size };
+}
 
 export default defineEventHandler(async (event) => {
   const { bucket, user } = await verifyBucket(event, "canUpload");
@@ -103,20 +141,37 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const body = await readRawBody(event, false);
-  if (body === undefined || body === null) {
-    throw createError({ status: 400, message: "The uploaded file content was not received." });
-  }
-
-  const fileBuffer = Buffer.isBuffer(body) ? body : Buffer.from(body);
   const headerType = getHeader(event, "content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   const detectedType = getContentType(fileName);
   const contentType = !headerType || headerType === "application/octet-stream"
     ? detectedType
     : headerType;
   const dimensions = getHeader(event, "x-dam-dimensions") || null;
-  const md5 = crypto.createHash("md5").update(fileBuffer).digest("hex");
 
+  // ── Stream to a temp file ─────────────────────────────────────────────────
+  const storageRoot = getLocalDamStorageRoot();
+  const tempDir = join(storageRoot, ".tmp_uploads");
+  await fs.mkdir(tempDir, { recursive: true });
+  const tempFile = join(tempDir, `upload_${Date.now()}_${Math.random().toString(36).slice(2)}_${fileName}`);
+
+  let md5 = "";
+  let fileSize = 0;
+
+  try {
+    const streamed = await streamBodyToFile(event.node.req, tempFile);
+    md5 = streamed.md5;
+    fileSize = streamed.size;
+  } catch (err: any) {
+    await fs.unlink(tempFile).catch(() => undefined);
+    throw createError({ status: 400, message: `Upload stream failed: ${err?.message || "unknown error"}` });
+  }
+
+  if (!fileSize) {
+    await fs.unlink(tempFile).catch(() => undefined);
+    throw createError({ status: 400, message: "The uploaded file content was not received." });
+  }
+
+  // ── Plan deduplication & naming ──────────────────────────────────────────
   const targetDirectory = cleanPath(`${parentPath}/${relativeDirectory}`);
   const candidates = await useDrizzle()
     .select({
@@ -156,6 +211,7 @@ export default defineEventHandler(async (event) => {
     allowedExtensions: nomenclature?.allowedExtensions,
   });
   if (!finalGovernance.valid) {
+    await fs.unlink(tempFile).catch(() => undefined);
     throw createError({ status: 422, message: `${uploadPlan.finalName}: ${finalGovernance.message}` });
   }
 
@@ -165,42 +221,69 @@ export default defineEventHandler(async (event) => {
   const logicalPath = cleanPath(`${parentPath}/${finalRelativePath}`);
   const physicalPath = uploadPlan.duplicate ? uploadPlan.reuseStoragePath : logicalPath;
 
+  // ── Move temp file to final storage location ──────────────────────────────
+  if (!uploadPlan.duplicate) {
+    const finalStoragePath = getLocalDamStoragePath(physicalPath);
+    await fs.mkdir(dirname(finalStoragePath), { recursive: true });
+    try {
+      // Try atomic rename first (same filesystem — instant)
+      await fs.rename(tempFile, finalStoragePath);
+    } catch (renameErr: any) {
+      if (renameErr.code === "EXDEV") {
+        // Cross-device: copy then delete
+        await pipeline(createReadStream(tempFile), createWriteStream(finalStoragePath));
+        await fs.unlink(tempFile).catch(() => undefined);
+      } else {
+        await fs.unlink(tempFile).catch(() => undefined);
+        throw renameErr;
+      }
+    }
+  } else {
+    // Duplicate content — discard the temp file, reuse existing storage
+    await fs.unlink(tempFile).catch(() => undefined);
+  }
+
+  const storedFile = await localBlob().head(physicalPath);
+  if (!storedFile || storedFile.size !== fileSize) {
+    throw createError({ status: 500, message: "The server could not verify the file in local DAM storage." });
+  }
+
+  // ── Build asset metadata ──────────────────────────────────────────────────
   const basicMetadata: Record<string, any> = {
-    size: fileBuffer.length,
+    size: fileSize,
     contentType,
     extension: fileName.includes(".") ? fileName.split(".").pop()?.toLowerCase() : null,
     storage: "local",
   };
 
   let assetMetadata = basicMetadata;
-  if (contentType.startsWith("image/")) {
+
+  // EXIF for images — read from the file on disk (not a huge in-memory buffer)
+  if (contentType.startsWith("image/") && !uploadPlan.duplicate) {
     try {
-      const extracted = await exifr.parse(fileBuffer);
+      const finalStoragePath = getLocalDamStoragePath(physicalPath);
+      const imgBuffer = await fs.readFile(finalStoragePath);
+      const extracted = await exifr.parse(imgBuffer);
       if (extracted) assetMetadata = { ...basicMetadata, ...extracted };
     } catch (error) {
       console.warn(`Could not extract image metadata for ${fileName}:`, error);
     }
   }
 
-  if (fileName.toLowerCase().endsWith(".zip")) {
+  // ZIP central-directory inspection — low-memory, reads only the tail of the file
+  if (fileName.toLowerCase().endsWith(".zip") && !uploadPlan.duplicate) {
     try {
-      const zipContents = readZipContents(fileBuffer);
+      const finalStoragePath = getLocalDamStoragePath(physicalPath);
+      const zipContents = await readZipContentsFromFile(finalStoragePath, fileSize);
       assetMetadata = {
         ...assetMetadata,
         archiveEntries: zipContents.entries,
         archiveEntryCount: zipContents.totalEntries,
       };
     } catch (error) {
-      throw createError({ status: 400, message: `The selected ZIP archive is invalid or corrupted: ${fileName}` });
+      // Non-fatal — ZIP inspection failure doesn't block the upload
+      console.warn(`Could not inspect ZIP contents for ${fileName}:`, error);
     }
-  }
-
-  if (!uploadPlan.duplicate) {
-    await localBlob().put(physicalPath, fileBuffer);
-  }
-  const storedFile = await localBlob().head(physicalPath);
-  if (!storedFile || storedFile.size !== fileBuffer.length) {
-    throw createError({ status: 500, message: "The server could not verify the file in local DAM storage." });
   }
 
   try {
@@ -209,7 +292,7 @@ export default defineEventHandler(async (event) => {
       fullPath: logicalPath,
       blobPath: physicalPath,
       contentType,
-      size: fileBuffer.length,
+      size: fileSize,
       userId: user.id,
       departmentId,
       processingStatus: "pending_processing",
@@ -237,7 +320,7 @@ export default defineEventHandler(async (event) => {
       details: {
         fileName,
         contentType,
-        size: fileBuffer.length,
+        size: fileSize,
         physicalPath,
         duplicate: uploadPlan.duplicate,
       },
@@ -273,7 +356,7 @@ export default defineEventHandler(async (event) => {
       file: insertedFile,
       storage: {
         type: "local",
-        directoryName: getLocalDamStorageRoot().split(/[\\/]/).pop(),
+        directoryName: getLocalDamStorageRoot().split(/[\/\\]/).pop(),
         relativePath: logicalPath,
         physicalPath,
         renamed: uploadPlan.renamed,

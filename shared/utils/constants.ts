@@ -53,6 +53,17 @@ export const allowedExtensions: Record<string, string> = {
   toml: "text/plain",
   env: "text/plain",
   ini: "text/plain",
+  // Executables & binary installers
+  exe: "application/x-msdownload",
+  msi: "application/x-msi",
+  dmg: "application/x-apple-diskimage",
+  pkg: "application/x-newton-compatible-pkg",
+  deb: "application/vnd.debian.binary-package",
+  rpm: "application/x-rpm",
+  bin: "application/octet-stream",
+  iso: "application/x-iso9660-image",
+  apk: "application/vnd.android.package-archive",
+  appimage: "application/x-executable",
 };
 
 export const validTextFiles = {
@@ -119,6 +130,18 @@ export const fileTypes: Record<string, string> = {
   "application/gzip": "archive",
   "application/x-sqlite3": "sqlite",
   "application/yaml": "yaml",
+  // Executables & binary installers
+  "application/x-msdownload": "executable",
+  "application/x-msdos-program": "executable",
+  "application/x-msi": "executable",
+  "application/x-apple-diskimage": "executable",
+  "application/x-newton-compatible-pkg": "executable",
+  "application/vnd.debian.binary-package": "executable",
+  "application/x-rpm": "executable",
+  "application/x-iso9660-image": "executable",
+  "application/vnd.android.package-archive": "executable",
+  "application/x-executable": "executable",
+  "application/octet-stream": "binary",
 };
 export const fileIcons = {
   folder: "lucide:folder",
@@ -141,6 +164,8 @@ export const fileIcons = {
   csv: "vscode-icons:file-type-db",
   sqlite: "vscode-icons:file-type-sqlite",
   yaml: "vscode-icons:file-type-yaml",
+  executable: "vscode-icons:file-type-binary",
+  binary: "vscode-icons:default-file",
   default: "vscode-icons:default-file",
 };
 

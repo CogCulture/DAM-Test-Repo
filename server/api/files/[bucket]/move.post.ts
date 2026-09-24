@@ -9,6 +9,10 @@ export default defineEventHandler(async (event) => {
     throw createError({ status: 400, message: "File ID and destination folder ID are required." });
   }
 
+  if (body.file.id === body.parentId) {
+    throw createError({ status: 400, message: "Cannot move an item into itself." });
+  }
+
   await ensureFile(bucket.name, body.file.id);
   await requireFileDepartmentAccess(user, body.file.id);
   if (body.parentId === "root" && user.role !== "admin") {

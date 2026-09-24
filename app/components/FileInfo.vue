@@ -21,10 +21,8 @@ const saving = ref(false);
 const isRagIndexed = computed(() => {
   const meta = (props.file?.assetMetadata as Record<string, any>) || {};
   return Boolean(
-    meta.ragProcessedAt ||
     meta.ragStatus === "processed" ||
-    meta.parsedFileId ||
-    meta.ragCost !== undefined
+    meta.ragProcessedAt
   );
 });
 

@@ -20,6 +20,13 @@ export function useFile() {
     }
   };
 
+  watch(
+    () => route.params.id,
+    () => {
+      fetchFile();
+    }
+  );
+
   onMounted(() => {
     fetchFile();
   });

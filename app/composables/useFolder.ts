@@ -9,6 +9,7 @@ export function useFolder() {
   const route = useRoute();
   const folder = useState<Folder | null>("folder", () => null);
   const loading = useState<boolean>("folder-loading", () => false);
+  let activeFetchId = "";
 
   const fetchFolder = async () => {
     if (!route.params.bucket) return;
@@ -20,13 +21,16 @@ export function useFolder() {
       folder.value = null;
       return;
     }
-    if (loading.value) return;
+
+    activeFetchId = resolvedId;
     loading.value = true;
     try {
       const data = await $fetch<Folder>(
-        `/api/folder/${route.params.bucket}/${resolvedId}`
+        `/api/folder/${route.params.bucket}/${encodeURIComponent(resolvedId)}`
       );
-      if (data) folder.value = data;
+      if (data && activeFetchId === resolvedId) {
+        folder.value = data;
+      }
     } catch (e) {
       console.error("Error fetching folder:", e);
     } finally {
@@ -35,13 +39,12 @@ export function useFolder() {
   };
 
   watch(
-    () => route.params.id,
-    (newId, oldId) => {
+    () => route.fullPath,
+    () => {
       fetchFolder();
-    }
+    },
+    { immediate: true }
   );
-  onMounted(() => {
-    fetchFolder();
-  });
-  return { loading, folder };
-};
+
+  return { loading, folder, fetchFolder };
+}

@@ -26,6 +26,7 @@ interface IFile {
   // Phase 3: taxonomy-driven metadata fields
   tags?: string[];
   customMetadata?: Record<string, any>;
+  breadcrumb?: FolderBreadcrumb[];
 }
 
 interface FilesFetchResponse {

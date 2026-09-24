@@ -231,3 +231,10 @@ textarea:-webkit-autofill:active {
     margin-left: calc(var(--dam-sidebar-width, 272px) + 0.5rem);
   }
 }
+
+/* Permanently disable toast notification popups across the app */
+/* Target only Sonner toaster — NOT the upload progress widget */
+[data-sonner-toaster] {
+  display: none !important;
+}
+

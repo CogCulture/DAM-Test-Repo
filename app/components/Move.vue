@@ -1,23 +1,37 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { damModalUi } from "~/utils/damModal";
-defineProps<{
-  file: IFile;
+
+const props = defineProps<{
+  file: any;
   loading: boolean;
   error: string;
 }>();
-const parent = ref<IFile | null>(null);
-const emit = defineEmits(["submit"]);
-const onSelect = (folder: IFile) => {
-  parent.value = folder;
+
+const emit = defineEmits<{
+  (e: "submit", payload: { folderId: string; folderName: string }): void;
+}>();
+
+const selectedFolder = ref<{ id: string; name: string; path?: string } | null>(null);
+
+const onSelect = (folder: { id: string; name: string; path?: string }) => {
+  selectedFolder.value = folder;
 };
+
 const onMove = () => {
-  if (parent.value) emit("submit", parent.value.id);
+  if (selectedFolder.value) {
+    emit("submit", {
+      folderId: selectedFolder.value.id,
+      folderName: selectedFolder.value.name,
+    });
+  }
 };
 </script>
+
 <template>
   <UModal
-    :title="`Move ${file.name} ${file.type}`"
-    :description="`Move ${file.type} to another folder`"
+    :title="`Move ${file.type === 'folder' ? 'Folder' : 'File'}`"
+    :description="`Choose a destination folder for &quot;${file.name}&quot;`"
     :ui="damModalUi"
   >
     <template #body>
@@ -27,38 +41,52 @@ const onMove = () => {
         :description="error"
         color="error"
         variant="soft"
-        icon="lucide:message-circle-warning"
+        icon="lucide:alert-circle"
         class="mb-4"
       />
 
-      <UFormField label="Select Destination Folder">
-        <FolderPicker @select="onSelect" />
-      </UFormField>
-      <UAlert
-        v-if="parent"
-        class="mt-4"
-        title="Move"
-        color="neutral"
-        variant="subtle"
-      >
-        <template #description>
-          <div class="flex justify-start items-center gap-2">
-            {{ file.path }}
-            <Icon name="lucide:arrow-right" class="" />
-            {{ parent.path + "/" + file.name }}
+      <div class="space-y-4">
+        <!-- Current Asset Pill -->
+        <div class="flex items-center gap-2 rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] px-3 py-2 text-xs">
+          <Icon
+            :name="file.type === 'folder' ? 'lucide:folder' : 'lucide:file'"
+            class="size-4 shrink-0 text-[#ff5733]"
+          />
+          <span class="truncate font-semibold text-[var(--dam-ink)]">{{ file.name }}</span>
+          <span class="ml-auto text-[10px] uppercase font-bold text-[var(--dam-muted)]">{{ file.type }}</span>
+        </div>
+
+        <UFormField label="Select Destination Folder">
+          <FolderPicker :current-file="file" @select="onSelect" />
+        </UFormField>
+
+        <!-- Destination summary preview -->
+        <div
+          v-if="selectedFolder"
+          class="flex items-center gap-2.5 rounded-xl border border-primary-500/30 bg-primary-500/10 p-3 text-xs text-primary-600 dark:text-primary-300"
+        >
+          <Icon name="lucide:corner-down-right" class="size-4 shrink-0" />
+          <div class="min-w-0 flex-1 truncate">
+            Moving to <span class="font-bold">{{ selectedFolder.name }}</span>
+            <span v-if="selectedFolder.path" class="text-[10px] opacity-75 block truncate">{{ selectedFolder.path }}</span>
           </div>
-        </template>
-      </UAlert>
+        </div>
+      </div>
     </template>
+
     <template #footer>
-      <UButton
-        @click="onMove"
-        :loading="loading"
-        :disabled="!parent || loading"
-        color="primary"
-        variant="solid"
-        >Move</UButton
-      >
+      <div class="flex items-center justify-end gap-2 w-full">
+        <UButton
+          color="primary"
+          variant="solid"
+          icon="lucide:folder-input"
+          :loading="loading"
+          :disabled="!selectedFolder || loading"
+          @click="onMove"
+        >
+          Move Here
+        </UButton>
+      </div>
     </template>
   </UModal>
 </template>
