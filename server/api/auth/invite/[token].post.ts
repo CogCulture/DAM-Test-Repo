@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ status: 404, message: "Invitation not found or already accepted." });
   }
 
-  if (invite.expiresAt.getTime() < Date.now()) {
+  if (new Date(invite.expiresAt).getTime() < Date.now()) {
     await db
       .update(deptInvites)
       .set({ status: "expired" })
