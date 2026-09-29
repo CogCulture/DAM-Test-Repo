@@ -50,11 +50,13 @@ export const preparePersistentStorage = async ({
   });
   if (errors.length) throw new Error(errors.join(' '));
 
-  const resolvedDatabasePath = resolve(databasePath);
+  const resolvedDatabasePath = databasePath ? resolve(databasePath) : null;
   const resolvedStorageDirectory = resolve(storageDirectory);
   await mkdir(resolve(dataRoot), { recursive: true });
   await recoverInterruptedRestore({ dataRoot });
-  await mkdir(dirname(resolvedDatabasePath), { recursive: true });
+  if (resolvedDatabasePath) {
+    await mkdir(dirname(resolvedDatabasePath), { recursive: true });
+  }
   await mkdir(resolvedStorageDirectory, { recursive: true });
 
   const probePath = resolve(resolvedStorageDirectory, `.dam-write-probe-${randomUUID()}`);

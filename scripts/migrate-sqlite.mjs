@@ -57,6 +57,11 @@ const isDirectRun = process.argv[1]
   && fileURLToPath(import.meta.url).toLowerCase() === resolve(process.argv[1]).toLowerCase();
 
 if (isDirectRun) {
+  if (process.env.DATABASE_URL) {
+    process.stdout.write('DATABASE_URL detected. Skipping SQLite migrations (managed by PostgreSQL / Supabase).\n');
+    process.exit(0);
+  }
+
   const databasePath = process.env.DATABASE_PATH || getDatabasePath();
   const migrationsDirectory = process.env.DATABASE_MIGRATIONS_DIR
     || resolve(process.cwd(), 'server', 'database', 'migrations');

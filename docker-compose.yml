@@ -3,13 +3,13 @@ services:
     build:
       context: .
       target: runtime
-    image: dam-portal:gcp
+    image: dam-portal:latest
     restart: unless-stopped
     init: true
     stop_grace_period: 30s
     mem_limit: ${DAM_MEMORY_LIMIT:-3g}
     env_file:
-      - ${DAM_ENV_FILE:-.env}
+      - .env
     environment:
       NODE_ENV: production
       NITRO_PRESET: node-server
@@ -17,7 +17,7 @@ services:
       PORT: "8080"
       DAM_DATA_ROOT: /var/lib/dam
       DATABASE_URL: ${DATABASE_URL:-}
-      DATABASE_PATH: ${DATABASE_PATH:-/var/lib/dam/database.sqlite}
+      DATABASE_PATH: ${DATABASE_PATH:-}
       DATABASE_MIGRATIONS_DIR: /app/server/database/migrations
       LOCAL_DAM_STORAGE_DIR: /var/lib/dam/files
       PYTHON_CMD: /opt/dam-python/bin/python

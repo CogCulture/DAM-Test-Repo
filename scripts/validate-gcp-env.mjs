@@ -2,7 +2,6 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const REQUIRED_GCP_ENVIRONMENT = [
-  'DATABASE_PATH',
   'DAM_DATA_ROOT',
   'LOCAL_DAM_STORAGE_DIR',
   'NUXT_PUBLIC_SITE_URL',
@@ -15,8 +14,13 @@ export const REQUIRED_GCP_ENVIRONMENT = [
   'SUPERADMIN_SESSION_PASSWORD',
 ];
 
-export const validateGcpEnvironment = (environment) =>
-  REQUIRED_GCP_ENVIRONMENT.filter((name) => !String(environment[name] || '').trim());
+export const validateGcpEnvironment = (environment) => {
+  const missing = REQUIRED_GCP_ENVIRONMENT.filter((name) => !String(environment[name] || '').trim());
+  if (!environment.DATABASE_URL && !environment.DATABASE_PATH) {
+    missing.push('DATABASE_URL or DATABASE_PATH');
+  }
+  return missing;
+};
 
 const isDirectRun = process.argv[1]
   && fileURLToPath(import.meta.url).toLowerCase() === resolve(process.argv[1]).toLowerCase();
