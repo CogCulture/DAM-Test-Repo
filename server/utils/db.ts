@@ -159,7 +159,7 @@ export async function getUser(id: string) {
         (userRole === "guest" && permRole === "intern");
 
       const departmentRole = perms.find((p) =>
-        roleMatches(p.role, userRole.role) && p.departmentId === userRow.departmentId
+        roleMatches(p.role, userRow.role) && p.departmentId === userRow.departmentId
       );
       const globalRole = perms.find((p) =>
         roleMatches(p.role, userRow.role) && p.departmentId === "global"
