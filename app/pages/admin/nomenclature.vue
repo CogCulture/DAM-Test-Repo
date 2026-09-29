@@ -59,26 +59,12 @@ const SEGMENT_PRESETS = [
   { key: "Region", label: "Geographic Region", defaultValues: ["Global", "NA", "EU", "APAC", "LATAM"] }
 ];
 
-// Default starter departments if none in database
-const DEFAULT_DEPARTMENTS = [
-  { id: "dept_marketing", name: "Marketing & Content" },
-  { id: "dept_design", name: "Creative & Design" },
-  { id: "dept_product", name: "Product & Engineering" },
-  { id: "dept_finance", name: "Finance & Operations" },
-  { id: "dept_ui", name: "UI/UX & Graphics" },
-  { id: "dept_3d", name: "3D Motion & Studio" }
-];
-
 onMounted(async () => {
   if (isAdmin.value) {
     loadingDepartments.value = true;
     try {
       const data: any = await $fetch("/api/organizations/settings");
-      let fetchedDepts = data.departments || [];
-      if (!fetchedDepts || fetchedDepts.length === 0) {
-        fetchedDepts = DEFAULT_DEPARTMENTS;
-      }
-      departmentsList.value = fetchedDepts;
+      departmentsList.value = data.departments || [];
       if (data.gdriveRules) {
         governanceRules.value = {
           enforceNomenclature: !!data.gdriveRules.enforceNomenclature,

@@ -4,6 +4,7 @@ import { damModalUi } from "~/utils/damModal";
 
 const props = defineProps<{
   files: IFile[];
+  sharing?: boolean;
 }>();
 
 const emit = defineEmits(["update"]);
@@ -58,6 +59,7 @@ const onUpdate = () => {
 <template>
   <UModal
     v-if="files.length > 0"
+    :open="true"
     :title="`Share ${files.length} item${files.length > 1 ? 's' : ''}`"
     description="Invite team members by email to access these files."
     :ui="damModalUi"
@@ -127,7 +129,8 @@ const onUpdate = () => {
           {{ invitee.length }} recipient{{ invitee.length === 1 ? '' : 's' }} added
         </span>
         <UButton
-          :disabled="!canSubmit"
+          :disabled="!canSubmit || sharing"
+          :loading="sharing"
           color="primary"
           variant="solid"
           icon="lucide:send"

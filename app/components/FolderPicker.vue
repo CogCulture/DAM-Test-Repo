@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, watch, onMounted } from "vue";
 import { useRole } from "~/composables/useRole";
+import { isGoogleDriveAsset } from "~/utils/damModal";
 
 const props = withDefaults(
   defineProps<{
@@ -23,11 +24,24 @@ const { orgType, isAdmin } = useRole();
 const bucket = computed(() => (route.params.bucket as string) || "org");
 
 const isGDrive = computed(() => {
-  return (
-    props.currentFile?.storage === "gdrive" ||
-    props.currentFile?.id?.length > 20 ||
-    orgType.value === "gdrive"
-  );
+  if (isGoogleDriveAsset(props.currentFile)) {
+    return true;
+  }
+  if (
+    props.currentFile?.storage === "local" ||
+    props.currentFile?.storage === "s3" ||
+    (props.currentFile?.bucketName && props.currentFile.bucketName !== "gdrive")
+  ) {
+    return false;
+  }
+  const routeBucket = (route.params.bucket as string) || "";
+  if (routeBucket.startsWith("gdrive_")) {
+    return true;
+  }
+  if (routeBucket && !routeBucket.startsWith("gdrive_")) {
+    return false;
+  }
+  return orgType.value === "gdrive";
 });
 
 interface FolderItem {
@@ -58,39 +72,43 @@ const loadFolders = async () => {
 
   try {
     if (isGDrive.value) {
-      // Fetch GDrive folders from upload-folders endpoint
-      const rootFolders = await $fetch<any[]>("/api/gdrive/upload-folders", {
-        query: { parentId: "root" },
-      });
+      try {
+        const rootFolders = await $fetch<any[]>("/api/gdrive/upload-folders", {
+          query: { parentId: "root" },
+        });
 
-      const items: FolderItem[] = (rootFolders || []).map((f) => ({
-        id: f.id,
-        name: f.name,
-        path: f.path || f.name,
-        parentId: "root",
-      }));
+        const items: FolderItem[] = (rootFolders || []).map((f) => ({
+          id: f.id,
+          name: f.name,
+          path: f.path || f.name,
+          parentId: "root",
+        }));
 
-      // Fetch immediate subfolders for each top-level folder
-      const childPromises = items.map(async (parent) => {
-        try {
-          const sub = await $fetch<any[]>("/api/gdrive/upload-folders", {
-            query: { parentId: parent.id },
-          });
-          if (sub && sub.length) {
-            parent.children = sub.map((s) => ({
-              id: s.id,
-              name: s.name,
-              path: s.path || `${parent.name} / ${s.name}`,
-              parentId: parent.id,
-            }));
+        const childPromises = items.map(async (parent) => {
+          try {
+            const sub = await $fetch<any[]>("/api/gdrive/upload-folders", {
+              query: { parentId: parent.id },
+            });
+            if (sub && sub.length) {
+              parent.children = sub.map((s) => ({
+                id: s.id,
+                name: s.name,
+                path: s.path || `${parent.name} / ${s.name}`,
+                parentId: parent.id,
+              }));
+            }
+          } catch {
+            // ignore child fetch failures
           }
-        } catch {
-          // ignore child fetch failures
-        }
-      });
+        });
 
-      await Promise.all(childPromises);
-      folders.value = items;
+        await Promise.all(childPromises);
+        folders.value = items;
+      } catch (gdriveErr: any) {
+        console.warn("[FolderPicker] GDrive folder fetch failed, using local DAM folders:", gdriveErr);
+        const data = await $fetch<any[]>(`/api/files/${encodeURIComponent(bucket.value)}/folders`);
+        folders.value = data || [];
+      }
     } else {
       // Fetch local DAM folders
       const data = await $fetch<any[]>(`/api/files/${encodeURIComponent(bucket.value)}/folders`);
@@ -98,11 +116,20 @@ const loadFolders = async () => {
     }
   } catch (err: any) {
     console.error("[FolderPicker] Failed to load folders:", err);
-    error.value = err?.data?.message || err?.message || "Failed to load folders.";
+    error.value = err?.data?.message || err?.message || "Failed to load destination folders.";
   } finally {
     loading.value = false;
   }
 };
+
+watch(
+  () => props.currentFile,
+  () => {
+    selectedFolderId.value = null;
+    searchQuery.value = "";
+    loadFolders();
+  }
+);
 
 onMounted(() => {
   loadFolders();
@@ -112,8 +139,6 @@ const isFolderDisabled = (folder: FolderItem): boolean => {
   if (!props.currentFile) return false;
   // Cannot move into self
   if (folder.id === props.currentFile.id) return true;
-  // Cannot move to organization root if not admin
-  if (folder.id === "root" && !isAdmin.value) return true;
   return false;
 };
 
@@ -131,24 +156,64 @@ const flatFolderList = computed(() => {
   // Always include root as first option
   result.push(rootItem.value);
 
-  const flatten = (items: FolderItem[], prefix = "") => {
-    for (const item of items) {
-      result.push({
-        ...item,
-        path: prefix ? `${prefix} / ${item.name}` : item.name,
-      });
-      if (item.children && item.children.length) {
-        flatten(item.children, prefix ? `${prefix} / ${item.name}` : item.name);
+  // Map to build hierarchical paths if flat
+  const folderMap = new Map<string, FolderItem>();
+  for (const f of folders.value) {
+    folderMap.set(f.id, f);
+  }
+
+  const getFolderPath = (item: FolderItem): string => {
+    if (item.path && item.path.includes("/")) return item.path;
+    const parts: string[] = [item.name];
+    let curr = item;
+    let guard = 0;
+    while (curr.parentId && curr.parentId !== "root" && guard < 10) {
+      guard++;
+      const parent = folderMap.get(curr.parentId);
+      if (parent) {
+        parts.unshift(parent.name);
+        curr = parent;
+      } else {
+        break;
       }
     }
+    return parts.join(" / ");
   };
 
-  flatten(folders.value);
+  const hasNestedChildren = folders.value.some((f) => f.children && f.children.length > 0);
+
+  if (hasNestedChildren) {
+    const flatten = (items: FolderItem[], prefix = "") => {
+      for (const item of items) {
+        const name = item.name || (item as any).label || "Folder";
+        const path = item.path || (prefix ? `${prefix} / ${name}` : name);
+        result.push({
+          ...item,
+          name,
+          path,
+        });
+        if (item.children && item.children.length) {
+          flatten(item.children, path);
+        }
+      }
+    };
+    flatten(folders.value);
+  } else {
+    for (const item of folders.value) {
+      result.push({
+        ...item,
+        name: item.name || "Folder",
+        path: getFolderPath(item),
+      });
+    }
+  }
 
   if (!searchQuery.value.trim()) return result;
   const q = searchQuery.value.toLowerCase().trim();
   return result.filter(
-    (f) => f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q)
+    (f) =>
+      (f.name || "").toLowerCase().includes(q) ||
+      (f.path || "").toLowerCase().includes(q)
   );
 });
 </script>
@@ -176,8 +241,9 @@ const flatFolderList = computed(() => {
     </div>
 
     <!-- Error State -->
-    <div v-else-if="error" class="p-3 text-xs text-red-500 bg-red-500/10 rounded-xl border border-red-500/20">
-      {{ error }}
+    <div v-else-if="error" class="p-3 text-xs text-red-500 bg-red-500/10 rounded-xl border border-red-500/20 flex items-center justify-between gap-2">
+      <span class="truncate">{{ error }}</span>
+      <button type="button" class="underline shrink-0 hover:text-red-700 font-semibold" @click="loadFolders">Retry</button>
     </div>
 
     <!-- Folder List -->
@@ -207,10 +273,19 @@ const flatFolderList = computed(() => {
           />
           <div class="min-w-0 flex-1">
             <p class="truncate font-medium">{{ folder.name }}</p>
-            <p v-if="folder.path && folder.path !== folder.name" class="truncate text-[10px] text-[var(--dam-muted)]">
+            <p
+              v-if="folder.path && folder.id !== 'root' && folder.path !== folder.name"
+              class="truncate text-[10px] text-[var(--dam-muted)]"
+            >
               {{ folder.path }}
             </p>
           </div>
+          <span
+            v-if="props.currentFile?.id === folder.id"
+            class="ml-2 text-[10px] text-[var(--dam-muted)] font-normal italic shrink-0"
+          >
+            (Current item)
+          </span>
         </div>
 
         <UIcon

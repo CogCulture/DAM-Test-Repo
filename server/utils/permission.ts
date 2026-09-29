@@ -9,6 +9,7 @@ import { useDrizzle } from "~~/server/utils/drizzle";
 
 export const getFileDepartmentId = async (fileId: string, orgId: string) => {
   if (!fileId || fileId === "root") return null;
+  if (fileId.startsWith("dept_")) return fileId.substring(5);
   const departments = await getOrgDepartments(orgId);
   const byFolderId = new Map(
     departments.filter((department) => department.folderId).map((department) => [department.folderId, department.id]),
@@ -18,6 +19,7 @@ export const getFileDepartmentId = async (fileId: string, orgId: string) => {
   const visited = new Set<string>();
   while (currentId && currentId !== "root" && !visited.has(currentId)) {
     visited.add(currentId);
+    if (currentId.startsWith("dept_")) return currentId.substring(5);
     const departmentId = byFolderId.get(currentId);
     if (departmentId) return departmentId;
     const item = await getFolder(currentId, orgId);

@@ -11,6 +11,7 @@ import { useRole } from "~/composables/useRole";
 import { useRag } from "~/composables/useRag";
 
 const route = useRoute();
+const router = useRouter();
 const { setFavorite, deleteFiles, deleting, downloadAsset, downloading } = useFileActions();
 const { openPublish } = usePublish();
 const { openMove } = useMove();
@@ -32,7 +33,7 @@ const props = defineProps({
   },
 });
 const emit = defineEmits(["delete", "open", "refresh"]);
-const { canDownload, canShare, canDelete, canRename, canUpload, canUseRag, isAdmin } = useRole();
+const { canDownload, canShare, canDelete, canRename, canUpload, canUseRag, canCreateFolder, isAdmin } = useRole();
 const toast = useToast();
 const { startRagProcess } = useRag();
 const contextMenuOpen = ref(false);
@@ -114,6 +115,15 @@ const fileMenuItems = computed(() => {
       icon: "lucide:folder-open",
       onSelect: () => emit("open", props.file.id),
     });
+    if (canCreateFolder.value) {
+      group1.push({
+        label: "New Subfolder",
+        icon: "lucide:folder-plus",
+        onSelect: () => {
+          router.push(`/${route.params.bucket || 'org'}/${props.file.id}`);
+        },
+      });
+    }
   } else {
     group1.push({
       label: "Open in New Tab",
@@ -147,7 +157,6 @@ const fileMenuItems = computed(() => {
     {
       label: "Rename",
       icon: "lucide:pencil",
-      kbds: ["meta", "R"],
       disabled: !canRename.value,
       onSelect: () => {
         openRename(props.file);
@@ -156,7 +165,6 @@ const fileMenuItems = computed(() => {
     {
       label: "Make a Copy",
       icon: "lucide:copy",
-      kbds: ["meta", "D"],
       disabled: !canUpload.value,
       onSelect: () => {
         openCopy(props.file);
@@ -235,7 +243,6 @@ const fileMenuItems = computed(() => {
     actionsGroup.push({
       label: "Move to Trash",
       icon: "lucide:trash",
-      kbds: ["meta", "backspace"],
       onSelect: () => {
         deleteFiles([props.file]);
       },
@@ -363,12 +370,6 @@ onBeforeUnmount(() => {
                   class="text-[10px] text-[var(--dam-muted)]"
                 >
                   {{ item.children[0]?.label }}
-                </span>
-                <span
-                  v-else-if="item.kbds?.length"
-                  class="text-[10px] uppercase tracking-wide text-[var(--dam-muted)]"
-                >
-                  {{ item.kbds.join("+") }}
                 </span>
                 <Icon
                   v-if="item.children?.length"

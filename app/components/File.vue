@@ -2,76 +2,91 @@
 import { formatTimeAgo } from "@vueuse/core";
 import { formatBytes } from "~/utils/helper";
 import { useAssetDragDrop } from "~/composables/useAssetDragDrop";
-const { file, dir, selected, allowDeletedSelection = false } = defineProps<{
-  file: IFile;
-  dir: "row" | "col";
-  selected: boolean;
-  allowDeletedSelection?: boolean;
-}>();
-const emit = defineEmits(["select", "open", "delete"]);
+import { isFolderItem } from "~~/shared/utils/folder-upload-target";
+const props = withDefaults(
+  defineProps<{
+    file: IFile;
+    dir: "row" | "col";
+    selected: boolean;
+    allowDeletedSelection?: boolean;
+  }>(),
+  {
+    allowDeletedSelection: false,
+  }
+);
+const emit = defineEmits(["select", "open", "delete", "dblclick"]);
 
 const { startDrag, endDrag, canDropOn, isDropTargetActive, setDropTarget, dropOnFolder, isDragging } = useAssetDragDrop();
 
-const isDraggable = computed(() => !file.deletedAt);
+const isDraggable = computed(() => !props.file.deletedAt);
 
 const onDragStart = (event: DragEvent) => {
   if (!isDraggable.value) return;
-  startDrag(file, event);
+  startDrag(props.file, event);
 };
 const onDragEnd = () => endDrag();
 
-const isDropActive = computed(() => file.type === 'folder' && isDropTargetActive(file.id));
+const isDropActive = computed(() => props.file.type === "folder" && isDropTargetActive(props.file.id));
 
 const onDragOver = (event: DragEvent) => {
-  if (file.type !== 'folder' || !canDropOn(file)) return;
+  if (props.file.type !== "folder" || !canDropOn(props.file)) return;
   event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-  setDropTarget(file.id);
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  setDropTarget(props.file.id);
 };
 const onDragLeave = (event: DragEvent) => {
   const rel = event.relatedTarget as HTMLElement | null;
   const cur = event.currentTarget as HTMLElement | null;
   if (cur && rel && cur.contains(rel)) return;
-  if (isDropTargetActive(file.id)) setDropTarget(null);
+  if (isDropTargetActive(props.file.id)) setDropTarget(null);
 };
 const onDrop = (event: DragEvent) => {
-  if (file.type !== 'folder') return;
+  if (props.file.type !== "folder") return;
   event.preventDefault();
-  if (!canDropOn(file)) return;
-  dropOnFolder({ id: file.id, name: file.name });
+  if (!canDropOn(props.file)) return;
+  dropOnFolder({ id: props.file.id, name: props.file.name });
 };
 const summary = computed(() => {
-  let text = file.type;
-  if (file.size) text += " / " + formatBytes(file.size as number);
-  if (file.dimensions) text += " / " + file.dimensions;
+  let text = props.file.type;
+  if (props.file.size) text += " / " + formatBytes(props.file.size as number);
+  if (props.file.dimensions) text += " / " + props.file.dimensions;
   return text;
 });
 
 const isRagIndexed = computed(() => {
-  const meta = (file?.assetMetadata as Record<string, any>) || {};
+  const meta = (props.file?.assetMetadata as Record<string, any>) || {};
   return Boolean(
     meta.ragStatus === "processed" ||
     meta.ragProcessedAt
   );
 });
+const route = useRoute();
+
 const handleCardClick = (event: MouseEvent) => {
-  if (file.deletedAt && !allowDeletedSelection) return;
-  if (event.ctrlKey || event.metaKey || event.shiftKey) {
-    emit("select", file.id);
-    return;
-  }
-  if (file.type === "folder") {
-    emit("open", file.id);
-    return;
-  }
-  emit("select", file.id);
+  if (props.file.deletedAt && !props.allowDeletedSelection) return;
+  const isMulti = event.ctrlKey || event.metaKey || event.shiftKey;
+  emit("select", { id: props.file.id, multi: isMulti });
+};
+
+const handleCardDblClick = (event: MouseEvent) => {
+  event.preventDefault();
+  event.stopPropagation();
+  if (props.file.deletedAt) return;
+  emit("open", props.file);
+};
+
+const handleCheckboxClick = (event: MouseEvent) => {
+  event.stopPropagation();
+  event.preventDefault();
+  if (props.file.deletedAt && !props.allowDeletedSelection) return;
+  emit("select", { id: props.file.id, multi: true });
 };
 </script>
 <template>
   <FileMenu
     :file="file"
     open-mode="emit"
-    @open="emit('open', file.id)"
+    @open="emit('open', props.file)"
     @delete="emit('delete')"
   >
     <div
@@ -83,13 +98,29 @@ const handleCardClick = (event: MouseEvent) => {
         isDropActive && 'ring-2 ring-primary-500 border-primary-500 scale-[1.02] shadow-xl',
       ]"
       @click.stop="handleCardClick"
-      @dblclick="!file.deletedAt && emit('open', file.id)"
+      @dblclick.stop.prevent="handleCardDblClick"
       @dragstart="onDragStart"
       @dragend="onDragEnd"
       @dragover.prevent="file.type === 'folder' ? onDragOver($event) : undefined"
       @dragleave="file.type === 'folder' ? onDragLeave($event) : undefined"
       @drop.prevent="file.type === 'folder' ? onDrop($event) : undefined"
     >
+      <!-- Clickable Multi-Selection Checkbox Box (Top-Right Corner) -->
+      <button
+        type="button"
+        :class="[
+          'absolute right-2.5 top-2.5 z-[12] flex size-6 items-center justify-center rounded-lg border transition-all duration-200 shadow-md cursor-pointer',
+          selected
+            ? 'bg-indigo-600 border-indigo-400 text-white scale-100 opacity-100 ring-2 ring-indigo-400/40 shadow-indigo-500/40'
+            : 'bg-black/60 border-white/50 text-white/80 opacity-0 group-hover:opacity-100 hover:bg-indigo-600/90 hover:border-indigo-300 hover:text-white hover:scale-110 backdrop-blur-sm',
+        ]"
+        :title="selected ? 'Deselect item' : 'Select multiple items'"
+        @click.stop.prevent="handleCheckboxClick"
+      >
+        <Icon v-if="selected" name="lucide:check" class="size-4 stroke-[3]" />
+        <div v-else class="size-2.5 rounded-xs border border-white/80 bg-white/20" />
+      </button>
+
       <div
         :class="[
           'dam-asset-media relative overflow-hidden',
@@ -119,18 +150,14 @@ const handleCardClick = (event: MouseEvent) => {
         </span>
         <span
           v-if="isRagIndexed"
-          class="pointer-events-none absolute right-2 top-2 z-[4] flex items-center gap-1 rounded-full bg-emerald-600/95 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-md backdrop-blur-sm ring-1 ring-emerald-400/40"
+          class="pointer-events-none absolute left-2 top-9 z-[4] flex items-center gap-1 rounded-full bg-emerald-600/95 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-md backdrop-blur-sm ring-1 ring-emerald-400/40"
           title="Indexed in RAG Knowledge Base"
         >
           <Icon name="lucide:bot" class="size-3 text-emerald-100" />
           RAG
         </span>
-        <div class="pointer-events-none absolute inset-x-3 bottom-3 z-[3] rounded-xl bg-slate-950/80 px-3 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur-sm">
-          <span class="block truncate" :title="file.name">{{ file.name || "Untitled asset" }}</span>
-        </div>
         <div class="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between p-3 opacity-0 transition-opacity group-hover:opacity-100">
           <span class="bg-black/75 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white rounded-md backdrop-blur">{{ file.type }}</span>
-          <span class="flex size-8 items-center justify-center rounded-lg bg-black/75 text-white backdrop-blur"><Icon name="lucide:mouse-pointer-click" class="size-4" /></span>
         </div>
       </div>
       <div
@@ -140,7 +167,18 @@ const handleCardClick = (event: MouseEvent) => {
         ]"
       >
         <div class="min-w-0 grow">
-          <div class="line-clamp-1 break-all text-sm font-bold tracking-[-0.01em]" :title="file.name">{{ file.name || "Untitled asset" }}</div>
+          <NuxtLink
+            v-if="isFolderItem(file) && !file.deletedAt"
+            :to="`/${route.params.bucket || 'org'}/${file.id}`"
+            class="line-clamp-1 break-all text-sm font-bold tracking-[-0.01em] hover:underline"
+            :title="file.name"
+            @click.stop
+          >
+            {{ file.name || "Untitled folder" }}
+          </NuxtLink>
+          <div v-else class="line-clamp-1 break-all text-sm font-bold tracking-[-0.01em]" :title="file.name">
+            {{ file.name || "Untitled asset" }}
+          </div>
           <div class="mt-1 line-clamp-1 break-all text-[11px] font-semibold uppercase tracking-[0.08em] opacity-60">{{ summary }}</div>
           <div v-if="file.deletedAt" class="mt-1 text-right text-[10px] uppercase opacity-70">{{ formatTimeAgo(new Date(file.deletedAt)) }}</div>
         </div>

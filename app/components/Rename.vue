@@ -39,6 +39,7 @@ const onOpenChange = (value: boolean) => {
 
 <template>
   <UModal
+    :open="true"
     :title="`Rename ${file.name}`"
     :description="`Choose a new name for this ${file.type}.`"
     :dismissible="!submitting"

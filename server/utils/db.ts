@@ -13,7 +13,7 @@ import {
   like,
 } from "drizzle-orm";
 import { ulid } from "ulidx";
-import { users, files, buckets, favorites, shared, nomenclatures, folderRequests, organizations, orgDepartments, orgPermissions, gdriveFolders, orgGDriveRules, userPermissionOverrides, userDepartmentAccess, deptInvites, taxonomies } from "../database/schema";
+import { users, files, buckets, favorites, shared, nomenclatures, folderRequests, organizations, orgDepartments, orgPermissions, gdriveFolders, orgGDriveRules, userPermissionOverrides, userDepartmentAccess, deptInvites, userOrganizations } from "../database/schema";
 import { useDrizzle } from "./drizzle";
 import { copyBlob, moveBlob } from "./blob";
 import { enqueueIngestionJob } from "./ingestionQueue";
@@ -22,7 +22,7 @@ import { logPipelineEvent } from "./auditLogger";
 import { cleanPath, getFileType, formatTrashTimestamp, getVisibility } from "../../shared/utils/helper";
 import { FILE_PERMISSION_KEYS, getAccessibleDepartmentIds, resolvePermission } from "../../shared/utils/access-control";
 
-const perPage = 12;
+const perPage = 100;
 
 const getStoragePath = (item: { path: string; storagePath?: string | null }) => item.storagePath || item.path;
 
@@ -80,10 +80,12 @@ export async function isOrganizationSuspended(orgId: string): Promise<boolean> {
 }
 
 export async function getUserByEmail(email: string) {
+  if (!email || typeof email !== "string") return null;
+  const normalized = email.trim().toLowerCase();
   const result = await useDrizzle()
     .select()
     .from(users)
-    .where(eq(users.email, email));
+    .where(sql`LOWER(${users.email}) = ${normalized}`);
   if (result && result.length > 0) {
     const userRow: any = result[0];
     if (userRow.organizationId && userRow.organizationId !== "org_default") {
@@ -116,16 +118,23 @@ export async function getUser(id: string) {
     }
     if (userRow.organizationId && userRow.organizationId !== "org_default") {
       const [org] = await useDrizzle()
-        .select({ status: organizations.status, orgType: organizations.orgType, setupComplete: organizations.setupComplete })
+        .select({
+          status: organizations.status,
+          orgType: organizations.orgType,
+          setupComplete: organizations.setupComplete,
+          name: organizations.name,
+        })
         .from(organizations)
         .where(eq(organizations.id, userRow.organizationId));
       userRow.organizationStatus = org?.status || "active";
       userRow.orgType = org?.orgType || "s3";
       userRow.setupComplete = org ? org.setupComplete : true;
+      userRow.organizationName = org?.name || "Organization";
     } else {
       userRow.organizationStatus = "active";
       userRow.orgType = "s3";
       userRow.setupComplete = true;
+      userRow.organizationName = "Organization";
     }
     const db = useDrizzle();
     const allDepartments = await db
@@ -194,19 +203,25 @@ export async function getUser(id: string) {
 }
 
 export const makeSorting = (dbQuery: any, model: any, queryString: any) => {
-  const { sortBy, order = "desc" } = queryString;
+  const { sortBy = "name", order = "asc" } = queryString;
 
-  const sortColumn =
-    typeof sortBy === "string" && model[sortBy]
-      ? model[sortBy]
-      : model.createdAt;
+  const folderPriority = sql`CASE WHEN ${model.type} = 'folder' THEN 0 ELSE 1 END ASC`;
 
+  if (sortBy === "name" || !sortBy) {
+    const nameOrder = order === "desc"
+      ? sql`LOWER(${model.name}) DESC`
+      : sql`LOWER(${model.name}) ASC`;
+    return dbQuery.orderBy(folderPriority, nameOrder);
+  }
+
+  const sortColumn = model[sortBy] || model.createdAt;
   if (sortColumn) {
     return dbQuery.orderBy(
+      folderPriority,
       order === "asc" ? asc(sortColumn) : desc(sortColumn)
     );
   }
-  dbQuery;
+  return dbQuery;
 };
 
 export const makePaginate = (dbQuery: any, queryString: any) => {
@@ -304,42 +319,20 @@ export const getFiles = async (event, userId) => {
   // Add organization scoping filter to all database queries
   filters.push(eq(files.organizationId, orgId));
 
-  // Non-admins can only read assets in their home/granted departments. Files
-  // outside a mapped department remain visible only to their uploader.
-  if (role !== "admin") {
-    const accessibleDepartmentIds = currentUser?.accessibleDepartmentIds || [];
-    let departmentFolderIds: string[] = [];
-    if (accessibleDepartmentIds.length) {
-      const departmentRows = await useDrizzle()
-        .select({ folderId: orgDepartments.folderId })
-        .from(orgDepartments)
-        .where(and(
-          eq(orgDepartments.organizationId, orgId),
-          inArray(orgDepartments.id, accessibleDepartmentIds),
-        ));
-      departmentFolderIds = departmentRows.map((department) => department.folderId).filter(Boolean) as string[];
-    }
+  // All users belonging to the organization can see and contribute to all organization folders and files
+  // Filters are scoped to eq(files.organizationId, orgId) above.
 
-    const scopeConditions: any[] = [eq(files.userId, userId)];
-    if (departmentFolderIds.length) {
-      const departmentFolders = await useDrizzle()
-        .select({ id: files.id, path: files.path })
-        .from(files)
-        .where(and(
-          eq(files.organizationId, orgId),
-          inArray(files.id, departmentFolderIds),
-        ));
-      scopeConditions.push(inArray(files.id, departmentFolderIds));
-      for (const folder of departmentFolders) {
-        scopeConditions.push(like(files.path, `${folder.path}/%`));
-      }
-    }
-    filters.push(or(...scopeConditions));
+  // Resolve folder ID for parent scoping
+  let parentId = params.id || "root";
+  if (Array.isArray(parentId)) {
+    parentId = parentId.filter(Boolean).pop() || "root";
   }
-
-  // Resolve virtual folders
-  const parentId = params.id || "root";
-
+  if (parentId !== "root") {
+    const resolvedFolder = await getFolder(parentId, orgId);
+    if (resolvedFolder) {
+      parentId = resolvedFolder.id;
+    }
+  }
 
   // Fallback / standard physical folder / private bucket logic
   let dataQuery = useDrizzle()
@@ -431,13 +424,17 @@ export const getFile = async (
   deletedAt?: Date,
   orgId?: string
 ) => {
-  const filters = [];
-  filters.push(eq(files.bucketName, bucketName));
-  filters.push(eq(files.path, path));
+  const clean = cleanPath(path);
+  const filters: any[] = [
+    or(eq(files.path, clean), eq(files.path, path)),
+  ];
   if (deletedAt) {
     filters.push(eq(files.deletedAt, deletedAt));
   } else {
     filters.push(isNull(files.deletedAt));
+  }
+  if (orgId) {
+    filters.push(eq(files.organizationId, orgId));
   }
   const result = await useDrizzle()
     .select()
@@ -451,22 +448,44 @@ export const getFile = async (
 
 export const getFolder = async (id: any, orgId?: string) => {
   if (!id || id === "root") return null;
-  let folderId = id;
+  let rawId = id;
   if (Array.isArray(id)) {
-    folderId = id[0];
-  } else if (typeof id === "object" && id !== null) {
-    folderId = String(id);
+    rawId = id.filter(Boolean).pop();
   }
-  if (!folderId || folderId === "root") return null;
-  const conditions = [eq(files.id, folderId)];
-  if (orgId) conditions.push(eq(files.organizationId, orgId));
-  const result = await useDrizzle()
-    .select()
-    .from(files)
-    .where(and(...conditions));
-  if (result && result.length > 0) {
-    return result[0];
+  if (!rawId || rawId === "root") return null;
+
+  const db = useDrizzle();
+  const clean = typeof rawId === "string" ? cleanPath(rawId) : String(rawId);
+
+  // 1. Precise lookup by unique folder ID first
+  const byIdConditions: any[] = [
+    eq(files.id, rawId),
+    eq(files.type, "folder"),
+    isNull(files.deletedAt),
+  ];
+  if (orgId) byIdConditions.push(eq(files.organizationId, orgId));
+  const byId = await db.select().from(files).where(and(...byIdConditions)).limit(1);
+  if (byId.length > 0) {
+    return byId[0];
   }
+
+  // 2. Lookup by exact unique folder path
+  const byPathConditions: any[] = [
+    eq(files.type, "folder"),
+    isNull(files.deletedAt),
+    or(
+      eq(files.path, clean),
+      eq(files.path, rawId),
+      eq(files.path, `org/${clean}`),
+      eq(files.path, `org/${rawId}`)
+    ),
+  ];
+  if (orgId) byPathConditions.push(eq(files.organizationId, orgId));
+  const byPath = await db.select().from(files).where(and(...byPathConditions)).limit(1);
+  if (byPath.length > 0) {
+    return byPath[0];
+  }
+
   return null;
 };
 
@@ -474,16 +493,15 @@ export const ensurePath = async (
   bucketName: string,
   fullPath: string,
   userId: string,
-  isFile?: boolean
+  isFile?: boolean,
+  isFreshEmptyFolder?: boolean
 ) => {
-  // pathShouldStartWithBucketName(bucketName, fullPath);
   // replace leading, trailing and duplicate slashes
   fullPath = cleanPath(fullPath);
   // Check and create parent folders if they don't exist
   const pathSegments = fullPath.split("/");
   // Remove the file name (last segment)
   if (isFile) pathSegments.pop();
-  // const fileName = pathSegments.pop();
   let current = { id: "root", path: "" };
 
   const userObj = await getUser(userId);
@@ -504,6 +522,15 @@ export const ensurePath = async (
       const folderExists = await getFile(bucketName, current.path, undefined, organizationId);
 
       if (!folderExists) {
+        // Check if this segment corresponds to an organization department
+        const depts = await getOrgDepartments(organizationId);
+        const segment = pathSegments[i];
+        const dept = depts.find((d) => d.id === segment || `dept_${d.id}` === segment);
+        if (dept && (current.path === `${bucketName}/${dept.id}` || current.path === `${bucketName}/dept_${dept.id}`)) {
+          current.id = `dept_${dept.id}`;
+          continue;
+        }
+
         // Create the missing folder
         const folderId = ulid() as string;
         const folderData = {
@@ -544,6 +571,58 @@ export const ensurePath = async (
             message: `Path conflict: '${current.path}' exists but is not a folder`,
           });
         }
+
+        // CRITICAL BUG FIX: If user is importing a brand new empty folder, NEVER merge it into a pre-existing folder that already has files!
+        const isLeafFolder = i === pathSegments.length - 1;
+        if (isLeafFolder && isFreshEmptyFolder) {
+          const childFiles = await useDrizzle()
+            .select({ count: sql`COUNT(*)` })
+            .from(files)
+            .where(and(
+              eq(files.parentId, folderExists.id),
+              eq(files.organizationId, organizationId),
+              isNull(files.deletedAt)
+            ));
+          const hasExistingContent = Number(childFiles[0]?.count || 0) > 0;
+
+          if (hasExistingContent) {
+            // Pre-existing folder has files! Generate a unique numbered folder name for the new empty folder
+            let copyNum = 1;
+            let uniqueName = `${pathSegments[i]} (${copyNum})`;
+            const parentPrefix = current.path.substring(0, current.path.lastIndexOf("/"));
+            let uniquePath = parentPrefix ? `${parentPrefix}/${uniqueName}` : uniqueName;
+
+            while (await getFile(bucketName, uniquePath, undefined, organizationId)) {
+              copyNum++;
+              uniqueName = `${pathSegments[i]} (${copyNum})`;
+              uniquePath = parentPrefix ? `${parentPrefix}/${uniqueName}` : uniqueName;
+            }
+
+            const newFolderId = ulid() as string;
+            const newFolderData = {
+              id: newFolderId,
+              name: uniqueName,
+              path: uniquePath,
+              type: "folder",
+              contentType: "folder",
+              size: 0,
+              parentId: current.id,
+              bucketName: bucketName,
+              userId: userId,
+              organizationId,
+              departmentId: userObj?.departmentId || null,
+              processingStatus: "processed",
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+
+            await useDrizzle().insert(files).values(newFolderData);
+            current.id = newFolderId;
+            current.path = uniquePath;
+            continue;
+          }
+        }
+
         current.id = folderExists.id;
         current.path = folderExists.path;
       }
@@ -566,16 +645,23 @@ export const insertUpdateFile = async (
   const physicalPath = blobPath || logicalPath;
 
   let targetParentId = parentId || "root";
-  const pathParts = logicalPath.split("/").filter(Boolean);
-  const hasSubfolders = (pathParts[0] === bucketName && pathParts.length > 2) || (pathParts[0] !== bucketName && pathParts.length > 1);
   const fileType = getFileType(data.contentType);
   const preview = fileType === "image" ? physicalPath : null;
 
-  if (hasSubfolders) {
-    let parent = await ensurePath(bucketName, logicalPath, userId, true);
-    targetParentId = parent.id;
-    if (preview) {
-      await setFolderThumbnail(parent.id, preview);
+  if (targetParentId !== "root") {
+    const parentFolder = await getFolder(targetParentId, organizationId);
+    if (parentFolder) {
+      targetParentId = parentFolder.id;
+    }
+  } else {
+    const pathParts = logicalPath.split("/").filter(Boolean);
+    const hasSubfolders = (pathParts[0] === bucketName && pathParts.length > 2) || (pathParts[0] !== bucketName && pathParts.length > 1);
+    if (hasSubfolders) {
+      let parent = await ensurePath(bucketName, logicalPath, userId, true);
+      targetParentId = parent.id;
+      if (preview) {
+        await setFolderThumbnail(parent.id, preview);
+      }
     }
   }
 
@@ -660,11 +746,24 @@ export const getParent = async (bucketName: string, id: string, orgId?: string) 
     id: "root",
   };
   if (id && id !== "root") {
+    if (orgId) {
+      const depts = await getOrgDepartments(orgId);
+      const rawDeptId = id.startsWith("dept_") ? id.substring(5) : id;
+      const dept = depts.find(
+        (d) => d.id === rawDeptId || d.id === id || d.gdriveFolderId === id
+      );
+      if (dept) {
+        return {
+          path: `${bucketName}/${dept.id}`,
+          id: id.startsWith("dept_") ? id : `dept_${dept.id}`,
+        };
+      }
+    }
     const folder = await getFolder(id, orgId);
     if (
       folder &&
       folder.type === "folder" &&
-      folder.bucketName === bucketName
+      (!folder.bucketName || folder.bucketName === bucketName || bucketName === "org")
     ) {
       parent = {
         path: folder.path,
@@ -697,30 +796,61 @@ export const isParentPublic = async (
   return false;
 };
 
-export const searchFiles = async (bucketName: string, query: string) => {
-  const filters = [];
+export const searchFiles = async (
+  bucketName: string,
+  query: string | string[],
+  orgId?: string,
+  userId?: string,
+  userRole?: string
+) => {
+  const filters: any[] = [];
 
   let dataQuery = useDrizzle()
     .select({
       id: files.id,
       name: files.name,
       path: files.path,
-  storagePath: files.storagePath,
-  duplicateOfId: files.duplicateOfId,
-  parentId: files.parentId,
-  bucketName: files.bucketName,
+      storagePath: files.storagePath,
+      duplicateOfId: files.duplicateOfId,
+      parentId: files.parentId,
+      bucketName: files.bucketName,
       type: files.type,
       contentType: files.contentType,
+      preview: files.preview,
+      deletedAt: files.deletedAt,
+      size: files.size,
+      createdAt: files.createdAt,
     })
     .from(files)
     .$dynamic();
 
   // 🔸 Filtering
-  filters.push(eq(files.bucketName, bucketName));
   filters.push(isNull(files.deletedAt));
-  if (query) {
-    filters.push(sql`LOWER(name) LIKE LOWER(${`%${query}%`})`);
+  filters.push(sql`(json_extract(${files.assetMetadata}, '$.source') IS NULL OR json_extract(${files.assetMetadata}, '$.source') != 'rag')`);
+  filters.push(sql`${files.name} NOT LIKE '%_parsed.md'`);
+
+  if (orgId && orgId !== "org" && orgId !== "org_default") {
+    filters.push(
+      or(
+        eq(files.organizationId, orgId),
+        eq(files.organizationId, "org_default"),
+        isNull(files.organizationId),
+        eq(files.bucketName, bucketName)
+      )
+    );
   }
+
+  const rawTerms = Array.isArray(query) ? query : [query];
+  const validTerms = Array.from(new Set(rawTerms.map((t) => String(t || "").trim().toLowerCase()).filter(Boolean)));
+
+  if (validTerms.length > 0) {
+    const termConditions: any[] = [];
+    for (const term of validTerms) {
+      termConditions.push(like(sql`LOWER(${files.name})`, `%${term}%`));
+    }
+    filters.push(or(...termConditions));
+  }
+
   dataQuery = dataQuery.where(and(...filters));
 
   const data = await dataQuery;
@@ -847,7 +977,7 @@ export const getBreadcrumb = async (bucketName: string, path: string) => {
         } else {
           // Fallback to hardcoded list
           const baseDept = deptId.includes("_") ? deptId.substring(deptId.indexOf("_") + 1) : deptId;
-          const dept = DEPARTMENTS.find((d) => d.id === deptId || d.id === baseDept);
+          const dept = DEFAULT_DEPARTMENTS_LIST.find((d) => d.id === deptId || d.id === baseDept || d.id === `dept_${baseDept}`);
           if (dept) {
             orderedBreadcrumbs.push({
               id: `dept_${dept.id}`,
@@ -1001,9 +1131,52 @@ export const getPublished = async (event: any, userId: string, orgId?: string) =
 };
 export const getRecent = async (event: any, userId: string) => {
   const queryString = getQuery(event);
+  const params = getRouterParams(event);
+  const bucketName = params.bucket;
+
+  const currentUser = await getUser(userId);
+  const orgId = currentUser?.organizationId || "org_default";
+
   const filters = [];
 
-  let dataQuery = useDrizzle()
+  // User scoping: a user sees their own uploads in Recent Activity
+  filters.push(eq(files.userId, userId));
+  if (bucketName) {
+    filters.push(eq(files.bucketName, bucketName));
+  }
+  filters.push(isNull(files.deletedAt));
+
+  // Time window: only uploads and activity from the previous 12 hours
+  const twelveHoursAgoSec = Math.floor(Date.now() / 1000) - 12 * 3600;
+  filters.push(
+    sql`(${files.updatedAt} >= ${twelveHoursAgoSec} OR ${files.createdAt} >= ${twelveHoursAgoSec})`
+  );
+
+  // Exclude internal RAG parsed files
+  filters.push(sql`${files.name} NOT LIKE '%_parsed.md'`);
+  filters.push(sql`(json_extract(${files.assetMetadata}, '$.source') IS NULL OR json_extract(${files.assetMetadata}, '$.source') != 'rag')`);
+
+  // Content type / filter query params if any
+  if (queryString["filters[contentType]"]) {
+    filters.push(eq(files.type, queryString["filters[contentType]"] as string));
+  }
+  if (queryString["filters[shared]"]) {
+    if (queryString["filters[shared]"] === "no")
+      filters.push(eq(files.sharedCount, 0));
+    if (queryString["filters[shared]"] === "yes")
+      filters.push(ne(files.sharedCount, 0));
+  }
+  if (
+    queryString["filters[visibility]"] &&
+    ["public", "private"].includes(queryString["filters[visibility]"] as string)
+  ) {
+    filters.push(
+      eq(files.visibility, queryString["filters[visibility]"] as string)
+    );
+  }
+
+  // Fetch all candidate recent items ordered by latest activity
+  const rawRecent = await useDrizzle()
     .select({
       ...fileColumns,
       isFavorite: favorites.createdAt,
@@ -1013,23 +1186,70 @@ export const getRecent = async (event: any, userId: string) => {
       favorites,
       and(eq(files.id, favorites.fileId), eq(favorites.userId, userId))
     )
-    .$dynamic();
+    .where(and(...filters))
+    .orderBy(desc(files.updatedAt));
 
-  // 🔸 Filtering
-  filters.push(eq(files.userId, userId));
-  filters.push(isNull(files.deletedAt));
-  dataQuery = dataQuery.where(and(...filters));
+  // Build parent map of all active folders for ancestor hierarchy resolution
+  const allOrgFolders = await useDrizzle()
+    .select({ id: files.id, parentId: files.parentId })
+    .from(files)
+    .where(
+      and(
+        bucketName ? eq(files.bucketName, bucketName) : undefined,
+        orgId !== "org_default" ? eq(files.organizationId, orgId) : undefined,
+        eq(files.type, "folder"),
+        isNull(files.deletedAt)
+      )
+    );
+  const folderParentMap = new Map<string, string>();
+  for (const f of allOrgFolders) {
+    if (f.parentId) folderParentMap.set(f.id, f.parentId);
+  }
 
-  // 🔸 Sorting
-  dataQuery = dataQuery.orderBy(desc(files.updatedAt));
+  // Collect all folder IDs that are present in the candidate recent set
+  const recentFolderIds = new Set(
+    rawRecent.filter((item) => item.type === "folder").map((item) => item.id)
+  );
 
-  // 🔸 Pagination
-  dataQuery = makePaginate(dataQuery, queryString);
+  const isDescendantOfAnyRecentFolder = (item: any): boolean => {
+    let currParent = item.parentId;
+    while (currParent && currParent !== "root") {
+      if (recentFolderIds.has(currParent)) return true;
+      currParent = folderParentMap.get(currParent);
+    }
+    return false;
+  };
 
-  const data = await dataQuery;
+  // Filter out:
+  // 1. System/hidden files and folders (.agent, .git, __MACOSX, __pycache__, node_modules, etc.)
+  // 2. Child items (subfolders and component files) whose parent or ancestor folder is already in the recent list
+  const topLevelRecent = rawRecent.filter((item) => {
+    const name = item.name || "";
+    if (
+      name.startsWith(".") ||
+      name.startsWith("__") ||
+      name === "node_modules" ||
+      name === "Thumbs.db" ||
+      name === ".DS_Store"
+    ) {
+      return false;
+    }
 
+    if (isDescendantOfAnyRecentFolder(item)) {
+      return false;
+    }
+
+    return true;
+  });
+
+  // Apply pagination
+  const page = Math.max(1, Number(queryString.page) || 1);
+  const perPageCount = 100;
+  const startIndex = (page - 1) * perPageCount;
+  const data = topLevelRecent.slice(startIndex, startIndex + perPageCount);
   const nextPage =
-    data.length === perPage ? Number(queryString.page) + 1 : null;
+    startIndex + perPageCount < topLevelRecent.length ? page + 1 : null;
+
   return {
     data,
     nextPage,
@@ -1060,15 +1280,31 @@ export const setVisibility = async (bucketName: string, data: IFile) => {
 export const shareFiles = async (
   bucketName: string,
   filesList: IFile[],
-  members: { email: string; role: string }[]
+  members: { email: string; role: string }[],
+  sender?: any,
 ) => {
   for (const member of members) {
-    const user = await getUserByEmail(member.email);
+    const rawEmail = member.email.trim().toLowerCase();
+    let user = await getUserByEmail(rawEmail);
     if (!user) {
-      throw createError({
-        status: 404,
-        message: `User with email "${member.email}" not found.`,
-      });
+      const newUserId = ulid();
+      const orgId = sender?.organizationId || "org_default";
+      const nameStem = rawEmail.split("@")[0].replace(/[._-]/g, " ");
+      const userName = nameStem.replace(/\b\w/g, (c) => c.toUpperCase());
+      const newUserObj = {
+        id: newUserId,
+        name: userName,
+        email: rawEmail,
+        avatar: null,
+        role: "team_member",
+        organizationId: orgId,
+        departmentId: sender?.departmentId || null,
+        status: "active",
+        approvalStatus: "active",
+        createdAt: new Date(),
+      };
+      await useDrizzle().insert(users).values(newUserObj);
+      user = newUserObj as any;
     }
 
     for (const file of filesList) {
@@ -1081,7 +1317,7 @@ export const shareFiles = async (
       if (existing.length > 0) {
         await useDrizzle()
           .update(shared)
-          .set({ role: member.role })
+          .set({ role: member.role || "viewer" })
           .where(and(eq(shared.fileId, file.id), eq(shared.userId, user.id)));
       } else {
         await useDrizzle()
@@ -1089,9 +1325,15 @@ export const shareFiles = async (
           .values({
             fileId: file.id,
             userId: user.id,
-            role: member.role,
+            role: member.role || "viewer",
+            organizationId: user.organizationId || sender?.organizationId || "org_default",
             createdAt: new Date(),
           });
+
+        await useDrizzle()
+          .update(files)
+          .set({ sharedCount: sql`${files.sharedCount} + 1` })
+          .where(eq(files.id, file.id));
       }
     }
   }
@@ -1102,6 +1344,7 @@ export const getNestedFolders = async (bucketName: string, userId: string) => {
   const currentUser = await getUser(userId);
   const role = currentUser?.role;
   const userDept = currentUser?.departmentId;
+  const orgId = currentUser?.organizationId || "org_default";
 
   // Let's get all folders in the database
   const folders = await useDrizzle()
@@ -1122,28 +1365,27 @@ export const getNestedFolders = async (bucketName: string, userId: string) => {
   }
 
   // Shared org bucket: Build tree starting from the virtual department folders
-  const topDepts = DEPARTMENTS.filter((d) => d.parentId === null);
+  const allDepts = await getOrgDepartments(orgId);
+  const topDepts = allDepts.filter((d: any) => d.parentId === null);
   let allowedDepts = topDepts;
 
   if (role !== "admin" && userDept) {
-    const orgId = currentUser?.organizationId || "org_default";
     const baseDeptId = userDept.startsWith(`${orgId}_`) ? userDept.substring(orgId.length + 1) : userDept;
-    const myDept = DEPARTMENTS.find((d) => d.id === baseDeptId);
+    const myDept = allDepts.find((d: any) => d.id === baseDeptId);
     const topDeptId = myDept?.parentId || baseDeptId;
-    allowedDepts = topDepts.filter((d) => d.id === topDeptId);
+    allowedDepts = topDepts.filter((d: any) => d.id === topDeptId);
   }
 
   const buildDeptSubtree = (deptId: string, deptName: string): any => {
     // Find sub-departments
-    const subDepts = DEPARTMENTS.filter((d) => d.parentId === deptId);
+    const subDepts = allDepts.filter((d: any) => d.parentId === deptId);
     let allowedSubDepts = subDepts;
     if (role !== "admin" && userDept) {
-      const orgId = currentUser?.organizationId || "org_default";
       const baseDeptId = userDept.startsWith(`${orgId}_`) ? userDept.substring(orgId.length + 1) : userDept;
-      allowedSubDepts = subDepts.filter((d) => d.id === baseDeptId);
+      allowedSubDepts = subDepts.filter((d: any) => d.id === baseDeptId);
     }
 
-    const subDeptNodes = allowedSubDepts.map((d) => buildDeptSubtree(d.id, d.name));
+    const subDeptNodes = allowedSubDepts.map((d: any) => buildDeptSubtree(d.id, d.name));
     let physicalNodes = makeNested(folders, `dept_${deptId}`);
 
     if (deptId === "founders") {
@@ -1151,6 +1393,7 @@ export const getNestedFolders = async (bucketName: string, userId: string) => {
       const rootNodes = rootFolders.map((f) => ({
         id: f.id,
         path: f.path,
+        name: f.name,
         label: f.name,
         icon: "lucide:folder",
         children: makeNested(folders, f.id),
@@ -1161,20 +1404,21 @@ export const getNestedFolders = async (bucketName: string, userId: string) => {
     return {
       id: `dept_${deptId}`,
       path: `org/${deptId}`,
+      name: deptName,
       label: deptName,
       icon: "lucide:folder",
       children: [...subDeptNodes, ...physicalNodes],
     };
   };
 
-  const tree = allowedDepts.map((d) => buildDeptSubtree(d.id, d.name));
+  const tree = allowedDepts.map((d: any) => buildDeptSubtree(d.id, d.name));
   
-  // Include physical root folders at the top level
-  const TEMPLATE_ROOT_FOLDERS = ["Clients", "Onboarding", "Projects", "Finance", "HR"];
-  const rootFolders = folders.filter((f) => f.parentId === "root" && TEMPLATE_ROOT_FOLDERS.includes(f.name));
+  // Include all physical root folders at the top level
+  const rootFolders = folders.filter((f) => f.parentId === "root");
   const rootNodes = rootFolders.map((f) => ({
     id: f.id,
     path: f.path,
+    name: f.name,
     label: f.name,
     icon: "lucide:folder",
     children: makeNested(folders, f.id),
@@ -1189,6 +1433,7 @@ export const makeNested = (list: any[], parentId: string): any[] => {
     .map((item: IFile) => ({
       id: item.id,
       path: item.path,
+      name: item.name,
       label: item.name,
       icon: "lucide:folder",
       children: makeNested(list, item.id),
@@ -1503,25 +1748,44 @@ export const getTrashed = async (event: any, userId: string) => {
     filters.push(eq(files.userId, userId));
   }
 
-  let dataQuery = useDrizzle()
+  // Fetch all candidate trashed items
+  const rawTrashed = await useDrizzle()
     .select({
       ...fileColumns,
       deletedAt: files.deletedAt,
     })
     .from(files)
     .where(and(...filters))
-    .$dynamic();
+    .orderBy(desc(files.deletedAt));
 
-  // 🔸 Sorting
-  dataQuery = dataQuery.orderBy(desc(files.deletedAt));
+  // Collect all folder IDs that are currently in trash
+  const trashedFolderIds = new Set(
+    rawTrashed.filter((item) => item.type === "folder").map((item) => item.id)
+  );
 
-  // 🔸 Pagination
-  dataQuery = makePaginate(dataQuery, queryString);
+  // Keep only top-level deleted items (exclude child items whose parent folder is also in trash, and hidden/system files)
+  const topLevelTrashed = rawTrashed.filter((item) => {
+    const name = item.name || "";
+    if (
+      name.startsWith(".") ||
+      name.startsWith("__") ||
+      name === "node_modules" ||
+      name === "Thumbs.db" ||
+      name === ".DS_Store"
+    ) {
+      return false;
+    }
+    if (!item.parentId || item.parentId === "root") return true;
+    return !trashedFolderIds.has(item.parentId);
+  });
 
-  const data = await dataQuery;
+  // Apply pagination
+  const page = Math.max(1, Number(queryString.page) || 1);
+  const perPageCount = 100;
+  const startIndex = (page - 1) * perPageCount;
+  const data = topLevelTrashed.slice(startIndex, startIndex + perPageCount);
+  const nextPage = startIndex + perPageCount < topLevelTrashed.length ? page + 1 : null;
 
-  const nextPage =
-    data.length === perPage ? Number(queryString.page) + 1 : null;
   return {
     data,
     nextPage,
@@ -1587,10 +1851,12 @@ export const getPendingUsers = async (organizationId: string, departmentId?: str
       avatar: users.avatar,
       role: users.role,
       departmentId: users.departmentId,
+      departmentName: orgDepartments.name,
       approvalStatus: users.approvalStatus,
       createdAt: users.createdAt,
     })
     .from(users)
+    .leftJoin(orgDepartments, eq(users.departmentId, orgDepartments.id))
     .where(and(...filters))
     .orderBy(asc(users.createdAt));
 };
@@ -2011,15 +2277,6 @@ export const renameItem = async (bucketName: string, itemId: string, newName: st
 
 // ─── Organization & Permission Helpers ────────────────────────────────────────
 
-const DEFAULT_DEPARTMENTS_LIST = [
-  { id: "dept_product", name: "Product & Engineering", parentId: null },
-  { id: "dept_design", name: "Creative & Design", parentId: null },
-  { id: "dept_marketing", name: "Marketing & Content", parentId: null },
-  { id: "dept_finance", name: "Finance & Operations", parentId: null },
-  { id: "dept_ui", name: "UI/UX & Graphics", parentId: "dept_design" },
-  { id: "dept_3d", name: "3D Motion & Studio", parentId: "dept_design" },
-];
-
 export const getOrgDepartments = async (organizationId: string) => {
   const db = useDrizzle();
   const result = await db
@@ -2027,31 +2284,7 @@ export const getOrgDepartments = async (organizationId: string) => {
     .from(orgDepartments)
     .where(eq(orgDepartments.organizationId, organizationId));
   
-  if (!result || result.length === 0) {
-    const seeded: any[] = [];
-    for (const def of DEFAULT_DEPARTMENTS_LIST) {
-      const row = {
-        id: def.id,
-        organizationId,
-        name: def.name,
-        parentId: def.parentId,
-        folderId: null,
-        gdriveFolderId: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      try {
-        await db.insert(orgDepartments).values(row);
-        seeded.push(row);
-      } catch {
-        // Ignore if row already exists
-      }
-    }
-    if (seeded.length > 0) return seeded;
-    return [];
-  }
-
-  return result;
+  return result || [];
 };
 
 export const getOrgPermissions = async (organizationId: string) => {
@@ -2093,7 +2326,11 @@ export const getOrgPermissions = async (organizationId: string) => {
   return result;
 };
 
-export const createOrganization = async (name: string, orgType: "s3" | "gdrive" = "s3") => {
+export const createOrganization = async (
+  name: string,
+  orgType: "s3" | "gdrive" = "s3",
+  creatorUserId?: string
+) => {
   const orgId = ulid() as string;
   const defaultFeatures = {
     nomenclature: true,
@@ -2111,93 +2348,118 @@ export const createOrganization = async (name: string, orgType: "s3" | "gdrive" 
     updatedAt: new Date(),
   });
 
-  // Seed departments and permissions immediately
-  await getOrgDepartments(orgId);
+  // Seed default global permissions for roles
   await getOrgPermissions(orgId);
+
+  // Link creator as admin if provided
+  if (creatorUserId) {
+    const db = useDrizzle();
+    await db.insert(userOrganizations).values({
+      id: `uo_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      userId: creatorUserId,
+      organizationId: orgId,
+      role: "admin",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
 
   return orgId;
 };
 
 export const updateOrganizationSettings = async (
   organizationId: string,
-  name: string,
-  departmentsList: any[],
-  permissionsList: any[],
+  name?: string,
+  departmentsList?: any[],
+  permissionsList?: any[],
   userId?: string
 ) => {
   const db = useDrizzle();
   
-  // 1. Update organization name
-  await db.update(organizations)
-    .set({ name, updatedAt: new Date() })
-    .where(eq(organizations.id, organizationId));
-
-  // 2. Save departments hierarchy
-  await db.delete(orgDepartments).where(eq(orgDepartments.organizationId, organizationId));
-
-  // Helper to build path
-  const getDeptPath = (deptId: string): string => {
-    const dept = departmentsList.find(d => d.id === deptId);
-    if (!dept) return "";
-    if (dept.parentId) {
-      const parentPath = getDeptPath(dept.parentId);
-      return parentPath ? `${parentPath}/${dept.name}` : dept.name;
-    }
-    return dept.name;
-  };
-
-  for (const d of departmentsList) {
-    if (userId) {
-      const path = getDeptPath(d.id);
-      if (path) {
-        try {
-          const folder = await ensurePath("org", `org/${path}`, userId, false);
-          if (folder && folder.id) {
-            d.folderId = folder.id;
-          }
-        } catch (e) {
-          console.error("Failed to create folder for department", d.name, e);
-        }
-      }
-    }
-
-    await db.insert(orgDepartments).values({
-      id: d.id,
-      organizationId,
-      name: d.name,
-      parentId: d.parentId || null,
-      folderId: d.folderId || null,
-      gdriveFolderId: d.gdriveFolderId || null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+  // 1. Update organization name if provided
+  if (name !== undefined) {
+    await db.update(organizations)
+      .set({ name, updatedAt: new Date() })
+      .where(eq(organizations.id, organizationId));
   }
 
-  // 3. Update / Upsert permissions (includes global and department overrides)
-  // First clear any permissions that belong to a deleted department
-  const validDeptIds = departmentsList.map((d) => d.id);
-  await db.delete(orgPermissions)
-    .where(and(
-      eq(orgPermissions.organizationId, organizationId),
-      ne(orgPermissions.departmentId, "global"),
-      notInArray(orgPermissions.departmentId, validDeptIds.length ? validDeptIds : ["dummy"])
-    ));
+  // 2. Save departments hierarchy if provided (preserving any existing folder mappings without generating asset folders)
+  if (departmentsList !== undefined) {
+    const existingDepts = await db.select().from(orgDepartments).where(eq(orgDepartments.organizationId, organizationId));
+    const existingFolderMap = new Map(existingDepts.map(d => [d.id, d.folderId]));
+    const existingGDriveFolderMap = new Map(existingDepts.map(d => [d.id, d.gdriveFolderId]));
 
-  for (const perm of permissionsList) {
-    const deptId = perm.departmentId || "global";
-    const rolesToMatch = perm.role === "guest" ? ["guest", "intern"] : [perm.role];
-    const existing = await db.select()
-      .from(orgPermissions)
-      .where(and(
-        eq(orgPermissions.organizationId, organizationId),
-        eq(orgPermissions.departmentId, deptId),
-        inArray(orgPermissions.role, rolesToMatch)
-      ));
+    await db.delete(orgDepartments).where(eq(orgDepartments.organizationId, organizationId));
 
-    if (existing && existing.length > 0) {
-      await db.update(orgPermissions)
-        .set({
+    for (const d of departmentsList) {
+      await db.insert(orgDepartments).values({
+        id: d.id,
+        organizationId,
+        name: d.name,
+        parentId: d.parentId || null,
+        folderId: d.folderId || existingFolderMap.get(d.id) || null,
+        gdriveFolderId: d.gdriveFolderId || existingGDriveFolderMap.get(d.id) || null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+  }
+
+  // 3. Update / Upsert permissions if provided (includes global and department overrides)
+  if (permissionsList !== undefined) {
+    const validDeptIds = (departmentsList || []).map((d) => d.id);
+    if (departmentsList !== undefined) {
+      await db.delete(orgPermissions)
+        .where(and(
+          eq(orgPermissions.organizationId, organizationId),
+          ne(orgPermissions.departmentId, "global"),
+          notInArray(orgPermissions.departmentId, validDeptIds.length ? validDeptIds : ["dummy"])
+        ));
+    }
+
+    for (const perm of permissionsList) {
+      const deptId = perm.departmentId || "global";
+      const rolesToMatch = perm.role === "guest" ? ["guest", "intern"] : [perm.role];
+      const existing = await db.select()
+        .from(orgPermissions)
+        .where(and(
+          eq(orgPermissions.organizationId, organizationId),
+          eq(orgPermissions.departmentId, deptId),
+          inArray(orgPermissions.role, rolesToMatch)
+        ));
+
+      if (existing && existing.length > 0) {
+        await db.update(orgPermissions)
+          .set({
+            role: perm.role,
+            canView: perm.canView ?? true,
+            canUpload: perm.canUpload,
+            canDownload: perm.canDownload,
+            canDelete: perm.canDelete,
+            canCreateFolder: perm.canCreateFolder,
+            canApproveUsers: perm.canApproveUsers,
+            canEditNomenclature: perm.canEditNomenclature,
+            canShare: perm.canShare,
+            canRename: perm.canRename ?? false,
+            canEditMetadata: perm.canEditMetadata ?? false,
+            canUseRag: perm.canUseRag ?? false,
+            maxCount: perm.maxCount !== undefined && perm.maxCount !== "" ? Number(perm.maxCount) : null,
+            updatedAt: new Date(),
+          })
+          .where(eq(orgPermissions.id, existing[0].id));
+
+        if (existing.length > 1) {
+          for (let i = 1; i < existing.length; i++) {
+            await db.delete(orgPermissions).where(eq(orgPermissions.id, existing[i].id));
+          }
+        }
+      } else {
+        await db.insert(orgPermissions).values({
+          id: ulid() as string,
+          organizationId,
+          departmentId: deptId,
           role: perm.role,
+          maxCount: perm.maxCount !== undefined && perm.maxCount !== "" ? Number(perm.maxCount) : null,
           canView: perm.canView ?? true,
           canUpload: perm.canUpload,
           canDownload: perm.canDownload,
@@ -2209,37 +2471,10 @@ export const updateOrganizationSettings = async (
           canRename: perm.canRename ?? false,
           canEditMetadata: perm.canEditMetadata ?? false,
           canUseRag: perm.canUseRag ?? false,
-          maxCount: perm.maxCount !== undefined && perm.maxCount !== "" ? Number(perm.maxCount) : null,
+          createdAt: new Date(),
           updatedAt: new Date(),
-        })
-        .where(eq(orgPermissions.id, existing[0].id));
-
-      if (existing.length > 1) {
-        for (let i = 1; i < existing.length; i++) {
-          await db.delete(orgPermissions).where(eq(orgPermissions.id, existing[i].id));
-        }
+        });
       }
-    } else {
-      await db.insert(orgPermissions).values({
-        id: ulid() as string,
-        organizationId,
-        departmentId: deptId,
-        role: perm.role,
-        maxCount: perm.maxCount !== undefined && perm.maxCount !== "" ? Number(perm.maxCount) : null,
-        canView: perm.canView ?? true,
-        canUpload: perm.canUpload,
-        canDownload: perm.canDownload,
-        canDelete: perm.canDelete,
-        canCreateFolder: perm.canCreateFolder,
-        canApproveUsers: perm.canApproveUsers,
-        canEditNomenclature: perm.canEditNomenclature,
-        canShare: perm.canShare,
-        canRename: perm.canRename ?? false,
-        canEditMetadata: perm.canEditMetadata ?? false,
-        canUseRag: perm.canUseRag ?? false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
     }
   }
 
@@ -2392,68 +2627,6 @@ export const getNomenclatureForDept = async (orgId: string, departmentId?: strin
   return matchWithSegments ?? allNomenclatures[0] ?? null;
 };
 
-// ==========================================================
-// Phase 3: Taxonomy / Controlled Vocabulary functions
-// ==========================================================
-
-export const getTaxonomies = async (orgId: string, departmentId?: string) => {
-  const db = useDrizzle();
-  const conditions = [eq(taxonomies.organizationId, orgId)];
-  // Return org-wide AND department-specific taxonomies
-  if (departmentId) {
-    conditions.push(
-      or(isNull(taxonomies.departmentId), eq(taxonomies.departmentId, departmentId))!
-    );
-  }
-  return await db.select().from(taxonomies).where(and(...conditions));
-};
-
-export const createTaxonomy = async (data: {
-  organizationId: string;
-  departmentId?: string;
-  name: string;
-  key: string;
-  type: string;
-  options?: string[];
-  isRequired?: boolean;
-}) => {
-  const id = ulid();
-  const now = new Date();
-  const [row] = await useDrizzle()
-    .insert(taxonomies)
-    .values({
-      id,
-      organizationId: data.organizationId,
-      departmentId: data.departmentId ?? null,
-      name: data.name,
-      key: data.key,
-      type: data.type,
-      options: data.options ?? null,
-      isRequired: data.isRequired ?? false,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning();
-  return row;
-};
-
-export const updateTaxonomy = async (
-  id: string,
-  orgId: string,
-  data: Partial<{ name: string; type: string; options: string[]; isRequired: boolean }>
-) => {
-  return await useDrizzle()
-    .update(taxonomies)
-    .set({ ...data, updatedAt: new Date() })
-    .where(and(eq(taxonomies.id, id), eq(taxonomies.organizationId, orgId)))
-    .returning();
-};
-
-export const deleteTaxonomy = async (id: string, orgId: string) => {
-  return await useDrizzle()
-    .delete(taxonomies)
-    .where(and(eq(taxonomies.id, id), eq(taxonomies.organizationId, orgId)));
-};
 
 // Update a file's tags and customMetadata
 export const updateFileMetadata = async (
@@ -2473,8 +2646,8 @@ export const updateFileMetadata = async (
   return updated;
 };
 
-// Faceted search: filter by name query AND any number of customMetadata dimensions
-// metaFilters: { [taxonomyKey]: value_or_array_of_values }
+// Faceted search: filter by name query AND custom metadata dimensions
+// metaFilters: { [key]: value_or_array_of_values }
 export const searchFilesWithFacets = async (
   orgId: string,
   bucketName: string,

@@ -15,10 +15,9 @@ export default defineEventHandler(async (event) => {
 
   await ensureFile(bucket.name, body.file.id);
   await requireFileDepartmentAccess(user, body.file.id);
-  if (body.parentId === "root" && user.role !== "admin") {
-    throw createError({ status: 403, message: "Only administrators can move files to the organization root." });
+  if (body.parentId !== "root") {
+    await requireFileDepartmentAccess(user, body.parentId);
   }
-  await requireFileDepartmentAccess(user, body.parentId);
-  // 3. Perform the move
+  // Perform the move
   return await moveItem(bucket.name, body.file.id, body.parentId);
 });

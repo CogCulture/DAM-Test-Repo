@@ -1,5 +1,5 @@
 <script setup lang="ts">
-navigateTo("/admin/settings?tab=users");
+navigateTo("/admin/settings");
 </script>
 
 <template>

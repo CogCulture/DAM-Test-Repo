@@ -7,6 +7,7 @@ import { useSelected } from "~/composables/useSelected";
 import { useRole } from "~/composables/useRole";
 import { useFileActions } from "~/composables/useFileActions";
 import { useToast } from "~/composables/useToast";
+import { isGoogleDriveAsset } from "~/utils/damModal";
 import { dispatchDroppedFiles } from "~~/shared/utils/upload-dispatch";
 import { useUploadDestination } from "~/composables/useUploadDestination";
 import type { DirectoryUploadSelection } from "~~/shared/utils/directory-upload";
@@ -29,7 +30,7 @@ const activeEndpoint = computed(() => props.endpoint || "root");
 const { files, loading, error, onSort, onFilter, refresh } =
   useFiles(activeEndpoint);
 const { showPreview } = usePreview();
-const { selected, toggleSelected } = useSelected();
+const { selected, toggleSelected, resetSelected } = useSelected();
 const view = useState<string>("view", () => "grid");
 const { canUpload, canCreateFolder, canDelete } = useRole();
 const { deleteFiles, deleting } = useFileActions();
@@ -38,7 +39,8 @@ const storageTarget = useState<"local" | "gdrive">("upload-storage-target", () =
 const { activeFolder: activeUploadFolder, selectUploadFolder } = useUploadDestination();
 
 const safeFiles = computed(() => files.value || []);
-const displayTitle = computed(() => props.title || folder.value?.name || "All assets");
+const isFolderRoute = computed(() => !!route.params.id && (Array.isArray(route.params.id) ? route.params.id.filter(Boolean).length > 0 : true));
+const displayTitle = computed(() => props.title || (isFolderRoute.value ? folder.value?.name : null) || "All assets");
 const activeFilters = ref(false);
 const actionsOpen = ref(false);
 const assetControlsPanel = ref<HTMLElement | null>(null);
@@ -160,13 +162,62 @@ watch(
   },
   { immediate: true },
 );
-const onOpen = (file: IFile, index = 0) => {
-  if (file.type === "folder") {
-    router.push(`/${route.params.bucket}/${file.id}`);
+
+const isFolderItem = (item: any) => {
+  if (!item) return false;
+  if (typeof item === "string") {
+    const found = safeFiles.value.find((f: any) => f.id === item);
+    if (found) return isFolderItem(found);
+    return false;
+  }
+  return (
+    item.type === "folder" ||
+    item.contentType === "folder" ||
+    item.type === "directory" ||
+    (!item.contentType && !item.size && item.name && !item.name.includes("."))
+  );
+};
+
+const folderItems = computed(() => safeFiles.value.filter((f) => isFolderItem(f)));
+const fileItems = computed(() => safeFiles.value.filter((f) => !isFolderItem(f)));
+const activeTypeTab = ref<"all" | "folders" | "files">("all");
+
+const sortedSafeFiles = computed(() => {
+  return [...safeFiles.value].sort((a: any, b: any) => {
+    const aIsFolder = isFolderItem(a);
+    const bIsFolder = isFolderItem(b);
+    if (aIsFolder && !bIsFolder) return -1;
+    if (!aIsFolder && bIsFolder) return 1;
+    return (a?.name || "").localeCompare(b?.name || "", undefined, { sensitivity: "base" });
+  });
+});
+
+const displayFiles = computed(() => {
+  if (activeTypeTab.value === "folders") {
+    return sortedSafeFiles.value.filter(isFolderItem);
+  }
+  if (activeTypeTab.value === "files") {
+    return sortedSafeFiles.value.filter((f) => !isFolderItem(f));
+  }
+  return sortedSafeFiles.value;
+});
+
+const onOpen = async (target: any, index = 0) => {
+  const item = typeof target === "string" ? safeFiles.value.find((f: any) => f.id === target) || { id: target, type: "folder" } : target;
+  if (!item) return;
+  const bucket = (route.params.bucket as string) || "org";
+  if (isFolderItem(item)) {
+    resetSelected();
+    await navigateTo(`/${bucket}/${item.id}`);
     return;
   }
   closeActions();
-  showPreview(safeFiles.value, index);
+  const fileIdx = fileItems.value.findIndex((f) => f.id === item.id);
+  showPreview(fileItems.value.length ? fileItems.value : safeFiles.value, fileIdx >= 0 ? fileIdx : index);
+};
+
+const onDblClick = async (target: any, index = 0) => {
+  await onOpen(target, index);
 };
 defineShortcuts({
   meta_a: () => {
@@ -179,16 +230,21 @@ defineShortcuts({
 });
 </script>
 <template>
-  <Title v-if="title">{{ title }}</Title>
-  <Title v-else-if="folder">{{ folder.name }}</Title>
-  <Title v-else>{{ route.params.bucket }}</Title>
+  <div class="dam-files-root w-full">
+    <Title v-if="title">{{ title }}</Title>
+    <Title v-else-if="isFolderRoute && folder">{{ folder.name }}</Title>
+    <Title v-else>All assets</Title>
 
-  <!-- Always mounted upload ref controller -->
-  <Upload ref="uploadRef" controller-only @success="refresh" />
+    <!-- Always mounted upload ref controller -->
+    <Upload ref="uploadRef" controller-only @success="refresh" />
 
-  <AppMain :title="displayTitle" :description="description" :icon="icon">
+    <AppMain :title="displayTitle" :description="description" :icon="icon">
+    <!-- Pending User Approvals Banner for Org Admins -->
+    <AppPendingApprovals />
+
     <template #actions>
       <FavoritesPicker v-if="showFavoritePicker" />
+      <NewFile v-if="canCreateFolder && !endpoint" size="md" />
       <UButton
         type="button"
         icon="lucide:sliders-horizontal"
@@ -233,29 +289,74 @@ defineShortcuts({
       </div>
     </div>
 
-    <div class="flex items-center justify-between gap-4 text-xs text-[var(--dam-muted)]">
-      <span>
-        {{ safeFiles.length }} {{ safeFiles.length === 1 ? "asset" : "assets" }} in this view
-        <span v-if="activeFilters" class="ml-2 text-primary-500">Filters applied</span>
-      </span>
-      <span class="hidden sm:inline">Double-click to open in new tab · Right-click for DAM + RAG actions</span>
+    <div class="flex items-center justify-between gap-4 text-xs text-[var(--dam-muted)] flex-wrap">
+      <div class="flex items-center gap-1.5">
+        <button
+          type="button"
+          :class="[
+            'cursor-pointer rounded-lg px-2.5 py-1 text-xs font-semibold transition',
+            activeTypeTab === 'all'
+              ? 'bg-primary-500 text-white shadow-xs'
+              : 'hover:bg-[var(--dam-panel-raised)] text-[var(--dam-muted)] hover:text-[var(--dam-ink)]'
+          ]"
+          @click="activeTypeTab = 'all'"
+        >
+          All ({{ safeFiles.length }})
+        </button>
+        <button
+          v-if="folderItems.length > 0"
+          type="button"
+          :class="[
+            'flex cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition',
+            activeTypeTab === 'folders'
+              ? 'bg-primary-500 text-white shadow-xs'
+              : 'hover:bg-[var(--dam-panel-raised)] text-[var(--dam-muted)] hover:text-[var(--dam-ink)]'
+          ]"
+          @click="activeTypeTab = 'folders'"
+        >
+          <Icon name="lucide:folder" class="size-3.5 text-amber-500" />
+          Folders ({{ folderItems.length }})
+        </button>
+        <button
+          v-if="fileItems.length > 0"
+          type="button"
+          :class="[
+            'flex cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition',
+            activeTypeTab === 'files'
+              ? 'bg-primary-500 text-white shadow-xs'
+              : 'hover:bg-[var(--dam-panel-raised)] text-[var(--dam-muted)] hover:text-[var(--dam-ink)]'
+          ]"
+          @click="activeTypeTab = 'files'"
+        >
+          <Icon name="lucide:file-text" class="size-3.5 text-blue-500" />
+          Files ({{ fileItems.length }})
+        </button>
+        <span v-if="activeFilters" class="ml-2 font-semibold text-primary-500">Filters applied</span>
+      </div>
+      <span class="hidden sm:inline">Single-click to select · Double-click to preview/open · Right-click for actions</span>
     </div>
+    
+    <!-- Upload Drop Zone / Upload Bar -->
     <DropFiles v-if="!endpoint && canUpload" @dropped="onFilesDropped" @error="onDropError" />
-    <AppView :name="view" v-slot="{ dir }" :loading="loading">
+
+    <!-- Assets Grid / List View -->
+    <AppView v-if="loading || safeFiles.length > 0" :name="view" v-slot="{ dir }" :loading="loading">
       <File
-        v-for="(file, index) in safeFiles"
-        :key="index"
+        v-for="(file, index) in displayFiles"
+        :key="file.id || index"
         :dir="dir"
         :file="file"
         :allow-deleted-selection="isTrash"
         @select="toggleSelected"
         @open="onOpen(file, index)"
+        @dblclick="onDblClick(file, index)"
         @delete="refresh"
         :selected="selected.includes(file.id)"
       />
     </AppView>
+
     <div
-      v-if="!loading && error"
+      v-else-if="!loading && error"
       class="flex min-h-48 flex-col items-center justify-center gap-3 border border-red-300/50 bg-red-50 p-8 text-center dark:border-red-900 dark:bg-red-950/20"
     >
       <Icon name="lucide:triangle-alert" class="size-10 text-red-500" />
@@ -274,13 +375,16 @@ defineShortcuts({
       />
       <UButton v-else size="sm" variant="soft" icon="lucide:refresh-cw" label="Try again" @click="refresh" />
     </div>
+
     <div
       v-else-if="!loading && safeFiles.length === 0"
-      class="flex min-h-[42vh] flex-col items-center justify-center border border-[var(--dam-line)] bg-[var(--dam-panel)] p-8"
+      class="flex min-h-[42vh] flex-col items-center justify-center rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel)] p-8 shadow-sm"
     >
-      <Icon :name="icon || 'lucide:hard-drive'" class="mb-3 size-12 text-[var(--dam-muted)] *:stroke-[1px]" />
-      <div class="text-lg font-medium">{{ emptyTitle || "No assets found" }}</div>
-      <p class="mt-1 max-w-lg text-center text-sm text-[var(--dam-muted)]">{{ emptyDescription || "Upload a file or adjust your filters to populate this workspace." }}</p>
+      <Icon :name="icon || 'lucide:folder-open'" class="mb-3 size-12 text-[var(--dam-muted)] *:stroke-[1px]" />
+      <div class="text-lg font-medium text-[var(--dam-ink)]">{{ emptyTitle || "This folder is empty" }}</div>
+      <div v-if="!endpoint && canCreateFolder" class="mt-4 flex flex-wrap items-center justify-center gap-3">
+        <NewFile size="md" />
+      </div>
     </div>
   </AppMain>
 
@@ -294,7 +398,7 @@ defineShortcuts({
       leave-to-class="opacity-0 scale-95"
     >
       <div v-show="actionsOpen" class="fixed inset-0 z-[9998] flex items-center justify-center p-4">
-        <div class="fixed inset-0 bg-transparent" @click="closeActions" />
+        <div class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs" @click="closeActions" />
 
         <div
           id="asset-actions-panel"
@@ -303,6 +407,7 @@ defineShortcuts({
           role="dialog"
           aria-label="Asset controls"
           data-testid="asset-actions-panel"
+          @click.stop
         >
           <!-- Header -->
           <div class="asset-controls-header sticky -top-5 z-10 -mx-5 -mt-5 flex items-center justify-between gap-4 border-b border-[var(--dam-line)] bg-[var(--dam-panel-solid)] px-5 py-4 backdrop-blur-md">
@@ -328,22 +433,13 @@ defineShortcuts({
             <Upload v-if="canUpload" @success="refresh" />
           </div>
 
-          <!-- Section 2: Sort & Refine -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div class="asset-controls-section rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] p-3.5 space-y-2">
-              <span class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[var(--dam-ink)]">
-                <Icon name="lucide:arrow-up-down" class="size-3.5 text-emerald-400" />
-                2. Sort By
-              </span>
-              <SortFiles @update="onSort" />
-            </div>
-            <div class="asset-controls-section rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] p-3.5 space-y-2">
-              <span class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[var(--dam-ink)]">
-                <Icon name="lucide:filter" class="size-3.5 text-amber-400" />
-                Refine
-              </span>
-              <Filter @update="applyFilters" />
-            </div>
+          <!-- Section 2: Sort By -->
+          <div class="asset-controls-section rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] p-3.5 space-y-2 w-full">
+            <span class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[var(--dam-ink)]">
+              <Icon name="lucide:arrow-up-down" class="size-3.5 text-emerald-400" />
+              2. Sort By
+            </span>
+            <SortFiles @update="onSort" />
           </div>
 
           <!-- Section 3: Layout View Mode -->
@@ -358,4 +454,5 @@ defineShortcuts({
       </div>
     </Transition>
   </Teleport>
+  </div>
 </template>

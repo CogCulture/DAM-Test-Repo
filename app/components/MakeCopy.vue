@@ -13,6 +13,7 @@ const onSubmit = () => {
 </script>
 <template>
   <UModal
+    :open="true"
     :title="`Copy ${file.name}`"
     :description="`Create a duplicate of this ${file.type}`"
     :ui="damModalUi"

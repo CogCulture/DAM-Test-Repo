@@ -84,7 +84,7 @@ const featureLabels: Record<FeatureKey, { label: string; icon: string; desc: str
   nomenclature: { label: "Nomenclature Rules", icon: "lucide:tag", desc: "Controls file naming conventions on upload" },
   hierarchy: { label: "Departments & Hierarchy", icon: "lucide:network", desc: "Department structure and sub-team management" },
   userPermissions: { label: "User Permissions", icon: "lucide:shield-check", desc: "Per-role permission customization by admin" },
-  templateFolders: { label: "Template Folders", icon: "lucide:folder-tree", desc: "Pre-built starter folder structures" },
+  templateFolders: { label: "Client Folders", icon: "lucide:briefcase", desc: "Pre-built client starter folder structures" },
 };
 
 const saveFeatures = async () => {

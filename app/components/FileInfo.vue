@@ -10,11 +10,8 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: "updated", file: IFile): void }>();
 const route = useRoute();
 const toast = useToast();
-const { data: taxonomies } = await useFetch<ITaxonomy[]>("/api/taxonomies", { key: "file-info-taxonomies" });
-
 const editingMeta = ref(false);
 const localTags = ref<string[]>([...(props.file.tags ?? [])]);
-const localMeta = ref<Record<string, any>>({ ...(props.file.customMetadata ?? {}) });
 const newTagInput = ref("");
 const saving = ref(false);
 
@@ -28,7 +25,6 @@ const isRagIndexed = computed(() => {
 
 watch(() => props.file, (f) => {
   localTags.value = [...(f.tags ?? [])];
-  localMeta.value = { ...(f.customMetadata ?? {}) };
 }, { deep: true });
 
 const addTag = () => {
@@ -51,14 +47,13 @@ const saveMetadata = async () => {
       method: "PATCH",
       body: {
         tags: localTags.value,
-        customMetadata: localMeta.value,
       },
     });
-    toast.add({ title: "Tags & Custom Metadata saved!", color: "success" });
+    toast.add({ title: "Tags saved successfully!", color: "success" });
     emit("updated", updated);
     editingMeta.value = false;
   } catch (e: any) {
-    toast.add({ title: e?.data?.message ?? "Error saving metadata", color: "error" });
+    toast.add({ title: e?.data?.message ?? "Error saving tags", color: "error" });
   } finally {
     saving.value = false;
   }
@@ -139,11 +134,11 @@ const saveMetadata = async () => {
       </div>
     </div>
 
-    <!-- Tags & Custom Metadata Controlled Vocabulary -->
+    <!-- Tags Section -->
     <div class="w-full mt-4 border-t border-[var(--dam-line)] pt-4">
       <div class="flex items-center justify-between mb-3">
         <div class="text-[var(--dam-ink)] text-xs font-bold uppercase tracking-wider">
-          Taxonomy & Custom Metadata
+          Tags
         </div>
         <UButton
           size="xs"
@@ -155,9 +150,7 @@ const saveMetadata = async () => {
         />
       </div>
 
-      <!-- Tags -->
-      <div class="mb-4 space-y-2">
-        <div class="text-[10px] font-bold text-[var(--dam-ink-muted)] uppercase tracking-wider">Tags</div>
+      <div class="space-y-2">
         <div class="flex flex-wrap gap-1.5">
           <span
             v-for="tag in localTags"
@@ -171,7 +164,7 @@ const saveMetadata = async () => {
           </span>
           <span v-if="!localTags.length" class="text-xs text-[var(--dam-ink-muted)] italic">No tags assigned</span>
         </div>
-        <div v-if="editingMeta" class="flex gap-2">
+        <div v-if="editingMeta" class="flex gap-2 pt-2">
           <input
             v-model="newTagInput"
             type="text"
@@ -181,63 +174,6 @@ const saveMetadata = async () => {
           />
           <UButton size="xs" icon="lucide:plus" color="primary" class="rounded-xl" @click="addTag" />
         </div>
-      </div>
-
-      <!-- Custom Metadata Fields from Taxonomies -->
-      <div v-if="taxonomies && taxonomies.length > 0" class="space-y-3">
-        <div
-          v-for="taxonomy in taxonomies"
-          :key="taxonomy.id"
-          class="flex flex-col gap-1 bg-[var(--dam-panel-raised)] border border-[var(--dam-line)] p-3 rounded-xl"
-        >
-          <label class="text-[10px] font-bold text-[var(--dam-ink-muted)] uppercase tracking-wider">
-            {{ taxonomy.name }}
-            <span v-if="taxonomy.isRequired" class="text-red-400 font-bold ml-0.5">*</span>
-          </label>
-
-          <!-- Read-only mode -->
-          <template v-if="!editingMeta">
-            <span class="text-xs font-bold text-[var(--dam-ink)]">
-              {{ localMeta[taxonomy.key] ?? '—' }}
-            </span>
-          </template>
-
-          <!-- Edit mode: text -->
-          <input
-            v-else-if="taxonomy.type === 'text'"
-            v-model="localMeta[taxonomy.key]"
-            type="text"
-            :placeholder="`Enter ${taxonomy.name}...`"
-            class="w-full rounded-lg border border-[var(--dam-line)] bg-[var(--dam-bg)] px-3 py-1.5 text-xs text-[var(--dam-ink)]"
-          />
-
-          <!-- Edit mode: select -->
-          <select
-            v-else-if="taxonomy.type === 'select'"
-            v-model="localMeta[taxonomy.key]"
-            class="w-full rounded-lg border border-[var(--dam-line)] bg-[var(--dam-bg)] px-3 py-1.5 text-xs text-[var(--dam-ink)]"
-          >
-            <option value="">Select {{ taxonomy.name }}...</option>
-            <option v-for="opt in taxonomy.options || []" :key="opt" :value="opt">
-              {{ opt }}
-            </option>
-          </select>
-
-          <!-- Edit mode: multiselect -->
-          <select
-            v-else-if="taxonomy.type === 'multiselect'"
-            v-model="localMeta[taxonomy.key]"
-            multiple
-            class="w-full rounded-lg border border-[var(--dam-line)] bg-[var(--dam-bg)] px-3 py-1.5 text-xs text-[var(--dam-ink)] min-h-[60px]"
-          >
-            <option v-for="opt in taxonomy.options || []" :key="opt" :value="opt">
-              {{ opt }}
-            </option>
-          </select>
-        </div>
-      </div>
-      <div v-else class="text-xs text-[var(--dam-ink-muted)] italic">
-        No controlled taxonomy fields configured yet. Go to Governance &gt; Taxonomy to define metadata schema fields.
       </div>
 
       <!-- Save / Cancel buttons when editing -->
@@ -250,7 +186,7 @@ const saveMetadata = async () => {
           icon="lucide:save"
           @click="saveMetadata"
         >
-          Save Metadata
+          Save Tags
         </UButton>
         <UButton
           color="neutral"

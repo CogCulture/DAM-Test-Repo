@@ -6,25 +6,10 @@ const runtimeConfig = useRuntimeConfig();
 const enableGDriveStorage = computed(() =>
   parsePublicBooleanFlag(runtimeConfig.public.enableGDriveStorage),
 );
-const props = defineProps<{
+defineProps<{
   title?: string;
   description?: string;
 }>();
-
-const devLoggingIn = ref(false);
-const handleDevLogin = async () => {
-  devLoggingIn.value = true;
-  try {
-    const res: any = await $fetch("/api/auth/dev-login", { method: "POST" });
-    if (res.redirect) {
-      window.location.href = res.redirect;
-    }
-  } catch (e) {
-    console.error("Dev login failed", e);
-  } finally {
-    devLoggingIn.value = false;
-  }
-};
 </script>
 
 <template>
@@ -50,34 +35,7 @@ const handleDevLogin = async () => {
         </div>
 
         <div class="flex flex-col gap-4">
-          <!-- Primary CTA: Quick Dev Login -->
-          <button
-            type="button"
-            class="group relative flex w-full items-center justify-center gap-2.5 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-500 via-indigo-600 to-violet-600 px-5 py-3.5 text-sm font-semibold text-white shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all duration-200 hover:shadow-[0_0_40px_rgba(99,102,241,0.5)] hover:scale-[1.01] active:scale-[0.99] disabled:opacity-70 cursor-pointer"
-            :disabled="devLoggingIn"
-            @click="handleDevLogin"
-          >
-            <UIcon
-              v-if="!devLoggingIn"
-              name="lucide:zap"
-              class="size-4.5 text-indigo-200 transition-transform group-hover:scale-110"
-            />
-            <UIcon
-              v-else
-              name="lucide:loader-2"
-              class="size-4.5 animate-spin text-indigo-200"
-            />
-            <span>{{ devLoggingIn ? 'Authenticating Admin...' : 'Quick Dev Login (Local Admin)' }}</span>
-          </button>
-
-          <!-- Divider -->
-          <div class="relative flex items-center py-2">
-            <div class="grow border-t border-zinc-800" />
-            <span class="mx-3 text-[11px] font-semibold tracking-wider text-zinc-500 uppercase">Or Continue With</span>
-            <div class="grow border-t border-zinc-800" />
-          </div>
-
-          <!-- Social auth -->
+          <!-- OAuth Login -->
           <div class="flex flex-col gap-2.5">
             <AuthButton
               v-for="provider in auth.providers"

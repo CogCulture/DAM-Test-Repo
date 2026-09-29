@@ -5,6 +5,18 @@ export function defineShortcuts(shortcuts: Record<string, any>) {
 
   onMounted(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.tagName === "SELECT" ||
+          activeEl.isContentEditable ||
+          activeEl.closest("input, textarea, select, [contenteditable='true']"))
+      ) {
+        return;
+      }
+
       for (const [keyCombo, target] of Object.entries(shortcuts)) {
         const action = typeof target === "function" ? target : target?.handler;
         if (!action) continue;

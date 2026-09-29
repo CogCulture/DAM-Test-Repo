@@ -5,9 +5,11 @@ import { useToast } from "~/composables/useToast";
 const { isAdmin, orgType } = useRole();
 const toast = useToast();
 
-if (!isAdmin.value || orgType.value !== "gdrive") {
-  navigateTo("/");
-}
+onMounted(() => {
+  if (import.meta.client && (!isAdmin.value || orgType.value !== "gdrive")) {
+    navigateTo("/");
+  }
+});
 
 
 const { data: requests, refresh } = await useFetch<any[]>("/api/admin/gdrive-requests");

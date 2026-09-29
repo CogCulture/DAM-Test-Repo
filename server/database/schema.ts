@@ -111,6 +111,23 @@ export const userDepartmentAccess = sqliteTable(
   ],
 );
 
+export const userOrganizations = sqliteTable(
+  "user_organizations",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    organizationId: text("organization_id").notNull(),
+    role: text("role").default("team_member").notNull(),
+    createdAt: createdAt,
+    updatedAt: updatedAt,
+  },
+  (t) => [
+    unique().on(t.userId, t.organizationId),
+    index("idx_user_orgs_user").on(t.userId),
+    index("idx_user_orgs_org").on(t.organizationId),
+  ]
+);
+
 export const permissionAuditLogs = sqliteTable(
   "permission_audit_logs",
   {
@@ -413,31 +430,3 @@ export const orgGDriveRules = sqliteTable("org_gdrive_rules", {
   createdAt: createdAt,
   updatedAt: updatedAt,
 });
-
-// Phase 3: Taxonomy / Controlled Vocabulary definitions per organization
-// Admins/Dept Heads define metadata field schemas (name, type, allowed options).
-// These drive both the asset metadata editor UI and faceted search filters.
-export const taxonomies = sqliteTable(
-  "taxonomies",
-  {
-    id: text("id").primaryKey(),
-    organizationId: text("organization_id").notNull(),
-    // null = org-wide; set to a departmentId to scope to that department only
-    departmentId: text("department_id"),
-    // Human-readable field name shown in UI (e.g. "Campaign", "Status", "Brand")
-    name: text("name").notNull(),
-    // Key used in the customMetadata JSON object (e.g. "campaign", "status")
-    key: text("key").notNull(),
-    // 'text' | 'select' | 'multiselect'
-    type: text("type").default("select").notNull(),
-    // JSON array of allowed string values; null = free-text allowed
-    options: text("options", { mode: "json" }).$type<string[]>(),
-    isRequired: integer("is_required", { mode: "boolean" }).default(false).notNull(),
-    createdAt: createdAt,
-    updatedAt: updatedAt,
-  },
-  (t) => [
-    unique().on(t.organizationId, t.key),
-    index("idx_taxonomies_org").on(t.organizationId),
-  ]
-);

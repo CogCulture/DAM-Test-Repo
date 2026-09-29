@@ -3,7 +3,7 @@ import * as Vue from "vue";
 import * as VueDemi from "vue-demi";
 import { defineAsyncComponent, ref, computed, onMounted } from "vue";
 import { isGoogleDriveAsset } from "~/utils/damModal";
-import { fileIcon } from "~~/shared/utils/helper";
+import { fileIcon, getPreviewUrl } from "~~/shared/utils/helper";
 
 const { file, layout } = defineProps<{
   file: IFile;
@@ -364,8 +364,14 @@ const gridItems = computed(() => {
   </div>
 
   <!-- Fallback File Icon Card -->
-  <div v-else class="absolute inset-0 flex h-full w-full flex-col items-center justify-center gap-2 p-3">
-    <Icon :name="fileIcon(file.contentType || file.type)" :class="layout === 'col' ? 'size-24' : 'size-12'" />
+  <div v-else class="pointer-events-none absolute inset-0 flex h-full w-full flex-col items-center justify-center gap-2 p-3">
+    <Icon
+      :name="fileIcon(file.contentType || file.type)"
+      :class="[
+        layout === 'col' ? 'size-20' : 'size-12',
+        (file.type === 'folder' || file.contentType === 'folder') ? 'text-amber-500 fill-amber-500/20' : 'text-[var(--dam-muted)]'
+      ]"
+    />
     <span v-if="mediaFailed" class="text-center text-[10px] text-neutral-500">Preview unavailable</span>
   </div>
 </template>

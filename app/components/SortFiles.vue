@@ -1,12 +1,12 @@
 <script setup lang="ts">
 const sort = ref({
   sortBy: "createdAt",
-  order: "asc",
+  order: "desc",
 });
 const sortOptions = [
+  { value: "createdAt", label: "Created (Newest First)" },
   { value: "name", label: "Name" },
   { value: "updatedAt", label: "Modified" },
-  { value: "createdAt", label: "Created" },
 ];
 const emit = defineEmits(["update"]);
 watch(

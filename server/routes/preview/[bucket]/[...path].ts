@@ -1,5 +1,6 @@
 import { verifyBucket } from "~~/server/utils/permission";
 import { formatTrashTimestamp } from "~~/shared/utils/helper";
+import { getFile } from "~~/server/utils/db";
 
 export default defineEventHandler(async (event) => {
   await verifyBucket(event);

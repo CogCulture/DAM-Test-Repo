@@ -12,14 +12,19 @@ export function useFolder() {
   let activeFetchId = "";
 
   const fetchFolder = async () => {
-    if (!route.params.bucket) return;
+    if (!route.params.bucket) {
+      folder.value = null;
+      return;
+    }
     const idParam = route.params.id;
-    // Only use idParam as a folder path when it's an ARRAY (from [...id] catch-all)
-    // String idParam means we're on a named sub-page like file/[id], so no folder to fetch
-    const resolvedId = Array.isArray(idParam) ? idParam.join("/") : "";
+    const resolvedId = Array.isArray(idParam) ? idParam.filter(Boolean).join("/") : (typeof idParam === "string" ? idParam : "");
     if (!resolvedId) {
       folder.value = null;
       return;
+    }
+
+    if (folder.value?.id !== resolvedId) {
+      folder.value = null;
     }
 
     activeFetchId = resolvedId;
@@ -41,7 +46,13 @@ export function useFolder() {
   watch(
     () => route.fullPath,
     () => {
-      fetchFolder();
+      const idParam = route.params.id;
+      const resolvedId = Array.isArray(idParam) ? idParam.filter(Boolean).join("/") : (typeof idParam === "string" ? idParam : "");
+      if (!resolvedId) {
+        folder.value = null;
+      } else {
+        fetchFolder();
+      }
     },
     { immediate: true }
   );

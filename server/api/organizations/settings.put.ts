@@ -11,13 +11,13 @@ export default defineEventHandler(async (event) => {
   const orgId = (user as any)?.organizationId || "org_default";
 
   const { name, departments, permissions } = await readBody<{
-    name: string;
-    departments: any[];
-    permissions: any[];
+    name?: string;
+    departments?: any[];
+    permissions?: any[];
   }>(event);
 
-  if (!name || !name.trim()) {
-    throw createError({ status: 400, message: "Organization name is required." });
+  if (name !== undefined && !name.trim()) {
+    throw createError({ status: 400, message: "Organization name cannot be empty." });
   }
 
   // Feature flag enforcement
@@ -25,10 +25,10 @@ export default defineEventHandler(async (event) => {
 
   // If hierarchy is disabled, ignore department changes
   // If userPermissions is disabled, ignore permission changes
-  const effectiveDepartments = features.hierarchy ? departments : [];
-  const effectivePermissions = features.userPermissions ? permissions : [];
+  const effectiveDepartments = departments !== undefined ? (features.hierarchy ? departments : []) : undefined;
+  const effectivePermissions = permissions !== undefined ? (features.userPermissions ? permissions : []) : undefined;
 
-  await updateOrganizationSettings(orgId, name.trim(), effectiveDepartments, effectivePermissions, user.id as string);
+  await updateOrganizationSettings(orgId, name ? name.trim() : undefined, effectiveDepartments, effectivePermissions, user.id as string);
 
   return { success: true };
 });

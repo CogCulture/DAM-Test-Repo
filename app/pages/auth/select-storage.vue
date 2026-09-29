@@ -283,8 +283,28 @@ const handleSaveStorage = async () => {
   }
 };
 
+const selectStorageOption = (type: StorageType) => {
+  selectedOrgType.value = type;
+};
+
+const selectAndConfirmStorageOption = async (type: StorageType) => {
+  selectedOrgType.value = type;
+  await nextTick();
+  if (canSave.value) {
+    await handleSaveStorage();
+  }
+};
+
+const goBack = () => {
+  if (window.history.length > 1) {
+    router.back();
+  } else {
+    router.push("/");
+  }
+};
+
 const continueWithoutChanges = () => {
-  router.push("/");
+  goBack();
 };
 
 const getStorageLabel = (type: StorageType) => {
@@ -312,6 +332,24 @@ const getStorageLabel = (type: StorageType) => {
     </div>
 
     <div class="relative z-10 w-full max-w-5xl my-auto">
+      <!-- Top Navigation Bar -->
+      <div class="flex items-center justify-between mb-6">
+        <button
+          type="button"
+          @click="goBack"
+          class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-white/12 hover:border-indigo-500/40 text-xs font-bold text-slate-200 hover:text-white shadow-lg transition-all cursor-pointer group"
+        >
+          <Icon name="lucide:arrow-left" class="size-4 text-indigo-400 group-hover:-translate-x-0.5 transition-transform" />
+          <span>Back to Workspace</span>
+        </button>
+
+        <div v-if="currentOrgType" class="hidden sm:inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/25 text-xs font-medium text-indigo-300 backdrop-blur-md shadow-xs">
+          <span class="size-2 rounded-full bg-indigo-400 animate-ping" />
+          <span class="size-2 rounded-full bg-indigo-400 -ml-4" />
+          <span>Active Storage: <strong class="uppercase font-bold text-white tracking-wider">{{ getStorageLabel(currentOrgType) }}</strong></span>
+        </div>
+      </div>
+
       <!-- Header Section -->
       <div class="text-center mb-10 space-y-3">
         <div class="inline-flex items-center justify-center p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 shadow-inner mb-2 ring-4 ring-indigo-500/5">
@@ -325,14 +363,6 @@ const getStorageLabel = (type: StorageType) => {
         <p class="text-slate-400 text-sm sm:text-base max-w-xl mx-auto font-normal leading-relaxed">
           Choose which cloud storage provider to use for storing, indexing & syncing your organization's digital assets.
         </p>
-
-        <div v-if="currentOrgType" class="pt-2">
-          <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/25 text-xs font-medium text-indigo-300 backdrop-blur-md shadow-sm">
-            <span class="size-2 rounded-full bg-indigo-400 animate-ping" />
-            <span class="size-2 rounded-full bg-indigo-400 -ml-4" />
-            <span>Currently Active: <strong class="uppercase font-bold text-white tracking-wider">{{ getStorageLabel(currentOrgType) }}</strong></span>
-          </div>
-        </div>
       </div>
 
       <!-- Main Options Container -->
@@ -340,17 +370,23 @@ const getStorageLabel = (type: StorageType) => {
         
         <!-- Primary Storage Provider Cards Grid -->
         <div>
-          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-2">
-            <Icon name="lucide:server" class="size-4 text-indigo-400" />
-            Choose Enterprise Storage Connection
-          </h2>
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+              <Icon name="lucide:server" class="size-4 text-indigo-400" />
+              Choose Enterprise Storage Connection
+            </h2>
+            <span class="hidden sm:inline-block text-[11px] font-semibold text-slate-400">
+              Single-click to select &bull; Double-click to set &amp; return directly
+            </span>
+          </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <!-- 1. Platform S3 -->
             <div
-              @click="selectedOrgType = 's3'"
+              @click="selectStorageOption('s3')"
+              @dblclick="selectAndConfirmStorageOption('s3')"
               :class="[
-                'group cursor-pointer relative overflow-hidden rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between gap-4',
+                'group cursor-pointer relative overflow-hidden rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between gap-4 select-none',
                 selectedOrgType === 's3'
                   ? 'border-indigo-500/80 bg-gradient-to-b from-indigo-500/20 via-indigo-500/10 to-transparent ring-2 ring-indigo-500/40 shadow-[0_0_30px_rgba(99,102,241,0.2)]'
                   : 'border-white/8 bg-slate-950/50 hover:border-white/20 hover:bg-slate-800/40'
@@ -375,16 +411,17 @@ const getStorageLabel = (type: StorageType) => {
               <div class="pt-2 border-t border-white/5">
                 <span class="inline-flex items-center gap-1.5 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">
                   <span class="size-1.5 rounded-full bg-indigo-400" />
-                  HIGH SPEED & UNIFIED
+                  HIGH SPEED &amp; UNIFIED
                 </span>
               </div>
             </div>
 
             <!-- 2. Google Drive -->
             <div
-              @click="selectedOrgType = 'gdrive'"
+              @click="selectStorageOption('gdrive')"
+              @dblclick="selectAndConfirmStorageOption('gdrive')"
               :class="[
-                'group cursor-pointer relative overflow-hidden rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between gap-4',
+                'group cursor-pointer relative overflow-hidden rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between gap-4 select-none',
                 selectedOrgType === 'gdrive'
                   ? 'border-emerald-500/80 bg-gradient-to-b from-emerald-500/20 via-emerald-500/10 to-transparent ring-2 ring-emerald-500/40 shadow-[0_0_30px_rgba(16,185,129,0.2)]'
                   : 'border-white/8 bg-slate-950/50 hover:border-white/20 hover:bg-slate-800/40'
@@ -402,7 +439,7 @@ const getStorageLabel = (type: StorageType) => {
               <div class="space-y-1">
                 <h3 class="text-base font-bold text-white group-hover:text-emerald-200 transition-colors">Google Drive</h3>
                 <p class="text-xs text-slate-400 leading-relaxed font-normal">
-                  Store & sync digital assets directly in Google Drive cloud folders.
+                  Store &amp; sync digital assets directly in Google Drive cloud folders.
                 </p>
               </div>
 
@@ -416,9 +453,10 @@ const getStorageLabel = (type: StorageType) => {
 
             <!-- 3. Microsoft OneDrive -->
             <div
-              @click="selectedOrgType = 'onedrive'"
+              @click="selectStorageOption('onedrive')"
+              @dblclick="selectAndConfirmStorageOption('onedrive')"
               :class="[
-                'group cursor-pointer relative overflow-hidden rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between gap-4',
+                'group cursor-pointer relative overflow-hidden rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between gap-4 select-none',
                 selectedOrgType === 'onedrive'
                   ? 'border-sky-500/80 bg-gradient-to-b from-sky-500/20 via-sky-500/10 to-transparent ring-2 ring-sky-500/40 shadow-[0_0_30px_rgba(14,165,233,0.2)]'
                   : 'border-white/8 bg-slate-950/50 hover:border-white/20 hover:bg-slate-800/40'
@@ -450,9 +488,10 @@ const getStorageLabel = (type: StorageType) => {
 
             <!-- 4. Microsoft SharePoint -->
             <div
-              @click="selectedOrgType = 'sharepoint'"
+              @click="selectStorageOption('sharepoint')"
+              @dblclick="selectAndConfirmStorageOption('sharepoint')"
               :class="[
-                'group cursor-pointer relative overflow-hidden rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between gap-4',
+                'group cursor-pointer relative overflow-hidden rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between gap-4 select-none',
                 selectedOrgType === 'sharepoint'
                   ? 'border-teal-500/80 bg-gradient-to-b from-teal-500/20 via-teal-500/10 to-transparent ring-2 ring-teal-500/40 shadow-[0_0_30px_rgba(20,184,166,0.2)]'
                   : 'border-white/8 bg-slate-950/50 hover:border-white/20 hover:bg-slate-800/40'
@@ -484,9 +523,10 @@ const getStorageLabel = (type: StorageType) => {
 
             <!-- 5. Cloud BYOS -->
             <div
-              @click="selectedOrgType = 'byos'"
+              @click="selectStorageOption('byos')"
+              @dblclick="selectAndConfirmStorageOption('byos')"
               :class="[
-                'group cursor-pointer relative overflow-hidden rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between gap-4',
+                'group cursor-pointer relative overflow-hidden rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between gap-4 select-none',
                 selectedOrgType === 'byos'
                   ? 'border-purple-500/80 bg-gradient-to-b from-purple-500/20 via-purple-500/10 to-transparent ring-2 ring-purple-500/40 shadow-[0_0_30px_rgba(168,85,247,0.2)]'
                   : 'border-white/8 bg-slate-950/50 hover:border-white/20 hover:bg-slate-800/40'
@@ -518,9 +558,10 @@ const getStorageLabel = (type: StorageType) => {
 
             <!-- 6. Box / Dropbox -->
             <div
-              @click="selectedOrgType = 'box'"
+              @click="selectStorageOption('box')"
+              @dblclick="selectAndConfirmStorageOption('box')"
               :class="[
-                'group cursor-pointer relative overflow-hidden rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between gap-4',
+                'group cursor-pointer relative overflow-hidden rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between gap-4 select-none',
                 selectedOrgType === 'box' || selectedOrgType === 'dropbox'
                   ? 'border-blue-500/80 bg-gradient-to-b from-blue-500/20 via-blue-500/10 to-transparent ring-2 ring-blue-500/40 shadow-[0_0_30px_rgba(59,130,246,0.2)]'
                   : 'border-white/8 bg-slate-950/50 hover:border-white/20 hover:bg-slate-800/40'
@@ -774,6 +815,15 @@ const getStorageLabel = (type: StorageType) => {
         <div class="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-white/10">
           <button
             type="button"
+            @click="goBack"
+            class="w-full sm:w-auto py-3.5 px-6 bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 hover:border-white/20 text-slate-300 hover:text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm group"
+          >
+            <Icon name="lucide:arrow-left" class="size-4 text-slate-400 group-hover:-translate-x-0.5 transition-transform" />
+            <span>Back to Workspace</span>
+          </button>
+
+          <button
+            type="button"
             @click="handleSaveStorage"
             :disabled="saving || !canSave"
             class="w-full sm:flex-1 py-3.5 px-6 bg-gradient-to-r from-indigo-500 via-indigo-600 to-violet-600 hover:from-indigo-600 hover:to-violet-700 disabled:opacity-40 text-white font-bold text-sm rounded-xl shadow-[0_4px_25px_rgba(99,102,241,0.4)] hover:shadow-[0_6px_30px_rgba(99,102,241,0.6)] flex items-center justify-center gap-2.5 transition-all cursor-pointer active:scale-[0.99]"
@@ -781,14 +831,6 @@ const getStorageLabel = (type: StorageType) => {
             <Icon v-if="saving" name="lucide:loader-2" class="size-4 animate-spin" />
             <Icon v-else name="lucide:check" class="size-4" />
             <span>{{ saving ? 'Updating Storage Mode...' : 'Confirm & Set Storage Option' }}</span>
-          </button>
-
-          <button
-            type="button"
-            @click="continueWithoutChanges"
-            class="w-full sm:w-auto py-3.5 px-6 bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 hover:border-white/20 text-slate-300 hover:text-white font-semibold text-xs rounded-xl transition-all cursor-pointer shadow-sm"
-          >
-            Continue to Workspace →
           </button>
         </div>
       </div>

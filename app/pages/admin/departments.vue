@@ -4,9 +4,6 @@ import { useRole } from "~/composables/useRole";
 import { useToast } from "~/composables/useToast";
 
 const { isAdmin } = useRole();
-if (!isAdmin.value) {
-  navigateTo("/");
-}
 
 const toast = useToast();
 const loading = ref(true);
@@ -44,16 +41,6 @@ const generatedInviteUrl = ref("");
 const isDeleteModalOpen = ref(false);
 const deptToDelete = ref<any>(null);
 
-// Default starter departments if empty
-const DEFAULT_DEPARTMENTS = [
-  { id: "dept_product", name: "Product & Engineering", parentId: null },
-  { id: "dept_design", name: "Creative & Design", parentId: null },
-  { id: "dept_marketing", name: "Marketing & Content", parentId: null },
-  { id: "dept_finance", name: "Finance & Operations", parentId: null },
-  { id: "dept_ui", name: "UI/UX & Graphics", parentId: "dept_design" },
-  { id: "dept_3d", name: "3D Motion & Studio", parentId: "dept_design" }
-];
-
 // Fetch Data
 const fetchData = async () => {
   loading.value = true;
@@ -61,11 +48,7 @@ const fetchData = async () => {
     const settings: any = await $fetch("/api/organizations/settings");
     orgName.value = settings.name || "Organization";
     
-    let fetchedDepts = settings.departments || [];
-    if (!fetchedDepts || fetchedDepts.length === 0) {
-      fetchedDepts = DEFAULT_DEPARTMENTS;
-    }
-    departments.value = fetchedDepts;
+    departments.value = settings.departments || [];
 
     // Fetch users
     try {
@@ -285,7 +268,13 @@ const copyToClipboard = (text: string) => {
   toast.add({ title: "Link copied to clipboard!", color: "success" });
 };
 
-onMounted(fetchData);
+onMounted(() => {
+  if (import.meta.client && !isAdmin.value) {
+    navigateTo("/");
+    return;
+  }
+  fetchData();
+});
 </script>
 
 <template>
@@ -588,8 +577,19 @@ onMounted(fetchData);
           </div>
         </div>
 
-        <div v-else class="text-center py-12 text-[var(--dam-ink-muted)]">
-          No departments matched your search query.
+        <div v-else class="text-center py-16 px-4 space-y-4 max-w-md mx-auto">
+          <div class="size-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 flex items-center justify-center mx-auto">
+            <Icon name="lucide:network" class="size-8" />
+          </div>
+          <div class="space-y-1">
+            <h4 class="text-base font-bold text-[var(--dam-ink)]">{{ searchQuery ? 'No departments matched your search' : 'No Departments Created Yet' }}</h4>
+            <p class="text-xs text-[var(--dam-ink-muted)]">
+              {{ searchQuery ? 'Try adjusting your search query.' : 'Build your organizational structure by adding departments and sub-teams for this client.' }}
+            </p>
+          </div>
+          <UButton v-if="!searchQuery" color="primary" variant="solid" icon="lucide:plus" class="rounded-xl shadow-sm" @click="openAddDeptModal()">
+            Create First Department
+          </UButton>
         </div>
       </section>
 

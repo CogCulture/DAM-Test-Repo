@@ -4,9 +4,6 @@ import { useRole } from "~/composables/useRole";
 import { useToast } from "~/composables/useToast";
 
 const { isAdmin } = useRole();
-if (!isAdmin.value) {
-  navigateTo("/");
-}
 
 const toast = useToast();
 const router = useRouter();
@@ -115,7 +112,13 @@ watch(
   { immediate: true }
 );
 
-onMounted(fetchRootFolders);
+onMounted(() => {
+  if (import.meta.client && !isAdmin.value) {
+    navigateTo("/");
+    return;
+  }
+  fetchRootFolders();
+});
 
 const createTemplate = async (templateId: string) => {
   if (creatingTemplate.value) return;
@@ -125,11 +128,11 @@ const createTemplate = async (templateId: string) => {
       method: "POST",
       body: { template: templateId },
     })) as any;
-    toast.add({
-      title: `"${res.rootFolder}" folder created`,
-      description: "Folder structure has been set up in the org drive.",
-      color: "success",
-    });
+              toast.add({
+                title: `"${res.rootFolder}" folder created`,
+                description: "Folder structure has been set up in organization storage.",
+                color: "success",
+              });
     const refreshTrigger = useState("files-refresh-trigger", () => 0);
     refreshTrigger.value++;
     await fetchRootFolders();
@@ -183,7 +186,7 @@ const goToFolder = (folderId: string) => {
 </script>
 
 <template>
-  <AppMain title="Automated Template Folders" description="Create pre-configured folder structures in the organization's shared drive.">
+  <AppMain title="Client Folders" description="Create and manage pre-configured client folder structures in the organization's shared drive.">
     <div class="w-full max-w-5xl mx-auto space-y-8">
       <!-- Loading Skeletons -->
       <div v-if="loadingFolders" class="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -216,7 +219,9 @@ const goToFolder = (folderId: string) => {
               :class="[
                 'relative rounded-2xl border bg-[var(--dam-panel-solid)] p-5 transition-all duration-200 flex flex-col justify-between shadow-sm hover:shadow-md',
                 tmpl.border,
+                existingNames.has(tmpl.folderName) ? 'cursor-pointer' : '',
               ]"
+              @click="existingNames.has(tmpl.folderName) && goToFolder(rootFolders.find(f => f.name === tmpl.folderName)?.id || '')"
             >
               <!-- Created pill -->
               <div
@@ -250,20 +255,20 @@ const goToFolder = (folderId: string) => {
                   icon="lucide:folder-plus"
                   class="rounded-xl"
                   :loading="creatingTemplate === tmpl.id"
-                  @click="createTemplate(tmpl.id)"
+                  @click.stop="createTemplate(tmpl.id)"
                 >
                   Create Folder
                 </UButton>
                 <UButton
                   v-else
-                  color="neutral"
-                  variant="ghost"
+                  color="primary"
+                  variant="soft"
                   size="sm"
-                  icon="lucide:external-link"
+                  icon="lucide:folder-open"
                   class="rounded-xl"
-                  @click="goToFolder(rootFolders.find(f => f.name === tmpl.folderName)?.id || '')"
+                  @click.stop="goToFolder(rootFolders.find(f => f.name === tmpl.folderName)?.id || '')"
                 >
-                  Open Drive Folder
+                  Open Folder
                 </UButton>
               </div>
             </div>

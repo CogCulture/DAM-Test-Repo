@@ -58,11 +58,25 @@ const files = ref<any[]>([]);
 const loading = ref(false);
 const loadError = ref<string | null>(null);
 
-const isFolder = computed(() => props.file.type === 'folder');
+const isFolder = computed(() => 
+  props.file?.type === 'folder' || 
+  props.file?.contentType === 'folder' || 
+  props.file?.type === 'directory' ||
+  (!props.file?.contentType && !props.file?.size && props.file?.name && !props.file?.name.includes('.'))
+);
 
 const previewFile = () => {
   if (isFolder.value) return;
   showPreview([props.file], 0);
+};
+
+const openInNewTab = () => {
+  if (isFolder.value) return;
+  const isDrive = orgType.value === "gdrive" || (props.bucketName && props.bucketName.startsWith("gdrive_"));
+  const url = props.file.assetMetadata?.externalUrl || (isDrive
+    ? `/api/gdrive/download/${encodeURIComponent(props.file.id)}?inline=true`
+    : `/api/files/${encodeURIComponent(props.bucketName || 'org')}/download/${encodeURIComponent(props.file.id)}?inline=true`);
+  window.open(url, "_blank");
 };
 
 const selectFolderForUpload = () => {
@@ -178,6 +192,7 @@ onMounted(() => {
         type="button"
         class="grow truncate text-left text-[13px] font-medium text-[var(--dam-muted)] transition-colors group-hover:text-[var(--dam-ink)]"
         :title="file.name"
+        @click.stop="previewFile"
         @dblclick.stop.prevent="previewFile"
       >
         {{ file.name }}

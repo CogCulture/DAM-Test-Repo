@@ -28,13 +28,10 @@ const adminMenuItems = computed(() => {
   items.push(
     { label: "Org Settings & Access", icon: "lucide:settings", to: "/admin/settings" },
     { label: "Department Hierarchy", icon: "lucide:network", to: "/admin/departments" },
-    { label: "Template Folders", icon: "lucide:layout-template", to: "/admin/template-folders" },
+    { label: "Client Folders", icon: "lucide:briefcase", to: "/admin/template-folders" },
     { label: "Department Dashboard", icon: "lucide:layout-dashboard", to: "/dept-head" },
-    { label: "Department Permissions", icon: "lucide:shield-check", to: "/dept-head/permissions" },
     { label: "User Approvals", icon: "lucide:users", to: "/admin" },
     { label: "Nomenclature Rules", icon: "lucide:tag", to: "/admin/nomenclature" },
-    { label: "Taxonomy & Metadata", icon: "lucide:layers", to: "/admin/taxonomy" },
-    { label: "Folder Requests", icon: "lucide:folder-plus", to: "/admin/folder-requests" },
   );
   if (orgType.value === "gdrive") {
     items.push({ label: "GDrive Requests", icon: "lucide:cloud", to: "/admin/gdrive-requests" });
@@ -42,8 +39,18 @@ const adminMenuItems = computed(() => {
   return items;
 });
 
+const activeAdminItem = computed(() => {
+  return adminMenuItems.value.find(item => {
+    if (item.to === "/admin") {
+      return route.path === "/admin" || route.path === "/admin/";
+    }
+    return route.path === item.to || route.path.startsWith(item.to + "/");
+  });
+});
+
+const showInviteModal = ref(false);
 const isAdminDropdownOpen = ref(false);
-const isNavItemActive = (to: string) => route.path === to;
+const isNavItemActive = (to: string) => route.path === to || (to !== "/admin" && route.path.startsWith(to + "/"));
 </script>
 
 <template>
@@ -65,14 +72,40 @@ const isNavItemActive = (to: string) => route.path === to;
         </UTooltip>
       </template>
 
+      <!-- Client Organization Switcher -->
+      <AppOrgSwitcher />
+
       <div class="grow" />
 
       <!-- Top Right Actions -->
       <div class="flex items-center gap-2 sm:gap-3">
-        <div v-if="roleLabel" class="mr-1 hidden border-l border-[var(--dam-line)] pl-4 lg:block">
+        <div class="mr-1 hidden border-l border-[var(--dam-line)] pl-4 lg:block">
           <p class="dam-kicker max-w-32 truncate">{{ departmentLabel || 'Workspace' }}</p>
-          <p class="mt-0.5 max-w-32 truncate text-xs font-semibold text-[var(--dam-ink)]">{{ roleLabel }}</p>
+          <div class="mt-0.5 flex items-center">
+            <span
+              :class="[
+                'inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider rounded-md border shrink-0',
+                isAdmin
+                  ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30'
+                  : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+              ]"
+            >
+              <Icon :name="isAdmin ? 'lucide:shield-check' : 'lucide:user'" class="size-3" />
+              <span>{{ isAdmin ? 'ADMIN' : 'USER' }}</span>
+            </span>
+          </div>
         </div>
+
+        <!-- Invite Member Button -->
+        <button
+          v-if="showsWorkspaceControls"
+          @click="showInviteModal = true"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 text-xs font-bold text-indigo-600 dark:text-indigo-400 transition shadow-xs cursor-pointer"
+          title="Invite colleague to organization"
+        >
+          <Icon name="lucide:user-plus" class="size-3.5" />
+          <span class="hidden sm:inline">Invite Member</span>
+        </button>
 
         <NuxtLink
           to="/auth/select-storage"
@@ -85,6 +118,9 @@ const isNavItemActive = (to: string) => route.path === to;
 
         <ColorMode />
         <ProfileMenu />
+
+        <!-- Invite Modal -->
+        <AppInviteModal v-model="showInviteModal" />
       </div>
     </div>
 
@@ -116,12 +152,15 @@ const isNavItemActive = (to: string) => route.path === to;
         <!-- Governance & Admin Dropdown Menu -->
         <div v-if="adminMenuItems.length > 0" class="relative shrink-0 z-50">
           <button
-            class="flex h-9 items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3.5 text-xs font-bold text-indigo-500 hover:bg-indigo-500/20 transition shadow-xs"
+            class="flex h-9 items-center gap-2 rounded-xl border px-3.5 text-xs font-bold transition shadow-xs cursor-pointer"
+            :class="activeAdminItem ? 'border-indigo-500/50 bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 font-extrabold' : 'border-indigo-500/30 bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20'"
             @click="isAdminDropdownOpen = !isAdminDropdownOpen"
           >
-            <Icon name="lucide:shield-cog" class="size-4" />
-            <span>Governance & Admin</span>
-            <Icon name="lucide:chevron-down" class="size-3.5 transition-transform duration-200" :class="{ 'rotate-180': isAdminDropdownOpen }" />
+            <Icon :name="activeAdminItem ? activeAdminItem.icon : 'lucide:shield-cog'" class="size-4 shrink-0 text-indigo-500 dark:text-indigo-400" />
+            <span class="truncate max-w-[200px] sm:max-w-[280px]">
+              {{ activeAdminItem ? `Governance & Admin — ${activeAdminItem.label}` : 'Governance & Admin' }}
+            </span>
+            <Icon name="lucide:chevron-down" class="size-3.5 shrink-0 transition-transform duration-200" :class="{ 'rotate-180': isAdminDropdownOpen }" />
           </button>
 
           <!-- Dropdown Popup -->
@@ -132,11 +171,12 @@ const isNavItemActive = (to: string) => route.path === to;
           />
           <div
             v-if="isAdminDropdownOpen"
-            class="absolute right-0 top-11 z-50 w-64 rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] p-2 shadow-2xl backdrop-blur-md space-y-1 max-h-[80vh] overflow-y-auto"
+            class="absolute right-0 top-11 z-50 w-72 rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] p-2 shadow-2xl backdrop-blur-md space-y-1 max-h-[80vh] overflow-y-auto"
             @click.stop
           >
-            <div class="px-3 py-1.5 text-[10px] font-bold text-[var(--dam-ink-muted)] uppercase tracking-wider border-b border-[var(--dam-line)] mb-1">
-              Admin & Governance Settings
+            <div class="px-3 py-1.5 text-[10px] font-bold text-[var(--dam-ink-muted)] uppercase tracking-wider border-b border-[var(--dam-line)] mb-1 flex items-center justify-between">
+              <span>Admin & Governance</span>
+              <span v-if="activeAdminItem" class="text-indigo-500 dark:text-indigo-400 font-bold truncate max-w-[120px]">{{ activeAdminItem.label }}</span>
             </div>
 
             <NuxtLink

@@ -54,7 +54,7 @@ export const normalizeDirectoryManifest = (paths: string[]) => {
 
   return [...normalized].sort((left, right) => {
     const depth = left.split("/").length - right.split("/").length;
-    return depth || left.localeCompare(right, undefined, { sensitivity: "base" });
+    return depth || left.localeCompare(right, undefined, { sensitivity: "base", numeric: true });
   });
 };
 
@@ -102,13 +102,16 @@ export const resolveAuthorizedFolderId = ({
   return requestedId;
 };
 
-export const sortDirectoryChildren = <T extends { type: string; name: string }>(items: T[]) =>
+export const isFolderItem = (item: any) =>
+  Boolean(item && (item.type === "folder" || item.type === "directory" || item.contentType === "folder" || item.mimeType === "application/vnd.google-apps.folder"));
+
+export const sortDirectoryChildren = <T extends { type?: string; contentType?: string; mimeType?: string; name?: string }>(items: T[]) =>
   [...items].sort((a, b) =>
-    Number(b.type === "folder") - Number(a.type === "folder")
-    || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    Number(isFolderItem(b)) - Number(isFolderItem(a))
+    || String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base", numeric: true }),
   );
 
-export const replaceDirectoryBranch = <T extends { type: string; name: string }>(
+export const replaceDirectoryBranch = <T extends { type?: string; contentType?: string; mimeType?: string; name?: string }>(
   current: T[],
   incoming: T[],
   responseReady: boolean,

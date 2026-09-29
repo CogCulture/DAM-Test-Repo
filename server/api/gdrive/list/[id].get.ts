@@ -119,19 +119,27 @@ export default defineEventHandler(async (event) => {
 
   const sortBy = ["name", "createdAt", "updatedAt", "size"].includes(String(query.sortBy))
     ? String(query.sortBy)
-    : "createdAt";
+    : "name";
   const direction = query.order === "desc" ? -1 : 1;
+  const isFolder = (item: any) =>
+    Boolean(item && (item.type === "folder" || item.type === "directory" || item.contentType === "folder" || item.mimeType === "application/vnd.google-apps.folder"));
+
   combinedData.sort((left, right) => {
+    const leftIsFolder = isFolder(left) ? 0 : 1;
+    const rightIsFolder = isFolder(right) ? 0 : 1;
+    if (leftIsFolder !== rightIsFolder) {
+      return leftIsFolder - rightIsFolder;
+    }
     if (sortBy === "name") {
-      return left.name.localeCompare(right.name, undefined, { sensitivity: "base" }) * direction;
+      return String(left.name || "").localeCompare(String(right.name || ""), undefined, { sensitivity: "base", numeric: true }) * direction;
     }
     if (sortBy === "size") {
       return (Number(left.size || 0) - Number(right.size || 0)) * direction;
     }
-    return (new Date(left[sortBy]).getTime() - new Date(right[sortBy]).getTime()) * direction;
+    return (new Date(left[sortBy] || left.createdAt || 0).getTime() - new Date(right[sortBy] || right.createdAt || 0).getTime()) * direction;
   });
 
-  const processedData = processFileDuplicates(combinedData);
+  const processedData = processFileDuplicates(combinedData, sortBy, (query.order as string) || "desc");
   return {
     data: processedData,
     nextPage: localFiles?.nextPage ?? null,

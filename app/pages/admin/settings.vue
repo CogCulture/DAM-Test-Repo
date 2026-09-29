@@ -4,9 +4,6 @@ import { useRole } from "~/composables/useRole";
 import { useToast } from "~/composables/useToast";
 
 const { isAdmin } = useRole();
-if (!isAdmin.value) {
-  navigateTo("/");
-}
 
 const { fetch: fetchSession } = useUserSession();
 
@@ -104,93 +101,12 @@ const fetchSettings = async () => {
   }
 };
 
-const route = useRoute();
-const activeTab = ref<"org" | "users">((route.query.tab as any) === "users" ? "users" : "org");
-
-// User-level Access Control State
-const userSearch = ref("");
-const selectedUserId = ref("");
-const usersList = ref<any[]>([]);
-const userOverrides = ref<any[]>([]);
-const userGrants = ref<any[]>([]);
-const savingUserAccess = ref(false);
-
-const permissionDefinitions = [
-  { key: "canView", label: "View and browse", icon: "lucide:eye" },
-  { key: "canDownload", label: "Download", icon: "lucide:download" },
-  { key: "canUpload", label: "Upload", icon: "lucide:upload" },
-  { key: "canCreateFolder", label: "Create folders", icon: "lucide:folder-plus" },
-  { key: "canRename", label: "Rename", icon: "lucide:pencil" },
-  { key: "canDelete", label: "Delete", icon: "lucide:trash-2" },
-  { key: "canShare", label: "Share and publish", icon: "lucide:share-2" },
-  { key: "canEditMetadata", label: "Edit metadata", icon: "lucide:tags" },
-  { key: "canUseRag", label: "Run RAG processing", icon: "lucide:bot" },
-];
-
-const selectedUser = computed(() => (usersList.value || []).find((u) => u && u.id === selectedUserId.value));
-const filteredUsers = computed(() => {
-  const q = userSearch.value.trim().toLowerCase();
-  return (usersList.value || []).filter((u) => u && u.role !== "admin" && (!q ||
-    (u.name && u.name.toLowerCase().includes(q)) || (u.email && u.email.toLowerCase().includes(q))));
-});
-
-const userForm = ref({ permissions: {} as Record<string, boolean | null>, allDepartmentAccess: false, departmentIds: [] as string[] });
-
-const roleDefault = (key: string) => {
-  const u = selectedUser.value;
-  if (!u) return false;
-  const deptP = (permissions.value || []).find((p) => p && p.role === u.role && p.departmentId === u.departmentId);
-  const globalP = (permissions.value || []).find((p) => p && p.role === u.role && (p.departmentId || "global") === "global");
-  return deptP?.[key] ?? globalP?.[key] ?? false;
-};
-
-const effectiveUserValue = (key: string) => userForm.value.permissions[key] ?? roleDefault(key);
-const deptName = (id?: string) => (departments.value || []).find((d) => d && d.id === id)?.name || "Unassigned";
-const availableDepartments = computed(() => (departments.value || []).filter((d) => d && d.id !== selectedUser.value?.departmentId));
-
-const selectUser = (userId: string) => {
-  selectedUserId.value = userId;
-  const override = (userOverrides.value || []).find((item) => item && item.userId === userId);
-  userForm.value = {
-    permissions: Object.fromEntries(permissionDefinitions.map(({ key }) => [key, override?.[key] ?? null])),
-    allDepartmentAccess: !!override?.allDepartmentAccess,
-    departmentIds: (userGrants.value || []).filter((grant) => grant && grant.userId === userId).map((grant) => grant.departmentId),
-  };
-};
-
-const fetchUserAccessData = async () => {
-  try {
-    const data: any = await $fetch("/api/admin/access-control");
-    usersList.value = data.users || [];
-    userOverrides.value = data.overrides || [];
-    userGrants.value = data.grants || [];
-    const nextId = selectedUserId.value || (usersList.value || []).find((u) => u && u.role !== "admin")?.id;
-    if (nextId) selectUser(nextId);
-  } catch (err) {
-    console.error("Failed to load user access data:", err);
-  }
-};
-
-const saveUserAccess = async () => {
-  if (!selectedUser.value) return;
-  savingUserAccess.value = true;
-  try {
-    await $fetch("/api/admin/access-control", {
-      method: "PUT",
-      body: { userId: selectedUser.value.id, ...userForm.value },
-    });
-    toast.add({ title: "Access updated", description: `Permissions saved for ${selectedUser.value.name}.`, color: "success" });
-    await fetchUserAccessData();
-  } catch (error: any) {
-    toast.add({ title: error?.data?.message || "Failed to save access", color: "error" });
-  } finally {
-    savingUserAccess.value = false;
-  }
-};
-
 onMounted(() => {
+  if (import.meta.client && !isAdmin.value) {
+    navigateTo("/");
+    return;
+  }
   fetchSettings();
-  fetchUserAccessData();
 });
 
 // Department hierarchy management
@@ -333,6 +249,43 @@ const saveSettings = async () => {
   }
 };
 
+const savingName = ref(false);
+const saveOrgName = async () => {
+  if (!orgName.value || !orgName.value.trim()) {
+    toast.add({ title: "Organization name cannot be empty", color: "error" });
+    return;
+  }
+  savingName.value = true;
+  try {
+    await $fetch("/api/organizations/settings", {
+      method: "PUT",
+      body: {
+        name: orgName.value.trim(),
+        departments: departments.value,
+        permissions: permissions.value,
+      },
+    });
+    toast.add({
+      title: "Organization Name Updated",
+      description: `Organization name changed to "${orgName.value.trim()}".`,
+      color: "success",
+    });
+    const refreshTrigger = useState("files-refresh-trigger", () => 0);
+    refreshTrigger.value++;
+    try {
+      await $fetch("/api/auth/refresh", { method: "POST" });
+      await fetchSession();
+    } catch (sessionErr) {
+      console.error("Failed to refresh session:", sessionErr);
+    }
+    await fetchSettings();
+  } catch (e: any) {
+    toast.add({ title: e?.data?.message ?? "Error saving organization name", color: "error" });
+  } finally {
+    savingName.value = false;
+  }
+};
+
 const saveGDriveRules = async () => {
   savingGDrive.value = true;
   try {
@@ -364,48 +317,43 @@ const roleLabelMap: Record<string, string> = {
     </div>
 
     <div v-else class="max-w-5xl mx-auto space-y-8">
-      <!-- Navigation Tabs -->
-      <div class="flex items-center gap-2 border-b border-[var(--dam-line)] pb-3">
-        <button
-          type="button"
-          :class="[
-            'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all cursor-pointer',
-            activeTab === 'org'
-              ? 'bg-primary-500 text-white shadow-md'
-              : 'bg-[var(--dam-panel-solid)] text-[var(--dam-muted)] hover:bg-[var(--dam-panel-raised)] hover:text-[var(--dam-ink)] border border-[var(--dam-line)]',
-          ]"
-          @click="activeTab = 'org'"
-        >
-          <Icon name="lucide:building" class="size-4" />
-          <span>Organization &amp; Role Settings</span>
-        </button>
-
-        <button
-          type="button"
-          :class="[
-            'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all cursor-pointer',
-            activeTab === 'users'
-              ? 'bg-primary-500 text-white shadow-md'
-              : 'bg-[var(--dam-panel-solid)] text-[var(--dam-muted)] hover:bg-[var(--dam-panel-raised)] hover:text-[var(--dam-ink)] border border-[var(--dam-line)]',
-          ]"
-          @click="activeTab = 'users'"
-        >
-          <Icon name="lucide:shield-check" class="size-4" />
-          <span>Individual User Access Overrides</span>
-        </button>
-      </div>
-
-      <template v-if="activeTab === 'org'">
-        <!-- Org Name -->
+      <!-- Org Name -->
         <section class="bg-[var(--dam-panel-solid)] border border-[var(--dam-line)] text-[var(--dam-ink)] rounded-2xl p-6 space-y-4 shadow-[var(--dam-shadow-soft)]">
-          <h2 class="text-lg font-semibold text-[var(--dam-ink)] flex items-center gap-2">
-            <Icon name="lucide:building" class="text-primary size-5" />
-            General Information
-          </h2>
-          <div class="max-w-md">
-            <UFormField label="Organization Name">
-              <UInput v-model="orgName" placeholder="Enter organization name" class="w-full" />
-            </UFormField>
+          <div class="flex items-center justify-between">
+            <h2 class="text-lg font-semibold text-[var(--dam-ink)] flex items-center gap-2">
+              <Icon name="lucide:building" class="text-primary size-5" />
+              General Information
+            </h2>
+          </div>
+          <div class="max-w-xl">
+            <label class="block text-xs font-semibold uppercase tracking-wider text-[var(--dam-muted)] mb-1.5">
+              Organization Name
+            </label>
+            <div class="flex items-center gap-2.5">
+              <div class="relative flex-1">
+                <input
+                  v-model="orgName"
+                  type="text"
+                  placeholder="Enter organization name"
+                  class="w-full rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel)] px-3.5 py-2.5 text-sm font-medium text-[var(--dam-ink)] outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all shadow-xs"
+                  @keydown.enter="saveOrgName"
+                />
+              </div>
+              <button
+                type="button"
+                :disabled="savingName || !orgName?.trim()"
+                class="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-semibold text-sm shadow-md shadow-primary-500/20 transition-all disabled:opacity-50 cursor-pointer shrink-0"
+                @click="saveOrgName"
+                title="Press Enter or click to update organization name"
+              >
+                <div v-if="savingName" class="size-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <Icon v-else name="lucide:corner-down-left" class="size-4" />
+                <span>Enter</span>
+              </button>
+            </div>
+            <p class="text-[11px] text-[var(--dam-muted)] mt-1.5">
+              Type the new name and press <kbd class="px-1.5 py-0.5 rounded bg-[var(--dam-panel-raised)] border border-[var(--dam-line)] font-mono text-[10px]">Enter ↵</kbd> or click the button to save.
+            </p>
           </div>
         </section>
 
@@ -717,96 +665,6 @@ const roleLabelMap: Record<string, string> = {
             </UButton>
           </div>
         </section>
-      </template>
-
-      <!-- User Access Control Overrides Tab -->
-      <template v-else-if="activeTab === 'users'">
-        <div class="grid w-full gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
-          <!-- User Selector Aside -->
-          <aside class="overflow-hidden rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] shadow-[var(--dam-shadow-soft)]">
-            <div class="border-b border-[var(--dam-line)] p-4">
-              <h2 class="text-base font-bold text-[var(--dam-ink)]">Organization Users</h2>
-              <p class="mt-1 text-xs text-[var(--dam-muted)]">Select an individual team member to configure permission overrides.</p>
-              <UInput v-model="userSearch" icon="lucide:search" placeholder="Search user..." class="mt-4 w-full" />
-            </div>
-            <div class="max-h-[60vh] overflow-y-auto p-2">
-              <button
-                v-for="u in filteredUsers"
-                :key="u.id"
-                type="button"
-                :class="[
-                  'flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors cursor-pointer',
-                  selectedUserId === u.id ? 'bg-primary-500/10 text-primary-500' : 'hover:bg-[var(--dam-panel-raised)]',
-                ]"
-                @click="selectUser(u.id)"
-              >
-                <UAvatar :src="u.avatar || undefined" :alt="u.name" size="sm" />
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-semibold text-[var(--dam-ink)]">{{ u.name }}</span>
-                  <span class="block truncate text-xs text-[var(--dam-muted)]">{{ roleLabelMap[u.role] || u.role }} · {{ deptName(u.departmentId) }}</span>
-                </span>
-              </button>
-              <p v-if="!filteredUsers.length" class="p-6 text-center text-sm text-[var(--dam-muted)]">No users found.</p>
-            </div>
-          </aside>
-
-          <!-- User Specific Overrides & Scope Panel -->
-          <section v-if="selectedUser" class="space-y-6">
-            <div class="flex flex-col gap-4 rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] p-5 shadow-[var(--dam-shadow-soft)] sm:flex-row sm:items-center">
-              <UAvatar :src="selectedUser.avatar || undefined" :alt="selectedUser.name" size="lg" />
-              <div class="min-w-0 flex-1">
-                <h2 class="truncate text-xl font-bold text-[var(--dam-ink)]">{{ selectedUser.name }}</h2>
-                <p class="truncate text-sm text-[var(--dam-muted)]">{{ selectedUser.email }}</p>
-                <p class="mt-1 text-xs font-semibold text-primary-500">{{ roleLabelMap[selectedUser.role] || selectedUser.role }} · {{ deptName(selectedUser.departmentId) }}</p>
-              </div>
-              <UButton icon="lucide:save" color="primary" variant="solid" :loading="savingUserAccess" @click="saveUserAccess">Save Access</UButton>
-            </div>
-
-            <!-- Specific Permission Overrides -->
-            <div class="rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] p-5 shadow-[var(--dam-shadow-soft)] space-y-4">
-              <div>
-                <h3 class="text-base font-bold text-[var(--dam-ink)]">Individual Service Permissions</h3>
-                <p class="mt-1 text-sm text-[var(--dam-muted)]">Default follows the user's role. Choose 'Allow' or 'Deny' to explicitly override for this person.</p>
-              </div>
-              <div class="divide-y divide-[var(--dam-line)]">
-                <div v-for="permission in permissionDefinitions" :key="permission.key" class="flex flex-col gap-3 py-3 sm:flex-row sm:items-center">
-                  <div class="flex min-w-0 flex-1 items-center gap-3">
-                    <span class="grid size-9 place-items-center rounded-xl bg-[var(--dam-panel-raised)] text-[var(--dam-muted)]"><Icon :name="permission.icon" class="size-4" /></span>
-                    <div>
-                      <p class="text-sm font-semibold text-[var(--dam-ink)]">{{ permission.label }}</p>
-                      <p class="text-xs text-[var(--dam-muted)]">Effective: {{ effectiveUserValue(permission.key) ? 'Allowed' : 'Denied' }}</p>
-                    </div>
-                  </div>
-                  <select v-model="userForm.permissions[permission.key]" class="h-10 rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] px-3 text-sm font-semibold text-[var(--dam-ink)]">
-                    <option :value="null">Inherit role</option>
-                    <option :value="true">Allow</option>
-                    <option :value="false">Deny</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <!-- Cross Department Access Scope -->
-            <div class="rounded-2xl border border-[var(--dam-line)] bg-[var(--dam-panel-solid)] p-5 shadow-[var(--dam-shadow-soft)] space-y-4">
-              <h3 class="text-base font-bold text-[var(--dam-ink)]">Cross-Department Access Scope</h3>
-              <p class="mt-1 text-sm text-[var(--dam-muted)]">Their home department is always accessible. Grant additional departments if needed.</p>
-              <label class="mt-3 flex items-center justify-between gap-4 rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] p-4">
-                <span>
-                  <span class="block text-sm font-semibold text-[var(--dam-ink)]">All Organization Departments</span>
-                  <span class="block text-xs text-[var(--dam-muted)]">Automatically grant access to current and future departments.</span>
-                </span>
-                <USwitch v-model="userForm.allDepartmentAccess" color="primary" />
-              </label>
-              <div v-if="!userForm.allDepartmentAccess" class="mt-4 grid gap-3 sm:grid-cols-2">
-                <label v-for="department in availableDepartments" :key="department.id" class="flex items-center gap-3 rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel-raised)] p-3 text-sm font-semibold text-[var(--dam-ink)]">
-                  <UCheckbox v-model="userForm.departmentIds" :value="department.id" />
-                  {{ department.name }}
-                </label>
-              </div>
-            </div>
-          </section>
-        </div>
-      </template>
     </div>
   </AppMain>
 </template>

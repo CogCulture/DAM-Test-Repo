@@ -34,6 +34,7 @@ const onClose = () => {
 <template>
   <UModal
     v-if="file"
+    :open="true"
     :title="`Publish '${file.name}'`"
     :description="`Published item will be available to everyone via a public link.`"
     :dismissible="!publishing"

@@ -1,53 +1,58 @@
 import { ref } from "vue";
-import Move from "~/components/Move.vue";
-import { useOverlay } from "./useOverlay";
 import { useMoveAsset } from "./useMoveAsset";
 
+const isMoveOpen = ref(false);
+const moveTargetFile = ref<any>(null);
+const moveLoading = ref(false);
+const moveError = ref("");
+
 export function useMove() {
-  const overlay = useOverlay();
-  const modal = overlay.create(Move);
   const { moveAsset } = useMoveAsset();
 
-  const open = useState("move-open", () => false);
-  const loading = ref(false);
-  const error = ref("");
+  const openMove = (file: any) => {
+    if (!file) return;
+    moveTargetFile.value = file;
+    moveError.value = "";
+    moveLoading.value = false;
+    isMoveOpen.value = true;
+  };
 
-  const moveFile = async (
-    file: any,
-    target: { folderId: string; folderName?: string } | string
-  ) => {
-    if (loading.value) return;
-    loading.value = true;
-    error.value = "";
+  const closeMove = () => {
+    isMoveOpen.value = false;
+    moveTargetFile.value = null;
+    moveError.value = "";
+    moveLoading.value = false;
+  };
 
-    const folderId = typeof target === "string" ? target : target.folderId;
-    const folderName = typeof target === "string" ? "" : target.folderName;
+  const executeMove = async (target: { id?: string; folderId?: string; name?: string; folderName?: string } | string) => {
+    if (!moveTargetFile.value || moveLoading.value) return;
+    moveLoading.value = true;
+    moveError.value = "";
+
+    const folderId = typeof target === "string" ? target : (target?.id || target?.folderId || "");
+    const folderName = typeof target === "string" ? "" : (target?.name || target?.folderName || "");
 
     try {
-      const res = await moveAsset(file, { id: folderId, name: folderName });
+      const res = await moveAsset(moveTargetFile.value, { id: folderId, name: folderName });
       if (res.success) {
-        modal.close();
+        closeMove();
       } else if (res.message) {
-        error.value = res.message;
+        moveError.value = res.message;
       }
     } catch (err: any) {
-      error.value = err?.data?.message || err?.message || "Failed to move item.";
+      moveError.value = err?.data?.message || err?.message || "Failed to move item.";
     } finally {
-      loading.value = false;
+      moveLoading.value = false;
     }
   };
 
-  const openMove = (file: any) => {
-    error.value = "";
-    modal.open({
-      file,
-      loading,
-      error,
-      onSubmit: (target: { folderId: string; folderName: string }) => {
-        moveFile(file, target);
-      },
-    });
+  return {
+    isMoveOpen,
+    moveTargetFile,
+    moveLoading,
+    moveError,
+    openMove,
+    closeMove,
+    executeMove,
   };
-
-  return { open, openMove };
 }

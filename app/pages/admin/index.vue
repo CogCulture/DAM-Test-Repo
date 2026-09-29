@@ -20,10 +20,91 @@ const { data: allUsersData, refresh: refreshAll } = (isAdmin.value || isDeptHead
 const { data: orgSettings } = await useFetch("/api/organizations/settings");
 
 // UI States
-const activeTab = ref<"pending" | "all">("pending");
+const route = useRoute();
+const activeTab = ref<"pending" | "all" | "folders">(
+  (route.query.tab as any) === "folders" ? "folders" : (route.query.tab as any) === "all" ? "all" : "pending"
+);
+
+watch(() => route.query.tab, (tab) => {
+  if (tab === "folders" || tab === "all" || tab === "pending") {
+    activeTab.value = tab;
+  }
+});
+
 const searchQuery = ref("");
 const statusFilter = ref("all");
 const roleFilter = ref("all");
+
+// Folder Requests State & Handlers
+const { data: folderRequestsData, refresh: refreshFolderRequests } = await useFetch<any[]>("/api/folder-requests");
+const folderRequestsList = computed(() => {
+  const d = folderRequestsData.value;
+  return Array.isArray(d) ? d : (d as any)?.data || [];
+});
+const pendingFolderRequests = computed(() => folderRequestsList.value.filter((r: any) => r.status === "pending"));
+const reviewedFolderRequests = computed(() => folderRequestsList.value.filter((r: any) => r.status !== "pending"));
+const totalPendingFoldersCount = computed(() => pendingFolderRequests.value.length);
+
+const filteredPendingFolderRequests = computed(() => {
+  const q = searchQuery.value.toLowerCase().trim();
+  if (!q) return pendingFolderRequests.value;
+  return pendingFolderRequests.value.filter((r: any) =>
+    r.folderName?.toLowerCase().includes(q) ||
+    r.requesterName?.toLowerCase().includes(q) ||
+    getDepartmentName(r.departmentId)?.toLowerCase().includes(q)
+  );
+});
+
+const filteredReviewedFolderRequests = computed(() => {
+  const q = searchQuery.value.toLowerCase().trim();
+  if (!q) return reviewedFolderRequests.value;
+  return reviewedFolderRequests.value.filter((r: any) =>
+    r.folderName?.toLowerCase().includes(q) ||
+    r.requesterName?.toLowerCase().includes(q) ||
+    getDepartmentName(r.departmentId)?.toLowerCase().includes(q)
+  );
+});
+
+const actioningFolder = ref<string | null>(null);
+const reviewNotes = reactive<Record<string, string>>({});
+
+const handleFolderReview = async (id: string, action: "approve" | "reject") => {
+  actioningFolder.value = id;
+  try {
+    await $fetch(`/api/folder-requests/${id}`, {
+      method: "POST",
+      body: { action, reviewNote: reviewNotes[id]?.trim() || undefined },
+    });
+    toast.add({
+      title: action === "approve" ? "Folder request approved & created" : "Folder request rejected",
+      color: action === "approve" ? "success" : "neutral",
+    });
+    await refreshFolderRequests();
+  } catch (e: any) {
+    toast.add({ title: e?.data?.message ?? "Error updating folder request", color: "error" });
+  } finally {
+    actioningFolder.value = null;
+  }
+};
+
+const getDestinationPath = (req: any) => {
+  let parentPath = "";
+  if (req.parentId === "root") {
+    parentPath = req.bucketName;
+  } else if (req.parentId?.startsWith("dept_")) {
+    const deptId = req.parentId.substring(5);
+    parentPath = `${req.bucketName}/${deptId}`;
+  } else {
+    parentPath = req.parentPath || req.parentId;
+  }
+  return `${parentPath}/${req.folderName}`;
+};
+
+const folderStatusColor = (status: string) => {
+  if (status === "approved") return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+  if (status === "rejected") return "bg-red-500/10 text-red-400 border-red-500/20";
+  return "bg-amber-500/10 text-amber-500 border-amber-500/20";
+};
 
 const actioning = ref<string | null>(null);
 const editingUser = ref<any>(null);
@@ -161,14 +242,14 @@ const handleAction = async (userId: string, action: "approve" | "reject" | "remo
 
         <div class="bg-[var(--dam-panel-solid)] border border-[var(--dam-line)] rounded-2xl p-5 shadow-sm hover:shadow-md transition">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-semibold text-[var(--dam-ink-muted)] uppercase tracking-wider">Department Heads</span>
-            <div class="p-2 rounded-xl bg-indigo-500/10 text-indigo-500">
-              <Icon name="lucide:shield-check" class="size-5" />
+            <span class="text-xs font-semibold text-[var(--dam-ink-muted)] uppercase tracking-wider">Folder Requests</span>
+            <div class="p-2 rounded-xl bg-blue-500/10 text-blue-500">
+              <Icon name="lucide:folder-plus" class="size-5" />
             </div>
           </div>
           <div class="mt-3 flex items-baseline gap-2">
-            <span class="text-3xl font-bold text-indigo-400">{{ totalDeptHeadsCount }}</span>
-            <span class="text-xs text-[var(--dam-ink-muted)]">domain managers</span>
+            <span class="text-3xl font-bold text-blue-400">{{ totalPendingFoldersCount }}</span>
+            <span class="text-xs text-[var(--dam-ink-muted)]">awaiting review</span>
           </div>
         </div>
 
@@ -191,7 +272,8 @@ const handleAction = async (userId: string, action: "approve" | "reject" | "remo
         <!-- Tabs Switcher -->
         <div class="flex items-center p-1 bg-[var(--dam-bg)] border border-[var(--dam-line)] rounded-xl w-full md:w-auto">
           <button
-            class="flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition"
+            type="button"
+            class="flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition cursor-pointer"
             :class="activeTab === 'pending' ? 'bg-[var(--dam-panel-raised)] text-indigo-400 shadow-sm border border-[var(--dam-line)]' : 'text-[var(--dam-ink-muted)] hover:text-[var(--dam-ink)]'"
             @click="activeTab = 'pending'"
           >
@@ -203,7 +285,8 @@ const handleAction = async (userId: string, action: "approve" | "reject" | "remo
           </button>
 
           <button
-            class="flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition"
+            type="button"
+            class="flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition cursor-pointer"
             :class="activeTab === 'all' ? 'bg-[var(--dam-panel-raised)] text-indigo-400 shadow-sm border border-[var(--dam-line)]' : 'text-[var(--dam-ink-muted)] hover:text-[var(--dam-ink)]'"
             @click="activeTab = 'all'"
           >
@@ -211,6 +294,19 @@ const handleAction = async (userId: string, action: "approve" | "reject" | "remo
             All Organization Members
             <span class="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 text-[10px] font-bold">
               {{ totalMembersCount }}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            class="flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition cursor-pointer"
+            :class="activeTab === 'folders' ? 'bg-[var(--dam-panel-raised)] text-indigo-400 shadow-sm border border-[var(--dam-line)]' : 'text-[var(--dam-ink-muted)] hover:text-[var(--dam-ink)]'"
+            @click="activeTab = 'folders'"
+          >
+            <Icon name="lucide:folder-plus" class="size-4 text-blue-500" />
+            Folder Requests
+            <span v-if="totalPendingFoldersCount > 0" class="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold">
+              {{ totalPendingFoldersCount }}
             </span>
           </button>
         </div>
@@ -222,7 +318,7 @@ const handleAction = async (userId: string, action: "approve" | "reject" | "remo
             <input
               v-model="searchQuery"
               type="text"
-              placeholder="Search by name or email..."
+              :placeholder="activeTab === 'folders' ? 'Search folder requests...' : 'Search by name or email...'"
               class="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-[var(--dam-line)] bg-[var(--dam-bg)] text-[var(--dam-ink)] placeholder-[var(--dam-ink-muted)] focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
             />
           </div>
@@ -409,6 +505,135 @@ const handleAction = async (userId: string, action: "approve" | "reject" | "remo
             </tr>
           </tbody>
         </table>
+      </section>
+
+      <!-- TAB 3: FOLDER REQUESTS SUBSECTION -->
+      <section v-else-if="activeTab === 'folders'" class="space-y-6">
+        <!-- Awaiting Review Section -->
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-[var(--dam-ink-muted)] flex items-center gap-2">
+              <Icon name="lucide:clock" class="size-4 text-amber-500" />
+              Folder Requests Awaiting Review
+            </h3>
+            <span v-if="totalPendingFoldersCount > 0" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              {{ totalPendingFoldersCount }} pending
+            </span>
+          </div>
+
+          <div v-if="filteredPendingFolderRequests.length === 0" class="text-center py-14 bg-[var(--dam-panel-solid)] border border-[var(--dam-line)] rounded-2xl space-y-3">
+            <div class="w-14 h-14 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center mx-auto">
+              <Icon name="lucide:folder-check" class="size-7" />
+            </div>
+            <h4 class="text-base font-bold text-[var(--dam-ink)]">All Clear! No Pending Folder Requests</h4>
+            <p class="text-xs text-[var(--dam-ink-muted)] max-w-sm mx-auto">
+              All team lead folder creation requests have been reviewed.
+            </p>
+          </div>
+
+          <div v-else class="space-y-3">
+            <div
+              v-for="req in filteredPendingFolderRequests"
+              :key="req.id"
+              class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-[var(--dam-panel-solid)] border border-amber-500/30 hover:border-amber-500/60 rounded-2xl p-5 shadow-sm transition"
+            >
+              <div class="flex items-start gap-4 flex-1 min-w-0">
+                <div class="w-11 h-11 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                  <Icon name="lucide:folder-plus" class="size-5 text-amber-400" />
+                </div>
+                <div class="min-w-0 space-y-1">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-bold text-base text-[var(--dam-ink)] truncate">{{ req.folderName }}</span>
+                    <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 uppercase tracking-wider">
+                      Pending
+                    </span>
+                  </div>
+                  <p class="text-xs text-[var(--dam-ink-muted)]">
+                    Requested by <span class="font-semibold text-[var(--dam-ink)]">{{ req.requesterName || 'User' }}</span> · 
+                    <span class="font-semibold text-indigo-400">{{ getDepartmentName(req.departmentId) }}</span>
+                  </p>
+                  <p class="text-[11px] font-mono text-[var(--dam-ink-muted)] flex items-center gap-1">
+                    <Icon name="lucide:corner-down-right" class="size-3 text-neutral-400 shrink-0" />
+                    Destination: <span class="text-[var(--dam-ink)]">{{ getDestinationPath(req) }}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2.5 w-full md:w-auto shrink-0 justify-end pt-2 md:pt-0 border-t md:border-t-0 border-[var(--dam-line)]">
+                <input
+                  v-model="reviewNotes[req.id]"
+                  type="text"
+                  placeholder="Optional review note..."
+                  class="px-3.5 py-2 text-xs rounded-xl border border-[var(--dam-line)] bg-[var(--dam-bg)] text-[var(--dam-ink)] placeholder-[var(--dam-ink-muted)] focus:outline-none focus:ring-2 focus:ring-indigo-500/30 w-48 sm:w-56"
+                  :disabled="actioningFolder === req.id"
+                />
+                <UButton
+                  size="sm"
+                  color="success"
+                  variant="solid"
+                  icon="lucide:check"
+                  class="rounded-xl shadow-xs"
+                  :loading="actioningFolder === req.id"
+                  @click="handleFolderReview(req.id, 'approve')"
+                >
+                  Approve
+                </UButton>
+                <UButton
+                  size="sm"
+                  color="error"
+                  variant="ghost"
+                  icon="lucide:x"
+                  class="rounded-xl"
+                  :loading="actioningFolder === req.id"
+                  @click="handleFolderReview(req.id, 'reject')"
+                >
+                  Reject
+                </UButton>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Review History Section -->
+        <div v-if="filteredReviewedFolderRequests.length > 0" class="space-y-3 pt-4 border-t border-[var(--dam-line)]">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-[var(--dam-ink-muted)] flex items-center gap-2">
+            <Icon name="lucide:history" class="size-4 text-neutral-400" />
+            Folder Review History
+          </h3>
+
+          <div class="bg-[var(--dam-panel-solid)] border border-[var(--dam-line)] rounded-2xl overflow-hidden shadow-sm divide-y divide-[var(--dam-line)]">
+            <div
+              v-for="req in filteredReviewedFolderRequests"
+              :key="req.id"
+              class="p-4 flex items-center justify-between gap-4 transition hover:bg-[var(--dam-bg)]/40"
+            >
+              <div class="flex items-center gap-3.5 min-w-0">
+                <div class="w-9 h-9 rounded-xl bg-[var(--dam-bg)] border border-[var(--dam-line)] flex items-center justify-center shrink-0">
+                  <Icon name="lucide:folder" class="size-4 text-[var(--dam-ink-muted)]" />
+                </div>
+                <div class="min-w-0 space-y-0.5">
+                  <div class="flex items-center gap-2">
+                    <span class="font-bold text-sm text-[var(--dam-ink)] truncate">{{ req.folderName }}</span>
+                    <span
+                      class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border"
+                      :class="folderStatusColor(req.status)"
+                    >
+                      {{ req.status }}
+                    </span>
+                  </div>
+                  <p class="text-xs text-[var(--dam-ink-muted)]">
+                    Requested by {{ req.requesterName || 'User' }} · {{ getDepartmentName(req.departmentId) }}
+                    <span v-if="req.reviewNote" class="text-neutral-400 italic"> — Note: "{{ req.reviewNote }}"</span>
+                  </p>
+                </div>
+              </div>
+
+              <span class="text-[11px] font-mono text-[var(--dam-ink-muted)] hidden sm:block truncate max-w-xs text-right">
+                {{ getDestinationPath(req) }}
+              </span>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- EDIT USER ROLE & SCOPE MODAL -->

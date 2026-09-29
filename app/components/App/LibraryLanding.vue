@@ -6,12 +6,12 @@ const props = defineProps<{ kind: LibraryKind }>();
 const configs = {
   recent: {
     title: "Recent activity",
-    description: "Return to the assets your team has added or changed most recently.",
+    description: "Your uploads and activity from the past 12 hours.",
     icon: "lucide:history",
     calloutTitle: "Pick up where you left off",
-    calloutDescription: "Recent assets are ordered by their latest activity so active work stays close at hand.",
+    calloutDescription: "Your uploads and modified assets from the previous 12 hours stay close at hand.",
     emptyTitle: "No recent activity",
-    emptyDescription: "New uploads and edited assets will appear here automatically.",
+    emptyDescription: "Uploads and modified assets from the past 12 hours will appear here automatically.",
   },
   favorites: {
     title: "Favorites",

@@ -27,7 +27,10 @@ export function useMoveAsset() {
       return { success: false, message: "Cannot move item into itself" };
     }
 
-    if (file.parentId && file.parentId === targetFolder.id) {
+    const normalizedCurrentParent = file.parentId || "root";
+    const normalizedTargetParent = targetFolder.id || "root";
+
+    if (normalizedCurrentParent === normalizedTargetParent) {
       toast.add({
         title: "Already in folder",
         description: `"${file.name}" is already in "${targetFolder.name || 'this folder'}".`,
@@ -36,20 +39,36 @@ export function useMoveAsset() {
       return { success: false, message: "Already in destination folder" };
     }
 
-    const isGDrive = isGoogleDriveAsset(file) || orgType.value === "gdrive";
+    const isGDrive = isGoogleDriveAsset(file) || (
+      (file.storage === "gdrive" || file.storageProvider === "gdrive" || (route.params.bucket as string)?.startsWith("gdrive_")) &&
+      file.storage !== "local" &&
+      file.storage !== "s3" &&
+      file.bucketName !== "gdrive"
+    );
     const bucket = (route.params.bucket as string) || "org";
     isMoving.value = true;
 
     try {
       if (isGDrive) {
-        await $fetch("/api/gdrive/move", {
-          method: "POST",
-          body: {
-            fileId: file.id,
-            targetFolderId: targetFolder.id,
-            currentParentId: file.parentId,
-          },
-        });
+        try {
+          await $fetch("/api/gdrive/move", {
+            method: "POST",
+            body: {
+              fileId: file.id,
+              targetFolderId: targetFolder.id,
+              currentParentId: file.parentId,
+            },
+          });
+        } catch (gdriveErr: any) {
+          console.warn("[Move Asset] GDrive move failed, attempting local DAM move fallback:", gdriveErr);
+          await $fetch(`/api/files/${encodeURIComponent(bucket)}/move`, {
+            method: "POST",
+            body: {
+              file: { id: file.id },
+              parentId: targetFolder.id,
+            },
+          });
+        }
       } else {
         await $fetch(`/api/files/${encodeURIComponent(bucket)}/move`, {
           method: "POST",

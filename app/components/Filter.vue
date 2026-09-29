@@ -6,8 +6,6 @@ const emit = defineEmits<{
   update: [value: Record<string, unknown> | null];
 }>();
 
-const { data: taxonomies } = await useFetch<ITaxonomy[]>('/api/taxonomies');
-
 const defaultValue = {
   drive: false,
   contentType: '',
@@ -101,9 +99,9 @@ const onApply = () => {
         data-testid="filters-panel"
       >
         <USwitch v-model="filters.drive" label="Entire Drive" />
-        <USelect v-model="filters.contentType" placeholder="File Type" :items="fileTypeOptions" variant="outline" :ui="{ content: 'z-[60]' }" />
-        <USelect v-model="filters.visibility" placeholder="Visibility" :items="['public', 'private']" variant="outline" :ui="{ content: 'z-[60]' }" />
-        <USelect v-model="filters.shared" placeholder="Sharing" :items="sharedOptions" variant="outline" :ui="{ content: 'z-[60]' }" />
+        <USelect v-model="filters.contentType" placeholder="File Type" :items="fileTypeOptions" variant="outline" :ui="{ content: 'z-[10000]' }" />
+        <USelect v-model="filters.visibility" placeholder="Visibility" :items="['public', 'private']" variant="outline" :ui="{ content: 'z-[10000]' }" />
+        <USelect v-model="filters.shared" placeholder="Sharing" :items="sharedOptions" variant="outline" :ui="{ content: 'z-[10000]' }" />
 
         <div class="flex flex-col gap-1.5">
           <span class="text-xs font-medium uppercase tracking-wide text-[var(--dam-muted)]">Tags</span>
@@ -118,18 +116,6 @@ const onApply = () => {
           <div class="flex gap-1">
             <UInput v-model="tagInput" placeholder="Filter by tag..." size="xs" class="flex-1" @keyup.enter="addTag" />
             <UButton type="button" size="xs" icon="lucide:plus" color="primary" aria-label="Add tag filter" @click="addTag" />
-          </div>
-        </div>
-
-        <div v-if="taxonomies?.length" class="border-t border-[var(--dam-line)] pt-3">
-          <span class="mb-3 block text-xs font-medium uppercase tracking-wide text-[var(--dam-muted)]">Metadata Filters</span>
-          <div class="flex flex-col gap-3">
-            <div v-for="taxonomy in taxonomies" :key="taxonomy.id" class="flex flex-col gap-1">
-              <label class="text-xs text-[var(--dam-muted)]">{{ taxonomy.name }}</label>
-              <UInput v-if="taxonomy.type === 'text'" v-model="filters.meta[taxonomy.key]" :placeholder="`Filter by ${taxonomy.name}...`" size="xs" />
-              <USelect v-else-if="taxonomy.type === 'select'" v-model="filters.meta[taxonomy.key]" :items="taxonomy.options ?? []" :placeholder="`Any ${taxonomy.name}`" size="xs" :ui="{ content: 'z-[70]' }" />
-              <USelectMenu v-else-if="taxonomy.type === 'multiselect'" v-model="filters.meta[taxonomy.key]" :items="taxonomy.options ?? []" multiple :placeholder="`Any ${taxonomy.name}`" size="xs" :ui="{ content: 'z-[70]' }" />
-            </div>
           </div>
         </div>
 

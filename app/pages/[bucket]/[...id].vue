@@ -1,5 +1,10 @@
 <script setup lang="ts">
+import { computed } from "vue";
+
 definePageMeta({
+  key: (route) => route.fullPath,
+  pageTransition: false,
+  layoutTransition: false,
   validate: async (route) => {
     const reserved = ["admin", "superadmin", "auth", "dept-head", "gdrive"];
     const reservedSubroutes = ["favorites", "shared", "published", "recent", "trash"];
@@ -16,9 +21,11 @@ definePageMeta({
 });
 
 const route = useRoute();
-const bucket = route.params.bucket;
+const bucket = computed(() => (route.params.bucket as string) || "org");
 </script>
 
 <template>
-  <AppFiles v-if="bucket" />
+  <div class="dam-page-container w-full">
+    <AppFiles v-if="bucket" :key="route.fullPath" />
+  </div>
 </template>

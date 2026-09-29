@@ -15,10 +15,12 @@ const dir = computed(() =>
 );
 </script>
 <template>
-  <div :key="name" :data-layout="name" :class="['grid w-full items-start', layoutClass]">
-    <slot :dir="dir" />
+  <div :data-layout="name" :class="['grid w-full items-start', layoutClass]">
     <template v-if="loading">
       <FileSkeleton v-for="i of 8" :key="i" :dir="dir" />
+    </template>
+    <template v-else>
+      <slot :dir="dir" />
     </template>
   </div>
 </template>

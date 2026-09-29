@@ -145,13 +145,12 @@ const handleFileSelect = (event: Event) => {
 <template>
   <div
     ref="dropZoneRef"
-    @click="handleFileClick"
     @dragover="onDragOver"
     @dragenter="onDragOver"
     @dragleave="onDragLeave"
     @drop="onDrop"
     :class="[
-      'dam-dropzone group relative flex min-h-40 w-full cursor-pointer select-none flex-col items-center justify-center gap-4 overflow-hidden rounded-2xl border border-dashed px-5 py-8 transition-all duration-300',
+      'dam-dropzone group relative flex min-h-40 w-full select-none flex-col items-center justify-center gap-4 overflow-hidden rounded-2xl border border-dashed px-5 py-8 transition-all duration-300',
       isOverDropZone
         ? 'scale-[0.995] border-primary-500 bg-primary-500/10 ring-4 ring-primary-500/10'
         : 'border-[var(--dam-line)] bg-[var(--dam-panel)]/75 hover:border-primary-500/60 hover:bg-primary-500/[0.04]',

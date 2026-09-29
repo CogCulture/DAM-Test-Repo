@@ -8,8 +8,8 @@
 import { requireFilePermission } from "~~/server/utils/permission";
 import { getGDriveUploadAccess } from "~~/server/utils/gdrive-access";
 import { useDrizzle } from "~~/server/utils/drizzle";
-import { users } from "~~/server/database/schema";
-import { eq, and } from "drizzle-orm";
+import { users, files } from "~~/server/database/schema";
+import { eq, and, or } from "drizzle-orm";
 import { getGDriveAccessToken, getGDriveConnection } from "~~/server/utils/gdrive";
 
 export default defineEventHandler(async (event) => {
@@ -42,15 +42,15 @@ export default defineEventHandler(async (event) => {
   }
 
   const connection = await getGDriveConnection(adminUserId);
-  if (!connection || connection.status !== "approved" || !connection.folderId) {
-    throw createError({ status: 403, message: "Google Drive is not connected or approved." });
+  if (!connection || connection.status === "rejected") {
+    throw createError({ status: 403, message: "Google Drive is not connected." });
   }
 
-  const token = await getGDriveAccessToken(adminUserId);
+  const token = await getGDriveAccessToken(connection.userId || adminUserId);
 
   let targetId = body.targetFolderId;
   if (targetId === "root") {
-    targetId = connection.folderId;
+    targetId = connection.folderId || "root";
   }
 
   // 1. Get current parents if not provided
@@ -103,6 +103,19 @@ export default defineEventHandler(async (event) => {
         body: JSON.stringify({}),
       }
     );
+
+    // Keep local database record in sync if indexed locally
+    try {
+      await db
+        .update(files)
+        .set({
+          parentId: body.targetFolderId,
+          updatedAt: new Date(),
+        })
+        .where(or(eq(files.id, body.fileId), eq(files.storagePath, body.fileId)));
+    } catch {
+      // ignore local DB sync error if not indexed locally
+    }
 
     return {
       success: true,

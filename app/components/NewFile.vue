@@ -48,7 +48,16 @@ const resolvedParentId = computed(() => {
     });
   }
   const idParam = route.params.id;
-  return Array.isArray(idParam) ? (idParam.join("/") || "root") : (idParam || "root");
+  if (!idParam) return "root";
+  if (Array.isArray(idParam)) {
+    const last = idParam.filter(Boolean).pop();
+    return last || "root";
+  }
+  if (typeof idParam === "string") {
+    const parts = idParam.split("/").filter(Boolean);
+    return parts.pop() || "root";
+  }
+  return "root";
 });
 
 const items = computed(() => {

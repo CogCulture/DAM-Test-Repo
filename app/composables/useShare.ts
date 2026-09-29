@@ -1,12 +1,13 @@
 import Share from "~/components/Share.vue";
 import { useOverlay } from "./useOverlay";
+import { useToast } from "./useToast";
 
 export function useShare() {
   const route = useRoute();
   const overlay = useOverlay();
+  const toast = useToast();
   const modal = overlay.create(Share);
 
-  const open = useState("share-open", () => false);
   const sharing = useState("sharing", () => false);
   const error = ref("");
 
@@ -14,18 +15,25 @@ export function useShare() {
     if (sharing.value) return;
     sharing.value = true;
     try {
-      const data = await $fetch(`/api/files/${route.params.bucket}/share`, {
+      const data = await $fetch<{ status: string; message?: string }>(`/api/files/${route.params.bucket}/share`, {
         method: "POST",
         body: { files, members },
       });
       modal.close();
+      toast.add({
+        title: "Shared Successfully",
+        description: data?.message || `Shared ${files.length} item(s) with ${members.length} team member(s). Email invitations sent.`,
+        color: "green",
+      });
     } catch (errors: any) {
-      if (errors?.data?.message) {
-        console.error(errors?.data.message);
-        error.value = errors.data.message;
-      } else {
-        error.value = "An error occurred. Please try again.";
-      }
+      const msg = errors?.data?.message || errors?.message || "An error occurred while sharing. Please try again.";
+      console.error("Share error:", errors);
+      toast.add({
+        title: "Sharing Failed",
+        description: msg,
+        color: "red",
+      });
+      error.value = msg;
     } finally {
       sharing.value = false;
     }
@@ -41,4 +49,4 @@ export function useShare() {
     });
   };
   return { openShare };
-};
+}

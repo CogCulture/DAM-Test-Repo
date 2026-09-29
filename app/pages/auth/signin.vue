@@ -141,7 +141,7 @@ const assetShowcase = [
         <div class="lg:col-span-5 flex justify-center lg:justify-end w-full">
           <AuthCard
             title="Sign In to DAM"
-            description="Sign in or use quick dev login to access your organization workspace."
+            description="Sign in through Google OAuth to access your organization workspace."
           />
         </div>
       </div>

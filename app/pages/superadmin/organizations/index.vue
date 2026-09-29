@@ -8,6 +8,45 @@ const { data: orgs, refresh } = await useFetch<any[]>("/api/superadmin/organizat
 const toast = useToast();
 const actionLoading = ref<string | null>(null);
 
+// Client onboarding modal state
+const createModalOpen = ref(false);
+const createLoading = ref(false);
+const newOrgForm = ref({
+  name: "",
+  orgType: "s3" as "s3" | "gdrive",
+  adminEmail: "",
+});
+
+const handleCreateOrg = async () => {
+  if (!newOrgForm.value.name.trim()) {
+    toast.add({ title: "Organization name is required", color: "error" });
+    return;
+  }
+  createLoading.value = true;
+  try {
+    const res: any = await $fetch("/api/superadmin/organizations", {
+      method: "POST",
+      body: newOrgForm.value,
+    });
+    toast.add({
+      title: "Client Onboarded Successfully",
+      description: `Organization "${res.name}" workspace created.`,
+      color: "success",
+    });
+    createModalOpen.value = false;
+    newOrgForm.value = { name: "", orgType: "s3", adminEmail: "" };
+    refresh();
+  } catch (err: any) {
+    toast.add({
+      title: "Failed to onboard client",
+      description: err?.data?.message || err?.message || "An error occurred.",
+      color: "error",
+    });
+  } finally {
+    createLoading.value = false;
+  }
+};
+
 const formatBytes = (bytes: number) => {
   if (!bytes || bytes === 0) return "0 B";
   const k = 1024;
@@ -65,8 +104,8 @@ const filteredOrgs = computed(() => {
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-bold text-white">Organizations</h1>
-        <p class="text-slate-400 text-sm mt-1">Manage all organizations, features, and status</p>
+        <h1 class="text-2xl font-bold text-white">Client Organizations</h1>
+        <p class="text-slate-400 text-sm mt-1">Onboard & manage isolated client workspaces, features, and storage</p>
       </div>
       <div class="flex items-center gap-3">
         <input
@@ -74,11 +113,125 @@ const filteredOrgs = computed(() => {
           placeholder="Search organizations..."
           class="bg-[#0d0d14] border border-[#1e1e2e] rounded-xl px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 w-56 transition-all"
         />
+        <button
+          @click="createModalOpen = true"
+          class="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-medium px-4 py-2 rounded-xl text-sm shadow-lg shadow-indigo-500/25 transition-all cursor-pointer"
+        >
+          <Icon name="lucide:building-2" class="w-4 h-4" />
+          <span>Onboard Client</span>
+        </button>
         <button @click="refresh" class="text-slate-400 hover:text-white px-3 py-2 rounded-xl hover:bg-white/5 transition-all">
           <Icon name="lucide:refresh-cw" class="w-4 h-4" />
         </button>
       </div>
     </div>
+
+    <!-- Onboard Client Modal -->
+    <Teleport to="body">
+      <div v-if="createModalOpen" class="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+        <div class="fixed inset-0 bg-black/75 backdrop-blur-xs" @click="createModalOpen = false" />
+
+        <div class="relative z-10 w-full max-w-lg bg-[#0d0d14] border border-[#1e1e2e] rounded-2xl p-6 shadow-2xl space-y-5 text-white">
+          <div class="flex items-center justify-between border-b border-zinc-800 pb-4">
+            <div class="flex items-center gap-3">
+              <div class="size-10 rounded-xl bg-violet-600/20 border border-violet-500/30 flex items-center justify-center text-violet-400">
+                <Icon name="lucide:building-2" class="size-5" />
+              </div>
+              <div>
+                <h3 class="text-lg font-bold text-white">Onboard New Client Organization</h3>
+                <p class="text-xs text-zinc-400">Create an isolated organization workspace for a new client.</p>
+              </div>
+            </div>
+            <button @click="createModalOpen = false" class="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-white/5">
+              <Icon name="lucide:x" class="size-5" />
+            </button>
+          </div>
+
+          <form @submit.prevent="handleCreateOrg" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">
+                Client / Organization Name *
+              </label>
+              <input
+                v-model="newOrgForm.name"
+                type="text"
+                required
+                placeholder="e.g. Acme Corporation or Client Enterprise"
+                class="w-full bg-[#141420] border border-[#2e2e44] rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-violet-500"
+              />
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">
+                Storage Architecture
+              </label>
+              <div class="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  @click="newOrgForm.orgType = 's3'"
+                  :class="newOrgForm.orgType === 's3'
+                    ? 'border-violet-500 bg-violet-500/10 text-white'
+                    : 'border-[#2e2e44] bg-[#141420] text-zinc-400 hover:border-zinc-700'"
+                  class="flex items-center gap-2.5 p-3 rounded-xl border text-left text-xs font-medium transition-all"
+                >
+                  <Icon name="lucide:database" class="size-4 text-violet-400 shrink-0" />
+                  <div>
+                    <div class="font-bold text-white">Platform S3</div>
+                    <div class="text-[10px] text-zinc-400">Local / Isolated S3 Storage</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  @click="newOrgForm.orgType = 'gdrive'"
+                  :class="newOrgForm.orgType === 'gdrive'
+                    ? 'border-blue-500 bg-blue-500/10 text-white'
+                    : 'border-[#2e2e44] bg-[#141420] text-zinc-400 hover:border-zinc-700'"
+                  class="flex items-center gap-2.5 p-3 rounded-xl border text-left text-xs font-medium transition-all"
+                >
+                  <Icon name="logos:google-icon" class="size-4 shrink-0" />
+                  <div>
+                    <div class="font-bold text-white">Google Drive</div>
+                    <div class="text-[10px] text-zinc-400">Host Client Google Drive Folder</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">
+                Client Admin Email (Optional)
+              </label>
+              <input
+                v-model="newOrgForm.adminEmail"
+                type="email"
+                placeholder="client.admin@company.com"
+                class="w-full bg-[#141420] border border-[#2e2e44] rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-violet-500"
+              />
+              <p class="mt-1 text-[11px] text-zinc-500">Assigns or creates an admin account for the client upon onboarding.</p>
+            </div>
+
+            <div class="pt-3 border-t border-zinc-800/80 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                @click="createModalOpen = false"
+                class="px-4 py-2 text-sm text-zinc-400 hover:text-white rounded-xl hover:bg-white/5 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                :disabled="createLoading"
+                class="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold text-sm rounded-xl shadow-lg shadow-indigo-500/25 transition-all disabled:opacity-50"
+              >
+                <Icon v-if="createLoading" name="lucide:loader-2" class="size-4 animate-spin" />
+                <span>{{ createLoading ? "Onboarding..." : "Onboard Organization" }}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- Empty -->
     <div v-if="!filteredOrgs.length" class="flex flex-col items-center justify-center py-24 text-slate-500">

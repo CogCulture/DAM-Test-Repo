@@ -17,8 +17,12 @@ const files = ref<any[]>([]);
 const loading = ref(false);
 const loadError = ref<string | null>(null);
 
-const fetchContents = async () => {
-  loading.value = true;
+let directoryPollTimer: ReturnType<typeof setInterval> | null = null;
+
+const fetchContents = async (options: { silent?: boolean } = {}) => {
+  if (!options.silent && !files.value.length) {
+    loading.value = true;
+  }
   loadError.value = null;
   try {
     const isGDrive = orgType.value === "gdrive" || (bucketName.value && bucketName.value.startsWith("gdrive_"));
@@ -34,10 +38,14 @@ const fetchContents = async () => {
     }));
     files.value = replaceDirectoryBranch(files.value, data, true);
   } catch (err: any) {
-    console.error("Error fetching root directory contents:", err);
-    loadError.value = err?.data?.message || err?.message || "Directory could not be loaded.";
+    if (!options.silent) {
+      console.error("Error fetching root directory contents:", err);
+      loadError.value = err?.data?.message || err?.message || "Directory could not be loaded.";
+    }
   } finally {
-    loading.value = false;
+    if (!options.silent) {
+      loading.value = false;
+    }
   }
 };
 
@@ -55,11 +63,25 @@ watch(bucketName, (newVal, oldVal) => {
 
 onMounted(() => {
   fetchContents();
+  if (import.meta.client) {
+    directoryPollTimer = setInterval(() => {
+      fetchContents({ silent: true });
+    }, 3000);
+  }
+});
+
+onBeforeUnmount(() => {
+  if (directoryPollTimer) {
+    clearInterval(directoryPollTimer);
+    directoryPollTimer = null;
+  }
+  stopSidebarResize();
+  stopSegmentResize();
 });
 const { aside } = useAside();
 const sidebarRef = ref<HTMLElement | null>(null);
 const sidebarWidth = useState<number>("dam-sidebar-width", () => 272);
-const libraryHeight = useState<number>("dam-sidebar-library-height", () => 342);
+const libraryHeight = useState<number>("dam-sidebar-library-height", () => 180);
 const storageHeight = useState<number>("dam-sidebar-storage-height", () => 60);
 const libraryOpen = useState<boolean>("dam-sidebar-library-open", () => true);
 const foldersOpen = useState<boolean>("dam-sidebar-folders-open", () => true);
@@ -169,11 +191,33 @@ const libraryLinks = computed(() => [
   { label: "All assets", icon: "lucide:layout-grid", to: `/${bucketName.value}` },
   { label: "Recent", icon: "lucide:clock-3", to: `/${bucketName.value}/recent` },
   { label: "Favorites", icon: "lucide:star", to: `/${bucketName.value}/favorites` },
-  { label: "Shared", icon: "lucide:users", to: `/${bucketName.value}/shared` },
+  { label: "Shared with me", icon: "lucide:circle-user", to: `/${bucketName.value}/shared` },
   { label: "Published", icon: "lucide:globe-2", to: `/${bucketName.value}/published` },
   { label: "Trash", icon: "lucide:trash-2", to: `/${bucketName.value}/trash` },
 ]);
 const isLibraryLinkActive = (to: string) => route.path === to;
+
+const isFolderNode = (a: any) =>
+  a?.type === "folder" || a?.contentType === "folder" || a?.type === "directory" || (!a?.contentType && !a?.size && a?.name && !a?.name.includes("."));
+
+const sortedFiles = computed(() => {
+  return [...files.value].sort((a: any, b: any) => {
+    const aIsFolder = isFolderNode(a);
+    const bIsFolder = isFolderNode(b);
+    if (aIsFolder && !bIsFolder) return -1;
+    if (!aIsFolder && bIsFolder) return 1;
+    return (a?.name || "").localeCompare(b?.name || "", undefined, { sensitivity: "base" });
+  });
+});
+
+const treeFilterTab = ref<"all" | "folders" | "files">("all");
+const treeFolders = computed(() => sortedFiles.value.filter(isFolderNode));
+const treeFiles = computed(() => sortedFiles.value.filter((f) => !isFolderNode(f)));
+const displayTreeFiles = computed(() => {
+  if (treeFilterTab.value === "folders") return treeFolders.value;
+  if (treeFilterTab.value === "files") return treeFiles.value;
+  return sortedFiles.value;
+});
 </script>
 
 <template>
@@ -232,17 +276,59 @@ const isLibraryLinkActive = (to: string) => route.path === to;
     </button>
 
     <section :class="['flex min-h-0 flex-col overflow-hidden', foldersOpen ? 'grow' : 'shrink-0']">
-      <div class="flex items-center justify-between border-b border-[var(--dam-line)] px-3 py-3">
+      <div class="flex items-center justify-between border-b border-[var(--dam-line)] px-3 py-2.5">
         <button type="button" class="flex min-w-0 grow items-center gap-2 rounded-lg px-1 py-1 text-left hover:bg-[var(--dam-panel-raised)]" aria-controls="dam-folders-section" :aria-expanded="foldersOpen" @click="foldersOpen = !foldersOpen">
           <UIcon :name="foldersOpen ? 'lucide:chevron-down' : 'lucide:chevron-right'" class="size-3.5 shrink-0 text-[var(--dam-muted)]" />
-          <span><span class="dam-kicker block">Folders</span><span class="mt-1 block text-xs text-[var(--dam-muted)]">Browse your workspace</span></span>
+          <span><span class="dam-kicker block">Folders & Files ({{ sortedFiles.length }})</span><span class="mt-0.5 block text-[11px] text-[var(--dam-muted)]">Browse your workspace</span></span>
         </button>
         <NewFile compact size="xs" parentId="root" @click.stop />
       </div>
 
+      <!-- Quick Filter Tabs for Sidebar Tree -->
+      <div v-show="foldersOpen && sortedFiles.length > 0" class="flex items-center gap-1 border-b border-[var(--dam-line)] bg-[var(--dam-panel-raised)]/40 px-2 py-1 text-[11px]">
+        <button
+          type="button"
+          :class="[
+            'cursor-pointer rounded-md px-2 py-0.5 font-medium transition',
+            treeFilterTab === 'all'
+              ? 'bg-primary-500 text-white shadow-xs font-semibold'
+              : 'text-[var(--dam-muted)] hover:bg-[var(--dam-panel-raised)] hover:text-[var(--dam-ink)]'
+          ]"
+          @click="treeFilterTab = 'all'"
+        >
+          All ({{ sortedFiles.length }})
+        </button>
+        <button
+          v-if="treeFolders.length > 0"
+          type="button"
+          :class="[
+            'cursor-pointer rounded-md px-2 py-0.5 font-medium transition',
+            treeFilterTab === 'folders'
+              ? 'bg-primary-500 text-white shadow-xs font-semibold'
+              : 'text-[var(--dam-muted)] hover:bg-[var(--dam-panel-raised)] hover:text-[var(--dam-ink)]'
+          ]"
+          @click="treeFilterTab = 'folders'"
+        >
+          Folders ({{ treeFolders.length }})
+        </button>
+        <button
+          v-if="treeFiles.length > 0"
+          type="button"
+          :class="[
+            'cursor-pointer rounded-md px-2 py-0.5 font-medium transition',
+            treeFilterTab === 'files'
+              ? 'bg-primary-500 text-white shadow-xs font-semibold'
+              : 'text-[var(--dam-muted)] hover:bg-[var(--dam-panel-raised)] hover:text-[var(--dam-ink)]'
+          ]"
+          @click="treeFilterTab = 'files'"
+        >
+          Files ({{ treeFiles.length }})
+        </button>
+      </div>
+
       <div v-show="foldersOpen" id="dam-folders-section" class="min-h-0 grow overflow-x-auto overflow-y-auto p-2">
         <AppDirectoryNode
-          v-for="file in files"
+          v-for="file in displayTreeFiles"
           :key="file.id"
           :file="file"
           :bucket-name="bucketName"
@@ -257,7 +343,7 @@ const isLibraryLinkActive = (to: string) => route.path === to;
         </div>
         <div v-else-if="files.length === 0" class="rounded-xl border border-dashed border-[var(--dam-line)] px-3 py-6 text-center">
           <UIcon name="lucide:folder-open" class="mx-auto mb-2 size-5 text-[var(--dam-muted)]" />
-          <div class="text-xs text-[var(--dam-muted)]">No folders yet</div>
+          <div class="text-xs text-[var(--dam-muted)]">No items yet</div>
         </div>
       </div>
     </section>

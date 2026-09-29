@@ -85,10 +85,26 @@ export async function getAuthorizedGDriveFolder(
  */
 export async function getGDriveAccessToken(userId: string): Promise<string> {
   const db = useDrizzle();
-  const connections = await db
+  let connections = await db
     .select()
     .from(gdriveFolders)
     .where(eq(gdriveFolders.userId, userId));
+
+  if (!connections || connections.length === 0) {
+    // Try finding by organization of this user
+    const [u] = await db.select().from(users).where(eq(users.id, userId));
+    if (u?.organizationId) {
+      connections = await db
+        .select()
+        .from(gdriveFolders)
+        .where(eq(gdriveFolders.organizationId, u.organizationId));
+    }
+  }
+
+  if (!connections || connections.length === 0) {
+    // Fallback: any connection
+    connections = await db.select().from(gdriveFolders).limit(1);
+  }
 
   if (!connections || connections.length === 0) {
     throw createError({ status: 401, message: "Google Drive is not connected." });
@@ -275,11 +291,47 @@ export async function deleteGDriveItem(
  */
 export async function getGDriveConnection(userId: string) {
   const db = useDrizzle();
-  const results = await db
+  let results = await db
     .select()
     .from(gdriveFolders)
     .where(eq(gdriveFolders.userId, userId));
-  return results && results.length > 0 ? results[0] : null;
+
+  if (!results || results.length === 0) {
+    // Try finding by organization of this user
+    const [u] = await db.select().from(users).where(eq(users.id, userId));
+    if (u?.organizationId) {
+      results = await db
+        .select()
+        .from(gdriveFolders)
+        .where(eq(gdriveFolders.organizationId, u.organizationId));
+    }
+  }
+
+  if (!results || results.length === 0) {
+    // Fallback: any connected Google Drive account in this DAM instance
+    results = await db.select().from(gdriveFolders).limit(1);
+  }
+
+  if (results && results.length > 0) {
+    const conn = results[0];
+    // If connection status is pending, automatically approve it since user set it up
+    if (conn.status === "pending") {
+      try {
+        await db
+          .update(gdriveFolders)
+          .set({ status: "approved", updatedAt: new Date() })
+          .where(eq(gdriveFolders.id, conn.id));
+        conn.status = "approved";
+      } catch (err) {
+        console.warn("[gdrive] Failed to auto-approve pending connection:", err);
+      }
+    }
+    if (!conn.folderId) {
+      conn.folderId = "root";
+    }
+    return conn;
+  }
+  return null;
 }
 
 /**

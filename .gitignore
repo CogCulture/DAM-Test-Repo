@@ -43,6 +43,11 @@ brain/
 __pycache__/
 *.py[cod]
 uploads/
+# Local database files
+*.db
+*.sqlite
+data/*.db
+data/*.sqlite
 data/*.db-shm
 data/*.db-wal
 

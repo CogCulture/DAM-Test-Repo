@@ -5,6 +5,11 @@ const menuOpen = ref(false);
 const menuRef = ref<HTMLElement | null>(null);
 const bucketName = computed(() => (route.params.bucket as string) || "org");
 
+const isAdmin = computed(() => {
+  const role = (user.value as any)?.role;
+  return role === "admin" || role === "superadmin";
+});
+
 const closeMenu = () => {
   menuOpen.value = false;
 };
@@ -65,6 +70,20 @@ onBeforeUnmount(() => {
         <Icon name="lucide:user" class="size-4" />
       </span>
       <span class="hidden max-w-28 truncate text-xs font-semibold xl:block">{{ user?.name || 'Account' }}</span>
+      
+      <!-- Profile Level Badge on Button -->
+      <span
+        :class="[
+          'inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider rounded-md border shrink-0',
+          isAdmin
+            ? 'bg-purple-500/15 text-purple-400 border-purple-500/30'
+            : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+        ]"
+      >
+        <Icon :name="isAdmin ? 'lucide:shield-check' : 'lucide:user'" class="size-3" />
+        <span>{{ isAdmin ? 'ADMIN' : 'USER' }}</span>
+      </span>
+
       <Icon name="lucide:chevron-down" :class="['size-3.5 transition-transform', menuOpen && 'rotate-180']" />
     </button>
 
@@ -75,27 +94,29 @@ onBeforeUnmount(() => {
         role="menu"
         @click.stop
       >
-        <div class="rounded-xl bg-[var(--dam-panel-raised)] px-3 py-3">
-          <p class="truncate text-sm font-semibold text-[var(--dam-ink)]">{{ user?.name || 'Workspace user' }}</p>
-          <p v-if="user?.email" class="mt-0.5 truncate text-xs text-[var(--dam-muted)]">{{ user.email }}</p>
+        <!-- User Profile Info Card with Badge -->
+        <div class="rounded-xl bg-[var(--dam-panel-raised)] px-3 py-3 space-y-1.5">
+          <div class="flex items-center justify-between gap-2">
+            <p class="truncate text-sm font-bold text-[var(--dam-ink)]">{{ user?.name || 'Workspace user' }}</p>
+            <span
+              :class="[
+                'inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider rounded-full border shadow-xs shrink-0',
+                isAdmin
+                  ? 'bg-gradient-to-r from-purple-500/20 to-indigo-500/20 text-purple-300 border-purple-500/40'
+                  : 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-300 border-emerald-500/40'
+              ]"
+            >
+              <Icon :name="isAdmin ? 'lucide:shield-check' : 'lucide:user'" class="size-3" />
+              <span>{{ isAdmin ? 'ADMIN' : 'USER' }}</span>
+            </span>
+          </div>
+          <p v-if="user?.email" class="truncate text-xs text-[var(--dam-muted)]">{{ user.email }}</p>
         </div>
 
         <div class="my-2 grid gap-1">
           <button type="button" class="profile-item" role="menuitem" @click="goTo(`/${bucketName}`)">
             <Icon name="lucide:layout-dashboard" class="size-4" />
             <span>My workspace</span>
-          </button>
-          <button type="button" class="profile-item" role="menuitem" @click="goTo(`/${bucketName}/favorites`)">
-            <Icon name="lucide:star" class="size-4" />
-            <span>Favorites</span>
-          </button>
-          <button type="button" class="profile-item" role="menuitem" @click="goTo(`/${bucketName}/shared`)">
-            <Icon name="lucide:users" class="size-4" />
-            <span>Shared with me</span>
-          </button>
-          <button type="button" class="profile-item" role="menuitem" @click="goTo(`/${bucketName}/published`)">
-            <Icon name="lucide:globe" class="size-4" />
-            <span>Published assets</span>
           </button>
           <button type="button" class="profile-item text-indigo-600 dark:text-indigo-400 font-semibold" role="menuitem" @click="goTo('/auth/select-storage')">
             <Icon name="lucide:database" class="size-4" />

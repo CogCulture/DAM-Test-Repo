@@ -214,12 +214,10 @@ const breadcrumbs = computed<BreadcrumbSegment[]>(() => {
 
     if (route.path.includes("/departments")) {
       items.push({ label: "Departments", icon: "lucide:network", isCurrent: true });
-    } else if (route.path.includes("/taxonomy")) {
-      items.push({ label: "Taxonomy & Metadata", icon: "lucide:tags", isCurrent: true });
     } else if (route.path.includes("/nomenclature")) {
       items.push({ label: "Nomenclature Rules", icon: "lucide:file-code", isCurrent: true });
     } else if (route.path.includes("/template-folders")) {
-      items.push({ label: "Template Folders", icon: "lucide:folder-tree", isCurrent: true });
+      items.push({ label: "Client Folders", icon: "lucide:briefcase", isCurrent: true });
     } else if (route.path.includes("/settings")) {
       items.push({ label: "Settings", icon: "lucide:settings", isCurrent: true });
     } else if (route.path.includes("/gdrive-setup")) {

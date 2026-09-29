@@ -6,9 +6,6 @@ import { getDepartmentName } from "~~/shared/constants/departments";
 import { getRoleLabel } from "~~/shared/constants/roles";
 
 const { isAdmin, isDeptHead, departmentId: userDepartmentId } = useRole();
-if (!isAdmin.value && !isDeptHead.value) {
-  navigateTo("/");
-}
 
 const toast = useToast();
 const loading = ref(true);
@@ -80,7 +77,13 @@ watch(selectedDepartmentId, () => {
   fetchDashboardData();
 });
 
-onMounted(fetchDashboardData);
+onMounted(() => {
+  if (import.meta.client && !isAdmin.value && !isDeptHead.value) {
+    navigateTo("/");
+    return;
+  }
+  fetchDashboardData();
+});
 </script>
 
 <template>
@@ -132,7 +135,7 @@ onMounted(fetchDashboardData);
       <!-- Quick Actions / Navigation -->
       <section class="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
         <h2 class="text-lg font-semibold text-neutral-800 dark:text-neutral-200">Quick Governance Tools</h2>
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <NuxtLink 
             to="/admin/nomenclature" 
             class="flex flex-col items-center justify-center p-6 bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800/80 rounded-2xl hover:border-indigo-500/40 hover:bg-indigo-500/5 transition text-center space-y-3"
@@ -143,16 +146,7 @@ onMounted(fetchDashboardData);
           </NuxtLink>
 
           <NuxtLink 
-            :to="selectedDepartmentId ? `/dept-head/permissions?departmentId=${selectedDepartmentId}` : '/dept-head/permissions'" 
-            class="flex flex-col items-center justify-center p-6 bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800/80 rounded-2xl hover:border-indigo-500/40 hover:bg-indigo-500/5 transition text-center space-y-3"
-          >
-            <UIcon name="lucide:shield-check" class="text-emerald-500 text-2xl" />
-            <div class="text-sm font-bold text-neutral-900 dark:text-white">Manage Permissions</div>
-            <p class="text-xs text-neutral-500">Set role permissions & user overrides</p>
-          </NuxtLink>
-
-          <NuxtLink 
-            to="/admin/folder-requests" 
+            to="/admin?tab=folders" 
             class="flex flex-col items-center justify-center p-6 bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800/80 rounded-2xl hover:border-indigo-500/40 hover:bg-indigo-500/5 transition text-center space-y-3"
           >
             <UIcon name="lucide:folder-open" class="text-amber-500 text-2xl" />

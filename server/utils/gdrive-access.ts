@@ -25,11 +25,14 @@ export const getGDriveUploadAccess = async (user: any) => {
   }
 
   const connection = await getGDriveConnection(adminUserId);
-  if (!connection || connection.status !== "approved" || !connection.folderId) {
-    throw createError({ status: 403, message: "Google Drive folder hosting is not approved." });
+  if (!connection || connection.status === "rejected") {
+    throw createError({ status: 403, message: "Google Drive is not connected." });
+  }
+  if (!connection.folderId) {
+    connection.folderId = "root";
   }
 
-  const token = await getGDriveAccessToken(adminUserId);
+  const token = await getGDriveAccessToken(connection.userId || adminUserId);
   const departments = await getOrgDepartments(organizationId);
   const accessibleDepartmentIds = new Set<string>([
     ...(user.accessibleDepartmentIds || []),

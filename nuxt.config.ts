@@ -74,6 +74,14 @@ export default defineNuxtConfig({
     mode: "svg",
   },
   vite: {
+    server: {
+      hmr: {
+        overlay: false,
+      },
+    },
+    build: {
+      modulePreload: false,
+    },
     warmup: {
       clientFiles: [
         "./app/pages/index.vue",

@@ -10,16 +10,26 @@ export default defineEventHandler(async (event) => {
       {
         headers: { Authorization: `Bearer ${token}` },
         query: {
-          q: "mimeType = 'application/vnd.google-apps.folder' and trashed = false and 'root' in parents",
-          fields: "files(id, name, createdTime)",
-          orderBy: "name",
-          pageSize: 100,
+          q: "trashed = false and 'root' in parents",
+          fields: "files(id, name, mimeType, size, createdTime)",
+          orderBy: "folder,name",
+          pageSize: 200,
         },
       }
     );
-    return response.files || [];
+
+    const items = (response.files || []).map((file) => ({
+      id: file.id,
+      name: file.name,
+      size: file.size ? Number(file.size) : null,
+      type: file.mimeType === "application/vnd.google-apps.folder" ? "folder" : "file",
+      mimeType: file.mimeType,
+      createdTime: file.createdTime,
+    }));
+
+    return items;
   } catch (err: any) {
-    console.error("List folders failed:", err?.data || err);
-    throw createError({ status: 502, message: "Failed to list folders from Google Drive." });
+    console.error("List drive items failed:", err?.data || err);
+    throw createError({ status: 502, message: "Failed to list items from Google Drive." });
   }
 });

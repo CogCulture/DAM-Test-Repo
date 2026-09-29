@@ -141,7 +141,8 @@ watch([uploadDestinations, folder], ([destinations]) => {
   }
   const current = destinations?.find((destination) => destination.id === selectedDestinationId.value && destination.available);
   if (!current) {
-    selectedDestinationId.value = destinations?.find((destination) => destination.available)?.id || null;
+    const rootOption = destinations?.find((destination) => destination.id === "root" && destination.available);
+    selectedDestinationId.value = rootOption?.id || destinations?.find((destination) => destination.available)?.id || null;
   }
 }, { immediate: true });
 
@@ -165,7 +166,7 @@ watch(selectedFolderId, async (folderId) => {
   }
 });
 
-const createDirectoryTree = async (paths: string[]) => {
+const createDirectoryTree = async (paths: string[], isEmptyFolder = false) => {
   if (!paths.length) return { created: [] as string[] };
   return await $fetch<{ created: string[] }>("/api/folder/upload-tree", {
     method: "POST",
@@ -175,6 +176,7 @@ const createDirectoryTree = async (paths: string[]) => {
       destinationFolderId: canUseGDrive.value ? selectedFolderId.value : localParentId.value,
       storageTarget: canUseGDrive.value && storageTarget.value === "gdrive" ? "gdrive" : "local",
       bucket: String(route.params.bucket || "org"),
+      isEmptyFolder,
     },
   });
 };
@@ -196,6 +198,20 @@ const processSelection = async (selection: DirectoryUploadSelection) => {
     return;
   }
 
+  const destination = canUseGDrive.value && storageTarget.value === "gdrive" ? "Google Drive" : "local DAM storage";
+
+  // Display upload progress bar IMMEDIATELY (0ms delay) on drop/select
+  totalFiles.value = filesList.length || folderPaths.length;
+  uploadedFiles.value = 0;
+  isUploading.value = true;
+  uploadPhase.value = "uploading";
+  uploadProgressTracker.startUpload(
+    filesList.length > 0
+      ? filesList.map(f => ({ name: f.name, size: f.size }))
+      : folderPaths.map(p => ({ name: p })),
+    destination,
+  );
+
   if (folderPaths.length) {
     try {
       await $fetch("/api/nomenclature/folder-upload-preflight", {
@@ -207,6 +223,7 @@ const processSelection = async (selection: DirectoryUploadSelection) => {
         },
       });
     } catch (error: any) {
+      uploadProgressTracker.failUpload(error?.data?.message || error?.message || "Folder naming rule not met");
       toast.add({
         title: "Folder naming rule not met",
         description: error?.data?.message || error?.message || "One or more folders do not follow the configured nomenclature.",
@@ -218,22 +235,36 @@ const processSelection = async (selection: DirectoryUploadSelection) => {
   }
 
   await refreshNomenclaturePolicy();
+
   if (!filesList.length) {
-    await createDirectoryTree(folderPaths);
-    toast.add({
-      title: "Folder upload complete",
-      description: `Created ${folderPaths.length} folder(s), including empty folders.`,
-      color: "success",
-    });
-    filesRefreshTrigger.value++;
-    emit("success");
+    // Empty folder upload — show progress bar during folder creation
+    try {
+      await createDirectoryTree(folderPaths, true);
+      uploadProgressTracker.completeUpload();
+      toast.add({
+        title: "Folder upload complete",
+        description: `Created ${folderPaths.length} folder(s), including empty folders.`,
+        color: "success",
+      });
+      filesRefreshTrigger.value++;
+      emit("success");
+    } catch (err: any) {
+      uploadProgressTracker.failUpload(err?.message);
+      toast.add({ title: "Folder Creation Failed", description: err?.message || "Could not create folders.", color: "red" });
+    } finally {
+      isUploading.value = false;
+      uploadPhase.value = null;
+      if (fileInput.value) fileInput.value.value = "";
+    }
     return;
   }
+
   const violation = findEffectiveUploadGovernanceViolation(
     filesList.map(file => file.name),
     nomenclaturePolicy.value,
   );
   if (violation) {
+    uploadProgressTracker.failUpload(`${violation.filename}: ${violation.message}`);
     toast.add({
       title: "Upload rejected",
       description: `${violation.filename}: ${violation.message}`,
@@ -243,24 +274,50 @@ const processSelection = async (selection: DirectoryUploadSelection) => {
     return;
   }
 
-  await createDirectoryTree(folderPaths);
+  if (folderPaths.length) {
+    await createDirectoryTree(folderPaths);
+  }
 
-  totalFiles.value = filesList.length;
-  uploadedFiles.value = 0;
-  isUploading.value = true;
-  uploadPhase.value = "uploading";
-  const destination = canUseGDrive.value && storageTarget.value === "gdrive" ? "Google Drive" : "local DAM storage";
-  uploadProgressTracker.startUpload(
-    filesList.map(f => ({ name: f.name, size: f.size })),
-    destination
-  );
   toast.add({ title: "Uploading...", description: `Uploading ${filesList.length} file(s) to ${destination}...`, color: "blue" });
 
   try {
-    const containsFolderPaths = filesList.some((file) => Boolean((file as any).customPath || file.webkitRelativePath));
-    const results = containsFolderPaths
-      ? await filesList.reduce(async (pending, file) => [...await pending, await uploadFile(file)], Promise.resolve([] as any[]))
-      : await Promise.all([...filesList].map(uploadFile));
+    const results: any[] = [];
+    const abortSignal = uploadProgressTracker.getAbortSignal();
+
+    for (const file of filesList) {
+      if (uploadProgressTracker.isCancelled.value || abortSignal?.aborted) {
+        break;
+      }
+      try {
+        const res = await uploadFile(file);
+        results.push(res);
+      } catch (fileErr: any) {
+        if (
+          uploadProgressTracker.isCancelled.value ||
+          abortSignal?.aborted ||
+          fileErr?.message?.toLowerCase().includes("cancelled") ||
+          fileErr?.message?.toLowerCase().includes("stopped")
+        ) {
+          console.warn("Upload stopped by user for:", file.name);
+          break;
+        }
+        throw fileErr;
+      }
+    }
+
+    if (uploadProgressTracker.isCancelled.value || abortSignal?.aborted) {
+      toast.add({
+        title: "Upload Stopped",
+        description: results.length
+          ? `Upload stopped. ${results.length} item(s) were saved.`
+          : "Upload stopped by user.",
+        color: "amber",
+      });
+      filesRefreshTrigger.value++;
+      emit("success");
+      return;
+    }
+
     const localResult = results.find((result) => result?.storage?.type === "local");
     const verifiedLocation = localResult?.storage?.relativePath
       ? ` Verified on disk at local dam storage/${localResult.storage.relativePath}.`
@@ -282,14 +339,32 @@ const processSelection = async (selection: DirectoryUploadSelection) => {
     uploadProgressTracker.completeUpload();
     filesRefreshTrigger.value++;
     emit("success");
+    setTimeout(() => {
+      filesRefreshTrigger.value++;
+      emit("success");
+    }, 300);
     const responseDestination = results.find((result) => result?.destination)?.destination;
     if (responseDestination?.route && selectedFolderId.value !== "root") {
       await navigateTo(responseDestination.route);
     }
   } catch (err: any) {
-    console.error("Upload error:", err);
-    uploadProgressTracker.failUpload(err?.message);
-    toast.add({ title: "Upload Failed", description: err?.message || "File upload failed.", color: "red" });
+    if (
+      uploadProgressTracker.isCancelled.value ||
+      err?.message?.toLowerCase().includes("cancelled") ||
+      err?.message?.toLowerCase().includes("stopped")
+    ) {
+      toast.add({
+        title: "Upload Stopped",
+        description: "Upload was stopped by user.",
+        color: "amber",
+      });
+      filesRefreshTrigger.value++;
+      emit("success");
+    } else {
+      console.error("Upload error:", err);
+      uploadProgressTracker.failUpload(err?.message);
+      toast.add({ title: "Upload Failed", description: err?.message || "File upload failed.", color: "red" });
+    }
   } finally {
     isUploading.value = false;
     uploadPhase.value = null;
@@ -408,6 +483,10 @@ const uploadFile = async (file: File) => {
       let uploadedFile: any = null;
 
       for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        if (uploadProgressTracker.isCancelled.value) {
+          throw new Error("Upload was cancelled.");
+        }
+
         const rangeStart = chunkIndex * CHUNK_SIZE;
         const rangeEnd = Math.min(rangeStart + CHUNK_SIZE - 1, totalSize - 1);
         const chunk = file.slice(rangeStart, rangeEnd + 1);
@@ -417,9 +496,21 @@ const uploadFile = async (file: File) => {
         let lastError: any = null;
 
         for (let attempt = 1; attempt <= 3; attempt++) {
+          if (uploadProgressTracker.isCancelled.value) {
+            throw new Error("Upload was cancelled.");
+          }
+
           try {
             chunkResult = await new Promise<{ done: boolean; file?: any }>((resolve, reject) => {
               const xhr = new XMLHttpRequest();
+              const abortSignal = uploadProgressTracker.getAbortSignal();
+              const onAbort = () => {
+                try { xhr.abort(); } catch {}
+              };
+              if (abortSignal) {
+                abortSignal.addEventListener("abort", onAbort, { once: true });
+              }
+
               const params = new URLSearchParams({
                 sessionUrl: session.sessionUrl,
                 rangeStart: String(rangeStart),
@@ -442,6 +533,7 @@ const uploadFile = async (file: File) => {
               };
 
               xhr.onload = () => {
+                if (abortSignal) abortSignal.removeEventListener("abort", onAbort);
                 if (xhr.status >= 200 && xhr.status < 300) {
                   resolve(xhr.response);
                 } else {
@@ -449,8 +541,18 @@ const uploadFile = async (file: File) => {
                   reject(new Error(errMsg));
                 }
               };
-              xhr.onerror = () => reject(new Error("Connection to server lost during chunk upload."));
-              xhr.ontimeout = () => reject(new Error(`Chunk ${chunkIndex + 1} timed out while processing.`));
+              xhr.onerror = () => {
+                if (abortSignal) abortSignal.removeEventListener("abort", onAbort);
+                reject(new Error("Connection to server lost during chunk upload."));
+              };
+              xhr.ontimeout = () => {
+                if (abortSignal) abortSignal.removeEventListener("abort", onAbort);
+                reject(new Error(`Chunk ${chunkIndex + 1} timed out while processing.`));
+              };
+              xhr.onabort = () => {
+                if (abortSignal) abortSignal.removeEventListener("abort", onAbort);
+                reject(new Error("Upload was cancelled."));
+              };
 
               xhr.setRequestHeader("Content-Type", "application/octet-stream");
               xhr.setRequestHeader("X-Session-Url", session.sessionUrl);
@@ -508,14 +610,22 @@ const uploadFile = async (file: File) => {
   let dimensions: string | null = null;
   if (fileType === "image") {
     const image = new Image();
-    image.src = URL.createObjectURL(file);
-    await new Promise<void>((resolve) => {
-      image.onload = () => {
-        dimensions = image.width + "x" + image.height;
-        resolve();
-      };
-      image.onerror = () => resolve();
-    });
+    const objectUrl = URL.createObjectURL(file);
+    image.src = objectUrl;
+    await Promise.race([
+      new Promise<void>((resolve) => {
+        image.onload = () => {
+          dimensions = image.width + "x" + image.height;
+          URL.revokeObjectURL(objectUrl);
+          resolve();
+        };
+        image.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          resolve();
+        };
+      }),
+      new Promise<void>((resolve) => setTimeout(resolve, 300)),
+    ]);
   }
   uploadProgress.value[relativePath] = 0;
   uploadProgressTracker.updateItemProgress(file.name, 0);
@@ -537,6 +647,7 @@ const uploadFile = async (file: File) => {
     departmentId: selectedDestinationId.value,
     relativePath: targetRelativePath,
     dimensions,
+    signal: uploadProgressTracker.getAbortSignal(),
     onProgress: (value) => {
       uploadProgress.value[relativePath] = value;
       uploadProgressTracker.updateItemProgress(file.name, value);

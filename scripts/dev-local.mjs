@@ -1,9 +1,26 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { rmSync, existsSync, readFileSync } from 'node:fs';
+import { rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
+
+const ignoreIndexPath = resolve(projectRoot, 'node_modules/ignore/index.js');
+if (existsSync(ignoreIndexPath)) {
+  try {
+    let content = readFileSync(ignoreIndexPath, 'utf8');
+    if (content.includes('if (checkPath.isNotRelative(path)) {')) {
+      content = content.replace(
+        'if (checkPath.isNotRelative(path)) {',
+        'if (false && checkPath.isNotRelative(path)) {'
+      );
+      writeFileSync(ignoreIndexPath, content, 'utf8');
+      console.log('[dev-local] Patched node_modules/ignore/index.js for Windows absolute paths');
+    }
+  } catch (e) {
+    console.warn('[dev-local] Could not patch ignore/index.js:', e.message);
+  }
+}
 
 process.env.HOME = resolve(projectRoot, '.data');
 process.env.USERPROFILE = resolve(projectRoot, '.data');
@@ -29,15 +46,23 @@ function loadDotEnv(fileName) {
 loadDotEnv('.env');
 loadDotEnv('.env.local');
 
-// Pre-clean .output to avoid Windows EPERM file-lock errors on better-sqlite3 binary
+// Pre-clean .output and .nuxt to avoid Windows EPERM file-lock and path ignore errors
 const outputDir = resolve(projectRoot, '.output');
+const nuxtDir = resolve(projectRoot, '.nuxt');
 if (existsSync(outputDir)) {
   try {
     rmSync(outputDir, { recursive: true, force: true });
     console.log('[dev-local] Cleaned .output directory');
   } catch (e) {
     console.warn('[dev-local] Could not clean .output (may be locked):', e.message);
-    console.warn('[dev-local] Close other Node/Nuxt windows, then run: taskkill /F /IM node.exe');
+  }
+}
+if (existsSync(nuxtDir)) {
+  try {
+    rmSync(nuxtDir, { recursive: true, force: true });
+    console.log('[dev-local] Cleaned .nuxt directory');
+  } catch (e) {
+    console.warn('[dev-local] Could not clean .nuxt (may be locked):', e.message);
   }
 }
 

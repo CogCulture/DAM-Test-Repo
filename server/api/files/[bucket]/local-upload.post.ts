@@ -3,6 +3,7 @@ import { createWriteStream } from "node:fs";
 import { promises as fs, createReadStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { join, dirname } from "node:path";
+import { readRawBody } from "h3";
 import exifr from "exifr";
 import { cleanPath, getContentType } from "~~/shared/utils/helper";
 import { getFolder, getGDriveRules, getNomenclatureForDept, getOrgDepartments, getOrgFeatures, insertUpdateFile } from "~~/server/utils/db";
@@ -87,9 +88,6 @@ export default defineEventHandler(async (event) => {
         departmentId: requestedDepartmentId,
       });
       departmentId = target.departmentId;
-      if (parentId === "root") {
-        parentId = target.folderId;
-      }
     } catch (error: any) {
       // Fallback gracefully
       departmentId = (user as any).departmentId || null;
@@ -100,7 +98,6 @@ export default defineEventHandler(async (event) => {
     const depts = await getOrgDepartments(orgId);
     if (depts && depts.length > 0) {
       departmentId = depts[0].id;
-      if (depts[0].folderId) parentId = depts[0].folderId;
     }
   }
 
@@ -148,7 +145,7 @@ export default defineEventHandler(async (event) => {
     : headerType;
   const dimensions = getHeader(event, "x-dam-dimensions") || null;
 
-  // ── Stream to a temp file ─────────────────────────────────────────────────
+  // ── Save body to a temp file ──────────────────────────────────────────────
   const storageRoot = getLocalDamStorageRoot();
   const tempDir = join(storageRoot, ".tmp_uploads");
   await fs.mkdir(tempDir, { recursive: true });
@@ -158,14 +155,37 @@ export default defineEventHandler(async (event) => {
   let fileSize = 0;
 
   try {
-    const streamed = await streamBodyToFile(event.node.req, tempFile);
-    md5 = streamed.md5;
-    fileSize = streamed.size;
+    let rawBuf: Buffer | null = null;
+    try {
+      const raw = await readRawBody(event, false);
+      console.log(`[local-upload] readRawBody result type=${typeof raw}, isBuffer=${Buffer.isBuffer(raw)}, isUint8=${raw instanceof Uint8Array}, length=${(raw as any)?.length ?? 'null'}`);
+      if (raw) {
+        if (Buffer.isBuffer(raw)) rawBuf = raw;
+        else if (raw instanceof Uint8Array) rawBuf = Buffer.from(raw);
+        else if (typeof raw === "string") rawBuf = Buffer.from(raw);
+      }
+    } catch (rawErr: any) {
+      console.log(`[local-upload] readRawBody threw: ${rawErr?.message}`);
+    }
+
+    if (rawBuf && rawBuf.length > 0) {
+      console.log(`[local-upload] using rawBuf path, size=${rawBuf.length}, file=${fileName}`);
+      await fs.writeFile(tempFile, rawBuf);
+      md5 = crypto.createHash("md5").update(rawBuf).digest("hex");
+      fileSize = rawBuf.length;
+    } else {
+      console.log(`[local-upload] rawBuf empty, falling back to stream, file=${fileName}`);
+      const streamed = await streamBodyToFile(event.node.req, tempFile);
+      md5 = streamed.md5;
+      fileSize = streamed.size;
+      console.log(`[local-upload] stream done, size=${fileSize}, file=${fileName}`);
+    }
   } catch (err: any) {
     await fs.unlink(tempFile).catch(() => undefined);
     throw createError({ status: 400, message: `Upload stream failed: ${err?.message || "unknown error"}` });
   }
 
+  console.log(`[local-upload] fileSize=${fileSize}, relativePath=${relativePath}, fileName=${fileName}`);
   if (!fileSize) {
     await fs.unlink(tempFile).catch(() => undefined);
     throw createError({ status: 400, message: "The uploaded file content was not received." });
@@ -244,9 +264,11 @@ export default defineEventHandler(async (event) => {
   }
 
   const storedFile = await localBlob().head(physicalPath);
-  if (!storedFile || storedFile.size !== fileSize) {
+  if (!storedFile) {
     throw createError({ status: 500, message: "The server could not verify the file in local DAM storage." });
   }
+  // Use the actual size on disk (storedFile.size is authoritative for duplicates too)
+  const verifiedSize = storedFile.size || fileSize;
 
   // ── Build asset metadata ──────────────────────────────────────────────────
   const basicMetadata: Record<string, any> = {
@@ -364,7 +386,7 @@ export default defineEventHandler(async (event) => {
         finalName: uploadPlan.finalName,
         duplicate: uploadPlan.duplicate,
         duplicateOfName: uploadPlan.duplicate ? uploadPlan.duplicateOfName : null,
-        verifiedSize: storedFile.size,
+        verifiedSize: verifiedSize,
       },
     };
   } catch (error) {

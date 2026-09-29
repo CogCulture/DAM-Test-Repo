@@ -6,6 +6,7 @@ const {
   isUploading,
   showWidget,
   minimized,
+  isCancelled,
   uploadPhase,
   items,
   currentDestination,
@@ -13,6 +14,8 @@ const {
   completedFiles,
   overallProgress,
   completeUpload,
+  stopUpload,
+  stopItem,
   dismissUpload,
   toggleMinimized,
 } = useUploadProgress();
@@ -37,6 +40,9 @@ const getFileIcon = (filename: string) => {
 };
 
 const statusText = computed(() => {
+  if (isCancelled.value || items.value.some((i) => i.error?.toLowerCase().includes("stopped"))) {
+    return "Upload stopped by user";
+  }
   if (uploadPhase.value === "complete") {
     return totalFiles.value === 1 ? "Upload complete" : `${completedFiles.value} files uploaded`;
   }
@@ -51,13 +57,21 @@ const statusText = computed(() => {
   }
   return `Uploading ${completedFiles.value}/${totalFiles.value} files (${overallProgress.value}%)`;
 });
+
+const handleStopUpload = () => {
+  stopUpload("Upload stopped by user");
+};
+
+const handleStopItem = (id: string) => {
+  stopItem(id);
+};
 </script>
 
 <template>
   <Teleport to="body">
     <!-- Slim Top Progress Line under Header -->
     <div
-      v-if="isUploading && overallProgress > 0"
+      v-if="isUploading && overallProgress > 0 && !isCancelled"
       class="fixed top-[4.5rem] inset-x-0 z-[60] h-1 bg-transparent pointer-events-none"
     >
       <div
@@ -80,7 +94,9 @@ const statusText = computed(() => {
             <div
               class="flex size-7 shrink-0 items-center justify-center rounded-xl transition-colors"
               :class="
-                uploadPhase === 'complete'
+                isCancelled || items.some((i) => i.error?.toLowerCase().includes('stopped'))
+                  ? 'bg-amber-500/15 text-amber-500'
+                  : uploadPhase === 'complete'
                   ? 'bg-emerald-500/15 text-emerald-500'
                   : uploadPhase === 'error'
                   ? 'bg-red-500/15 text-red-500'
@@ -88,7 +104,12 @@ const statusText = computed(() => {
               "
             >
               <Icon
-                v-if="uploadPhase === 'complete'"
+                v-if="isCancelled || items.some((i) => i.error?.toLowerCase().includes('stopped'))"
+                name="lucide:ban"
+                class="size-4"
+              />
+              <Icon
+                v-else-if="uploadPhase === 'complete'"
                 name="lucide:check-circle-2"
                 class="size-4 animate-scale"
               />
@@ -115,32 +136,48 @@ const statusText = computed(() => {
             </div>
           </div>
 
-          <!-- Controls -->
-          <div class="flex items-center gap-1 shrink-0">
+          <!-- Controls in Upload Bar Right Corner -->
+          <div class="flex items-center gap-1.5 shrink-0">
             <!-- Percentage Badge -->
             <span
-              v-if="uploadPhase !== 'complete' && uploadPhase !== 'error'"
+              v-if="uploadPhase !== 'complete' && uploadPhase !== 'error' && !isCancelled"
               class="font-mono text-xs font-bold text-[#ff5733] px-1.5"
             >
               {{ overallProgress }}%
             </span>
 
+            <!-- Minimize / Expand Toggle -->
             <button
               type="button"
-              class="rounded-lg p-1 text-[var(--dam-muted)] hover:bg-[var(--dam-panel-hover)] hover:text-[var(--dam-ink)] transition"
+              class="flex items-center justify-center size-8 rounded-xl text-[var(--dam-muted)] hover:bg-[var(--dam-panel-hover)] hover:text-[var(--dam-ink)] transition cursor-pointer"
               @click="toggleMinimized"
               :title="minimized ? 'Expand' : 'Collapse'"
             >
               <Icon :name="minimized ? 'lucide:chevron-up' : 'lucide:chevron-down'" class="size-4" />
             </button>
 
+            <!-- Big Stop Upload Button (Active during upload) -->
             <button
+              v-if="isUploading || uploadPhase === 'uploading' || uploadPhase === 'syncing'"
               type="button"
-              class="rounded-lg p-1 text-[var(--dam-muted)] hover:bg-[var(--dam-panel-hover)] hover:text-[var(--dam-ink)] transition"
+              class="flex items-center justify-center size-8 rounded-xl bg-red-500/15 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/30 transition-all shadow-xs cursor-pointer group"
+              @click="handleStopUpload"
+              title="Stop Upload"
+              aria-label="Stop Upload"
+            >
+              <Icon name="lucide:x" class="size-5 font-bold transition-transform group-hover:scale-110" />
+            </button>
+
+            <!-- Close Button (After upload completes or stops) -->
+            <button
+              v-else
+              type="button"
+              class="flex items-center justify-center size-8 rounded-xl text-[var(--dam-muted)] hover:bg-[var(--dam-panel-hover)] hover:text-[var(--dam-ink)] transition cursor-pointer"
               @click="dismissUpload"
               title="Close"
+              aria-label="Close"
             >
-              <Icon name="lucide:x" class="size-4" />
+              <Icon name="lucide:x" class="size-5 font-bold" />
             </button>
           </div>
         </div>
@@ -151,7 +188,9 @@ const statusText = computed(() => {
             <div
               class="h-full rounded-full transition-all duration-300 ease-out"
               :class="
-                uploadPhase === 'complete'
+                isCancelled || items.some((i) => i.error?.toLowerCase().includes('stopped'))
+                  ? 'bg-amber-500'
+                  : uploadPhase === 'complete'
                   ? 'bg-emerald-500'
                   : uploadPhase === 'error'
                   ? 'bg-red-500'
@@ -182,8 +221,8 @@ const statusText = computed(() => {
               </div>
             </div>
 
-            <!-- Item Status / Percentage -->
-            <div class="flex items-center gap-2 shrink-0">
+            <!-- Item Status / Percentage / Stop individual file -->
+            <div class="flex items-center gap-1.5 shrink-0">
               <span
                 v-if="item.status === 'uploading'"
                 class="font-mono text-[11px] font-semibold text-[#ff5733]"
@@ -201,12 +240,25 @@ const statusText = computed(() => {
                 name="lucide:check"
                 class="size-4 text-emerald-500 font-bold"
               />
-              <Icon
+              <span
                 v-else-if="item.status === 'error'"
-                name="lucide:x"
-                class="size-4 text-red-500"
+                class="flex items-center gap-1 text-[11px] text-red-500 font-medium"
                 :title="item.error || 'Failed'"
-              />
+              >
+                <Icon name="lucide:ban" class="size-3.5" />
+                {{ item.error?.includes('stopped') ? 'Stopped' : 'Failed' }}
+              </span>
+
+              <!-- Individual stop button for this file/folder item -->
+              <button
+                v-if="item.status === 'uploading' || item.status === 'pending'"
+                type="button"
+                class="flex items-center justify-center size-6 rounded-lg text-red-400 hover:text-red-500 hover:bg-red-500/15 transition cursor-pointer"
+                @click="handleStopItem(item.id)"
+                title="Stop this file"
+              >
+                <Icon name="lucide:x" class="size-3.5 font-bold" />
+              </button>
             </div>
           </div>
         </div>

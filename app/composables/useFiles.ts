@@ -9,17 +9,21 @@ export function useFiles(endpoint: MaybeRefOrGetter<string | undefined> = "root"
   const route = useRoute();
   const { orgType } = useRole();
   const { user } = useUserSession();
-  const sortBy = ref("name");
-  const order = ref("asc");
+  const sortBy = ref("createdAt");
+  const order = ref("desc");
   const filters = ref<any>(null);
   const files = useState<IFile[]>("files", () => []);
   const loading = useState<boolean>("files-loading", () => false);
   const error = useState<string | null>("files-error", () => null);
   const refreshTrigger = useState("files-refresh-trigger", () => 0);
   let requestVersion = 0;
-  const fetchFiles = async () => {
+  let autoRefreshTimer: ReturnType<typeof setInterval> | null = null;
+
+  const fetchFiles = async (options: { silent?: boolean } = {}) => {
     const version = ++requestVersion;
-    loading.value = true;
+    if (!options.silent) {
+      loading.value = true;
+    }
     error.value = null;
     const filterQuery: Record<string, string | boolean> = {};
     if (filters.value) {
@@ -41,14 +45,21 @@ export function useFiles(endpoint: MaybeRefOrGetter<string | undefined> = "root"
     }
     const isGDrive = orgType.value === "gdrive" || (route.params.bucket && (route.params.bucket as string).startsWith("gdrive_"));
     const idParam = route.params.id;
-    // Only treat idParam as a folder ID when it's an ARRAY (from the [...id] catch-all route).
-    // A string idParam means we're on a named sub-page (e.g. file/[id]) — use 'root' in that case.
+    const isReserved = (id: string) => ["favorites", "shared", "published", "recent", "trash"].includes(id);
+
+    let rawFolderId = "";
+    if (Array.isArray(idParam)) {
+      rawFolderId = idParam.filter(Boolean).join("/");
+    } else if (typeof idParam === "string") {
+      rawFolderId = idParam;
+    }
+
     const resolvedId = isGDrive
       ? resolveDriveRouteFolderId({
           idParam: idParam as string | string[] | undefined,
           organizationId: (user.value as any)?.organizationId,
         })
-      : Array.isArray(idParam) ? (idParam.join("/") || "root") : "root";
+      : (rawFolderId && !isReserved(rawFolderId) ? rawFolderId : "root");
     const endpoints = {
       root: isGDrive
         ? `/api/gdrive/list/${resolvedId}`
@@ -77,26 +88,26 @@ export function useFiles(endpoint: MaybeRefOrGetter<string | undefined> = "root"
         ),
       );
       if (version !== requestVersion) return;
-      const processedFiles = processFileDuplicates(completeFiles);
-      files.value = replaceFetchedFiles({
-        current: files.value,
-        incoming: processedFiles,
-        reset: true,
-        responseReady: true,
-      });
+      const processedFiles = processFileDuplicates(completeFiles, sortBy.value, order.value);
+      files.value = processedFiles;
     } catch (err: any) {
       if (version !== requestVersion) return;
-      console.error("Error fetching files:", err);
-      error.value = err?.data?.message || err?.message || "Files could not be loaded.";
+      if (!options.silent) {
+        console.error("Error fetching files:", err);
+        error.value = err?.data?.message || err?.message || "Files could not be loaded.";
+      }
     } finally {
       if (version === requestVersion) loading.value = false;
     }
   };
   watch(
-    () => [route.params.id, route.params.bucket, route.path, toValue(endpoint)],
+    () => [route.fullPath, route.params.id, route.params.bucket, toValue(endpoint)],
     () => {
+      files.value = [];
+      loading.value = true;
       fetchFiles();
-    }
+    },
+    { immediate: true }
   );
   watch(
     refreshTrigger,
@@ -111,8 +122,11 @@ export function useFiles(endpoint: MaybeRefOrGetter<string | undefined> = "root"
     },
     { deep: true }
   );
-  onMounted(() => {
-    fetchFiles();
+  onUnmounted(() => {
+    if (autoRefreshTimer) {
+      clearInterval(autoRefreshTimer);
+      autoRefreshTimer = null;
+    }
   });
   const onSort = (e: { sortBy: string; order: string }) => {
     sortBy.value = e.sortBy;

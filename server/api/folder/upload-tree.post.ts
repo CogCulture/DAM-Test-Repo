@@ -16,6 +16,7 @@ export default defineEventHandler(async (event) => {
     destinationFolderId?: string | null;
     storageTarget?: "local" | "gdrive";
     bucket?: string;
+    isEmptyFolder?: boolean;
   }>(event);
 
   if (!Array.isArray(body.paths) || body.paths.length > 5000 || body.paths.some(path => typeof path !== "string")) {
@@ -77,8 +78,9 @@ export default defineEventHandler(async (event) => {
     return { created: paths };
   }
 
-  if (!isUploadRouteAllowed({ orgType: (user as any).orgType, requestedTarget: "local" })) {
-    throw createError({ status: 409, message: "This organization stores assets in Google Drive." });
+  const storageTarget = body.storageTarget || "local";
+  if (!isUploadRouteAllowed({ orgType: (user as any).orgType, requestedTarget: storageTarget })) {
+    throw createError({ status: 409, message: `This organization stores assets in ${storageTarget === "gdrive" ? "Google Drive" : "DAM Storage"}.` });
   }
   if (requestedDepartmentId === "root") {
     if ((user as any).role !== "admin") {
@@ -132,8 +134,9 @@ export default defineEventHandler(async (event) => {
   }
 
   await requireValidFolderPaths({ user, paths, departmentId });
+  const isFreshEmptyFolder = !!body.isEmptyFolder;
   for (const path of paths) {
-    await ensurePath(bucket, cleanPath(`${parentPath}/${path}`), user.id);
+    await ensurePath(bucket, cleanPath(`${parentPath}/${path}`), user.id, false, isFreshEmptyFolder);
   }
   return { created: paths };
 });
