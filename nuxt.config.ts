@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { parsePublicBooleanFlag } from "./shared/utils/public-feature-flags";
 
-const isGcpRuntime = process.env.NITRO_PRESET === "node-server" || Boolean(process.env.DATABASE_PATH);
+const isGcpRuntime = process.env.NITRO_PRESET === "node-server" || Boolean(process.env.DATABASE_PATH) || Boolean(process.env.DATABASE_URL);
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({

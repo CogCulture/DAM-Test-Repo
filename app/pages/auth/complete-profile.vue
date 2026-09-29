@@ -200,8 +200,41 @@ const gdriveSearchQ = ref("");
 
 const organizationsList = ref<{ id: string; name: string }[]>([]);
 const departmentsList = ref<{ id: string; name: string; parentId: string | null }[]>([]);
+const pendingInvite = ref<{
+  id: string;
+  token: string;
+  organizationId: string;
+  orgName: string;
+  departmentId: string;
+  deptName: string;
+  role: string;
+  roleLabel: string;
+} | null>(null);
+const acceptingInvite = ref(false);
+
+const acceptPendingInvite = async () => {
+  if (!pendingInvite.value?.token) return;
+  acceptingInvite.value = true;
+  error.value = "";
+  try {
+    await $fetch(`/api/auth/invite/${pendingInvite.value.token}`, { method: "POST" });
+    await fetchSession();
+    router.push("/");
+  } catch (e: any) {
+    error.value = e?.data?.message || "Failed to accept invitation.";
+  } finally {
+    acceptingInvite.value = false;
+  }
+};
 
 onMounted(async () => {
+  try {
+    const inv = await $fetch<any>("/api/auth/pending-invite");
+    if (inv) {
+      pendingInvite.value = inv;
+    }
+  } catch {}
+
   try {
     organizationsList.value = await $fetch("/api/organizations");
   } catch (e) {
@@ -417,6 +450,45 @@ const handleSubmit = async () => {
       </div>
 
       <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-8 shadow-2xl space-y-6">
+        <!-- Active Invitation Banner -->
+        <div v-if="pendingInvite" class="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-white space-y-3">
+          <div class="flex items-center gap-3">
+            <div class="size-9 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center shrink-0 text-indigo-400">
+              <Icon name="lucide:mail-check" class="size-5" />
+            </div>
+            <div>
+              <h4 class="text-sm font-bold text-white">You have an active invitation!</h4>
+              <p class="text-xs text-indigo-200/80">You were invited with a pre-assigned role.</p>
+            </div>
+          </div>
+
+          <div class="p-3 bg-neutral-950/60 rounded-lg border border-neutral-800/80 space-y-1.5 text-xs">
+            <div class="flex justify-between">
+              <span class="text-neutral-400">Organization</span>
+              <span class="font-semibold text-white">{{ pendingInvite.orgName }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-neutral-400">Assigned Role</span>
+              <span class="font-semibold text-indigo-300">{{ pendingInvite.roleLabel }}</span>
+            </div>
+            <div v-if="pendingInvite.deptName && pendingInvite.departmentId !== 'global'" class="flex justify-between">
+              <span class="text-neutral-400">Department</span>
+              <span class="font-semibold text-neutral-300">{{ pendingInvite.deptName }}</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            @click="acceptPendingInvite"
+            :disabled="acceptingInvite"
+            class="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition shadow-md shadow-indigo-600/30 cursor-pointer disabled:opacity-60"
+          >
+            <div v-if="acceptingInvite" class="size-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            <Icon v-else name="lucide:check" class="size-3.5" />
+            <span>Accept Invitation & Enter as {{ pendingInvite.roleLabel }}</span>
+          </button>
+        </div>
+
         <!-- Choose action -->
         <div class="flex bg-neutral-800 p-1 rounded-xl border border-neutral-700">
           <button
@@ -1007,9 +1079,12 @@ const handleSubmit = async () => {
 
             <!-- Role Selector -->
             <div v-if="selectedOrgId">
-              <label class="block text-sm font-medium text-neutral-300 mb-2">
-                Your Role
+              <label class="block text-sm font-medium text-neutral-300 mb-1">
+                Requested Role
               </label>
+              <p class="text-xs text-neutral-400 mb-2">
+                Your role will be reviewed and confirmed by the Organization Admin upon approving your request.
+              </p>
               <div v-if="rolesList.length === 0" class="text-xs text-neutral-450 italic">
                 No roles found for this organization.
               </div>

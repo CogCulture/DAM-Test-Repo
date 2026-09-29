@@ -83,7 +83,9 @@ const child = spawn(process.execPath, [nuxtCli, "dev", "--host", "127.0.0.1", "-
     HOME: resolve(projectRoot, '.data'),
     USERPROFILE: resolve(projectRoot, '.data'),
     NITRO_PRESET: "node-server",
-    DATABASE_PATH: "./data/sqlite.db",
+    ...(process.env.DATABASE_URL
+      ? { DATABASE_URL: process.env.DATABASE_URL }
+      : { DATABASE_PATH: process.env.DATABASE_PATH || "./data/sqlite.db" }),
     SUPERADMIN_EMAIL: superAdminEmail,
     SUPERADMIN_PASSWORD: superAdminPassword,
     SUPERADMIN_SESSION_PASSWORD: superAdminSessionPassword,

@@ -50,10 +50,15 @@ export default defineEventHandler(async (event) => {
       .limit(1);
 
     if (existingRequest.length > 0 && existingRequest[0].status === "pending") {
-      throw createError({
-        status: 400,
-        message: "You already have a pending organization request. Please wait for Super Admin approval.",
-      });
+      await useDrizzle()
+        .update(users)
+        .set({ approvalStatus: "pending_org" })
+        .where(eq(users.id, user.id));
+
+      const updatedUser = await getUser(user.id);
+      await setUserSession(event, { user: updatedUser });
+
+      return { success: true, pendingOrgRequest: true, redirectToGDrive: false };
     }
 
     // For GDrive orgs: if a folder was pre-selected, save it with approved status now.

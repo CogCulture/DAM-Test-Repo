@@ -19,12 +19,27 @@ const open = computed({
 const toast = useToast();
 const { copy } = useCopy();
 
+const { user } = useUserSession();
 const email = ref("");
 const selectedDept = ref("");
+const selectedRole = ref("team_member");
 const loading = ref(false);
 const resultInviteUrl = ref("");
 const sentViaSmtp = ref(false);
 const step = ref<"form" | "success">("form");
+
+const availableRoles = computed(() => {
+  const roles = [
+    { id: "team_member", label: "Team Member", desc: "Can view, upload, and download assets" },
+    { id: "team_lead", label: "Team Lead", desc: "Can manage assets, folders, and share" },
+    { id: "dept_head", label: "Department Head", desc: "Can manage department, nomenclature, and approvals" },
+    { id: "guest", label: "Guest", desc: "Restricted read-only / guest access" },
+  ];
+  if (user.value?.role === "admin") {
+    roles.unshift({ id: "admin", label: "Admin", desc: "Full organization administration" });
+  }
+  return roles;
+});
 
 // Fetch departments for selection
 const departments = ref<any[]>([]);
@@ -66,6 +81,7 @@ const sendInvite = async () => {
         body: {
           email: email.value.trim(),
           departmentId: selectedDept.value || undefined,
+          role: selectedRole.value,
         },
       }
     );
@@ -100,6 +116,7 @@ const copyLink = () => {
 const resetModal = () => {
   email.value = "";
   selectedDept.value = "";
+  selectedRole.value = "team_member";
   resultInviteUrl.value = "";
   sentViaSmtp.value = false;
   step.value = "form";
@@ -168,7 +185,7 @@ const resetModal = () => {
                     v-model="selectedDept"
                     class="w-full appearance-none rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel)] pl-10 pr-10 py-2.5 text-sm text-[var(--dam-ink)] outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all cursor-pointer shadow-xs"
                   >
-                    <option value="" class="bg-[var(--dam-panel-solid)] text-[var(--dam-ink)]">No Department (Default)</option>
+                    <option value="" class="bg-[var(--dam-panel-solid)] text-[var(--dam-ink)]">No Department (Global)</option>
                     <option
                       v-for="dept in departments"
                       :key="dept.id"
@@ -180,6 +197,32 @@ const resetModal = () => {
                   </select>
                   <Icon name="lucide:chevron-down" class="absolute right-3.5 top-3.5 size-4 text-[var(--dam-muted)] pointer-events-none" />
                 </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-[var(--dam-muted)] mb-1.5">
+                  Assigned Role <span class="text-rose-500">*</span>
+                </label>
+                <div class="relative">
+                  <Icon name="lucide:shield" class="absolute left-3.5 top-3.5 size-4 text-[var(--dam-muted)] pointer-events-none" />
+                  <select
+                    v-model="selectedRole"
+                    class="w-full appearance-none rounded-xl border border-[var(--dam-line)] bg-[var(--dam-panel)] pl-10 pr-10 py-2.5 text-sm text-[var(--dam-ink)] outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all cursor-pointer shadow-xs"
+                  >
+                    <option
+                      v-for="role in availableRoles"
+                      :key="role.id"
+                      :value="role.id"
+                      class="bg-[var(--dam-panel-solid)] text-[var(--dam-ink)]"
+                    >
+                      {{ role.label }} — {{ role.desc }}
+                    </option>
+                  </select>
+                  <Icon name="lucide:chevron-down" class="absolute right-3.5 top-3.5 size-4 text-[var(--dam-muted)] pointer-events-none" />
+                </div>
+                <p class="text-[11px] text-[var(--dam-muted)] mt-1.5 pl-1">
+                  The invited member will automatically receive this role when they accept the invitation.
+                </p>
               </div>
             </div>
 

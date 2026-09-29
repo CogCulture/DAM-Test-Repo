@@ -113,9 +113,6 @@ export async function getUser(id: string) {
     .where(eq(users.id, id));
   if (result && result.length > 0) {
     const userRow: any = result[0];
-    if (!userRow.organizationId) {
-      userRow.organizationId = "org_default";
-    }
     if (userRow.organizationId && userRow.organizationId !== "org_default") {
       const [org] = await useDrizzle()
         .select({
@@ -130,26 +127,31 @@ export async function getUser(id: string) {
       userRow.orgType = org?.orgType || "s3";
       userRow.setupComplete = org ? org.setupComplete : true;
       userRow.organizationName = org?.name || "Organization";
-    } else {
+    } else if (userRow.organizationId === "org_default") {
       userRow.organizationStatus = "active";
       userRow.orgType = "s3";
       userRow.setupComplete = true;
-      userRow.organizationName = "Organization";
+      userRow.organizationName = "Default Organization";
+    } else {
+      userRow.organizationStatus = "active";
+      userRow.orgType = "s3";
+      userRow.setupComplete = false;
+      userRow.organizationName = "";
     }
     const db = useDrizzle();
-    const allDepartments = await db
+    const allDepartments = userRow.organizationId ? await db
       .select({ id: orgDepartments.id })
       .from(orgDepartments)
-      .where(eq(orgDepartments.organizationId, userRow.organizationId));
-    const grants = await db
+      .where(eq(orgDepartments.organizationId, userRow.organizationId)) : [];
+    const grants = userRow.organizationId ? await db
       .select({ departmentId: userDepartmentAccess.departmentId })
       .from(userDepartmentAccess)
       .where(and(
         eq(userDepartmentAccess.userId, userRow.id),
         eq(userDepartmentAccess.organizationId, userRow.organizationId),
-      ));
+      )) : [];
 
-    if (userRow.role !== "admin") {
+    if (userRow.role !== "admin" && userRow.organizationId) {
       const perms = await getOrgPermissions(userRow.organizationId);
       const roleMatches = (permRole: string, userRole: string) =>
         permRole === userRole ||
@@ -157,7 +159,7 @@ export async function getUser(id: string) {
         (userRole === "guest" && permRole === "intern");
 
       const departmentRole = perms.find((p) =>
-        roleMatches(p.role, userRow.role) && p.departmentId === userRow.departmentId
+        roleMatches(p.role, userRole.role) && p.departmentId === userRow.departmentId
       );
       const globalRole = perms.find((p) =>
         roleMatches(p.role, userRow.role) && p.departmentId === "global"
@@ -187,7 +189,7 @@ export async function getUser(id: string) {
         ["canApproveUsers", true],
         ["canEditNomenclature", true],
       ]);
-      userRow.allDepartmentAccess = true;
+      userRow.allDepartmentAccess = userRow.role === "admin";
     }
 
     userRow.accessibleDepartmentIds = getAccessibleDepartmentIds({
@@ -2288,12 +2290,23 @@ export const getOrgDepartments = async (organizationId: string) => {
 };
 
 export const getOrgPermissions = async (organizationId: string) => {
+  if (!organizationId) return [];
+
   const result = await useDrizzle()
     .select()
     .from(orgPermissions)
     .where(eq(orgPermissions.organizationId, organizationId));
 
   if (!result || result.length === 0) {
+    const [org] = await useDrizzle()
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.id, organizationId));
+
+    if (!org) {
+      return [];
+    }
+
     const roles = ["dept_head", "team_lead", "team_member", "guest"];
     const db = useDrizzle();
     const inserted = [];
@@ -2318,8 +2331,12 @@ export const getOrgPermissions = async (organizationId: string) => {
         createdAt: new Date(),
         updatedAt: new Date(),
       };
-      await db.insert(orgPermissions).values(permRow);
-      inserted.push(permRow);
+      try {
+        await db.insert(orgPermissions).values(permRow);
+        inserted.push(permRow);
+      } catch (insertErr) {
+        console.warn(`[getOrgPermissions] Failed to insert default perm for ${organizationId} role ${r}:`, insertErr);
+      }
     }
     return inserted;
   }

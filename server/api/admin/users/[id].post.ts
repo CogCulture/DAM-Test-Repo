@@ -1,8 +1,9 @@
 import { getUser, updateUserApproval, getOrgPermissions } from "~~/server/utils/db";
 import { getApprovedUser } from "~~/server/utils/permission";
 import { useDrizzle } from "~~/server/utils/drizzle";
-import { users } from "~~/server/database/schema";
+import { users, userOrganizations, userDepartmentAccess } from "~~/server/database/schema";
 import { eq, and, sql } from "drizzle-orm";
+import { ulid } from "ulidx";
 
 export default defineEventHandler(async (event) => {
   const actor = await getApprovedUser(event);
@@ -90,6 +91,29 @@ export default defineEventHandler(async (event) => {
   }
 
   await updateUserApproval(id, newStatus);
+
+  if (newStatus === "active" && targetUser.organizationId) {
+    const db = useDrizzle();
+    try {
+      await db.insert(userOrganizations).values({
+        id: ulid(),
+        userId: id,
+        organizationId: targetUser.organizationId,
+        role: targetUser.role,
+      }).onConflictDoNothing();
+    } catch {}
+
+    if (targetUser.departmentId && targetUser.departmentId !== "global") {
+      try {
+        await db.insert(userDepartmentAccess).values({
+          id: ulid(),
+          userId: id,
+          organizationId: targetUser.organizationId,
+          departmentId: targetUser.departmentId,
+        }).onConflictDoNothing();
+      } catch {}
+    }
+  }
 
   return { success: true, userId: id, approvalStatus: newStatus };
 });

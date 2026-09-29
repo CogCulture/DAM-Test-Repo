@@ -38,12 +38,24 @@ export default defineEventHandler(async (event) => {
     .from(orgDepartments)
     .where(eq(orgDepartments.id, invite.departmentId));
 
+  const ROLE_LABELS: Record<string, string> = {
+    admin: "Admin",
+    dept_head: "Department Head",
+    team_lead: "Team Lead",
+    team_member: "Team Member",
+    guest: "Guest",
+  };
+
+  const role = (invite as any).role || "team_member";
+
   return {
     success: true,
     email: invite.email,
     organizationId: invite.organizationId,
     departmentId: invite.departmentId,
+    role,
+    roleLabel: ROLE_LABELS[role] || "Team Member",
     orgName: org?.name || "Organization",
-    deptName: dept?.name || "Department",
+    deptName: dept?.name || (invite.departmentId === "global" ? "All Departments" : "Department"),
   };
 });

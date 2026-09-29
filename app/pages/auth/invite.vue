@@ -19,6 +19,8 @@ const inviteInfo = ref<{
   email: string;
   organizationId: string;
   departmentId: string;
+  role: string;
+  roleLabel: string;
   orgName: string;
   deptName: string;
 } | null>(null);
@@ -69,7 +71,7 @@ onMounted(() => {
         <span class="i-lucide-mail-open text-indigo-400 text-3xl"></span>
       </div>
       <h2 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-100 to-indigo-300 bg-clip-text text-transparent">
-        Department Head Invitation
+        Workspace Invitation
       </h2>
     </div>
 
@@ -95,13 +97,20 @@ onMounted(() => {
 
         <!-- Valid Invite Content -->
         <div v-else-if="inviteInfo" class="space-y-6">
-          <div class="text-center space-y-2">
+          <div class="text-center space-y-3">
             <p class="text-slate-400 text-sm">You have been invited to join</p>
             <h3 class="text-2xl font-bold text-white">{{ inviteInfo.orgName }}</h3>
-            <p class="text-slate-400 text-sm">as the Department Head of</p>
-            <span class="inline-block bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-4 py-1.5 rounded-full text-sm font-semibold">
-              {{ inviteInfo.deptName }}
-            </span>
+            
+            <div class="flex flex-wrap items-center justify-center gap-2 pt-1">
+              <span class="inline-flex items-center gap-1.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-3.5 py-1 rounded-full text-xs font-semibold">
+                <span class="i-lucide-shield text-xs"></span>
+                Role: {{ inviteInfo.roleLabel }}
+              </span>
+              <span v-if="inviteInfo.deptName && inviteInfo.departmentId !== 'global'" class="inline-flex items-center gap-1.5 bg-slate-800 text-slate-300 border border-slate-700 px-3.5 py-1 rounded-full text-xs font-medium">
+                <span class="i-lucide-building-2 text-xs"></span>
+                {{ inviteInfo.deptName }}
+              </span>
+            </div>
           </div>
 
           <!-- Logged in accept flow -->
@@ -112,7 +121,9 @@ onMounted(() => {
             </div>
 
             <p class="text-xs text-slate-400 text-center leading-relaxed">
-              By accepting this invitation, you will become the manager of the {{ inviteInfo.deptName }} folder and approve folders and nomenclature within this department.
+              Your role has been set by the organization administrator as 
+              <strong class="text-indigo-300">{{ inviteInfo.roleLabel }}</strong>.
+              Click below to accept and start working.
             </p>
 
             <button 

@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "../database/schema";
 import { useSqliteDrizzle } from "./sqlite";
+import { usePostgresDrizzle } from "./postgres";
 
 declare const hubDatabase: () => Parameters<typeof drizzle>[0];
 
@@ -8,6 +9,9 @@ export { sql, eq, and, or } from "drizzle-orm";
 export const tables = schema;
 
 export function useDrizzle() {
+  if (process.env.DATABASE_URL) {
+    return usePostgresDrizzle(process.env.DATABASE_URL) as any;
+  }
   if (process.env.DATABASE_PATH) {
     return useSqliteDrizzle(process.env.DATABASE_PATH) as any;
   }

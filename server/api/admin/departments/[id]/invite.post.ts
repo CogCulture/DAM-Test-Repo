@@ -100,11 +100,16 @@ export default defineEventHandler(async (event) => {
   const token = randomUUID();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
+  const inviteRole = body?.role && ["admin", "dept_head", "team_lead", "team_member", "guest"].includes(body.role)
+    ? body.role
+    : "dept_head";
+
   const inviteId = ulid();
   await db.insert(deptInvites).values({
     id: inviteId,
     organizationId: user.organizationId || dept.organizationId || "org_default",
     departmentId: dept.id,
+    role: inviteRole,
     email,
     token,
     status: "pending",

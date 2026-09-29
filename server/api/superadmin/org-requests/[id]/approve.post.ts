@@ -32,7 +32,7 @@ export default defineEventHandler(async (event) => {
 
   if (action === "approve") {
     // Create the organization
-    const orgId = await createOrganization(request.orgName, request.orgType as "s3" | "gdrive");
+    const orgId = await createOrganization(request.orgName, request.orgType as "s3" | "gdrive", request.userId);
 
     // Assign the requesting user as admin of the new org
     await db

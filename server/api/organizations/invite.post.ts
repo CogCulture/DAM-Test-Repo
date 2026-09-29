@@ -10,7 +10,7 @@ import { getOrgDepartments } from "~~/server/utils/db";
 export default defineEventHandler(async (event) => {
   const user = await getApprovedUser(event);
 
-  const body = await readBody<{ email?: string; departmentId?: string }>(event);
+  const body = await readBody<{ email?: string; departmentId?: string; role?: string }>(event);
   if (!body || !body.email || typeof body.email !== "string" || !body.email.trim()) {
     throw createError({ status: 400, message: "Valid email address is required." });
   }
@@ -19,6 +19,13 @@ export default defineEventHandler(async (event) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
     throw createError({ status: 400, message: "A valid email address (e.g. colleague@company.com) is required." });
+  }
+
+  const allowedRoles = ["admin", "dept_head", "team_lead", "team_member", "guest"];
+  let targetRole = body.role && allowedRoles.includes(body.role) ? body.role : "team_member";
+  // Non-admins cannot invite someone as an admin
+  if (targetRole === "admin" && (user as any).role !== "admin") {
+    targetRole = "dept_head";
   }
 
   const db = useDrizzle();
@@ -50,6 +57,7 @@ export default defineEventHandler(async (event) => {
     id: inviteId,
     organizationId: orgId,
     departmentId: targetDeptId,
+    role: targetRole,
     email,
     token,
     status: "pending",
