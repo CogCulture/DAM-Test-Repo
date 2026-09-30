@@ -19,7 +19,7 @@ export const usePostgresDrizzle = (databaseUrl: string) => {
   pgClient = postgres(databaseUrl, {
     ssl: "require",
     prepare: false, // Essential for Supabase transaction poolers
-    max: 10,
+    max: 5,
   });
 
   activeDatabaseUrl = databaseUrl;

@@ -650,21 +650,27 @@ export const insertUpdateFile = async (
   const fileType = getFileType(data.contentType);
   const preview = fileType === "image" ? physicalPath : null;
 
-  if (targetParentId !== "root") {
+  const lastSlashIndex = logicalPath.lastIndexOf("/");
+  const parentFolderPath = lastSlashIndex > -1 ? cleanPath(logicalPath.substring(0, lastSlashIndex)) : bucketName;
+
+  if (parentFolderPath && parentFolderPath !== bucketName) {
+    let immediateParent = await getFile(bucketName, parentFolderPath, undefined, organizationId);
+    if (!immediateParent || immediateParent.type !== "folder") {
+      immediateParent = await ensurePath(bucketName, logicalPath, userId, true);
+    }
+    if (immediateParent) {
+      targetParentId = immediateParent.id;
+      if (preview) {
+        await setFolderThumbnail(immediateParent.id, preview);
+      }
+    }
+  } else if (targetParentId !== "root") {
     const parentFolder = await getFolder(targetParentId, organizationId);
     if (parentFolder) {
       targetParentId = parentFolder.id;
     }
   } else {
-    const pathParts = logicalPath.split("/").filter(Boolean);
-    const hasSubfolders = (pathParts[0] === bucketName && pathParts.length > 2) || (pathParts[0] !== bucketName && pathParts.length > 1);
-    if (hasSubfolders) {
-      let parent = await ensurePath(bucketName, logicalPath, userId, true);
-      targetParentId = parent.id;
-      if (preview) {
-        await setFolderThumbnail(parent.id, preview);
-      }
-    }
+    targetParentId = "root";
   }
 
   let resolvedDepartmentId = data.departmentId || null;

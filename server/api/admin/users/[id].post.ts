@@ -63,7 +63,7 @@ export default defineEventHandler(async (event) => {
         limitRecord = perms.find((p) => p.role === targetRole && p.departmentId === "global");
       }
 
-      if (limitRecord && limitRecord.maxCount !== null) {
+      if (limitRecord && limitRecord.maxCount !== null && Number(limitRecord.maxCount) > 0) {
         // Count how many active users exist in this organization + department + role
         const activeUsersCountResult = await useDrizzle()
           .select({
