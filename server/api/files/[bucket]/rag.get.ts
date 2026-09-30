@@ -1,5 +1,5 @@
 import { requireFileDepartmentAccess, verifyBucket } from "~~/server/utils/permission";
-import { getFolder } from "~~/server/utils/db";
+import { getFolder, getItemById } from "~~/server/utils/db";
 import { useDrizzle } from "~~/server/utils/drizzle";
 import { files } from "~~/server/database/schema";
 import { and, eq, isNull } from "drizzle-orm";
@@ -44,8 +44,8 @@ export default defineEventHandler(async (event) => {
 
     // Fetch file record
     // @ts-ignore
-    const item = await getFolder(fileId, user.organizationId);
-    if (!item || item.bucketName !== bucket.name) {
+    const item = (await getItemById(fileId, user.organizationId)) || (await getFolder(fileId, user.organizationId));
+    if (!item || (item.bucketName !== bucket.name && item.bucketName !== "org")) {
       throw new Error("File not found in the specified bucket.");
     }
 

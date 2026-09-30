@@ -1,5 +1,5 @@
 import { verifyBucket } from "~~/server/utils/permission";
-import { getFolder, getBreadcrumb } from "~~/server/utils/db";
+import { getFolder, getItemById, getBreadcrumb } from "~~/server/utils/db";
 import {
   getGDriveAccessToken,
   getGDriveConnection,
@@ -23,9 +23,9 @@ export default defineEventHandler(async (event) => {
   }
 
   // 1. Try local SQLite files
-  let file: any = await getFolder(id, user.organizationId);
+  let file: any = (await getItemById(id, user.organizationId)) || (await getFolder(id, user.organizationId));
 
-  if (file && (file.bucketName === bucket.name || file.bucketName === "gdrive")) {
+  if (file && (file.bucketName === bucket.name || file.bucketName === "org" || file.bucketName === "gdrive")) {
     let breadcrumb: any[] = [];
     if (file.path) {
       const fullCrumbs = await getBreadcrumb(file.bucketName || bucket.name, file.path);

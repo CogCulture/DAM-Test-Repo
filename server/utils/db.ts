@@ -448,6 +448,53 @@ export const getFile = async (
   return null;
 };
 
+export const getItemById = async (id: any, orgId?: string) => {
+  if (!id || id === "root") return null;
+  let rawId = id;
+  if (Array.isArray(id)) {
+    rawId = id.filter(Boolean).pop();
+  }
+  if (!rawId || rawId === "root") return null;
+
+  const db = useDrizzle();
+  const clean = typeof rawId === "string" ? cleanPath(rawId) : String(rawId);
+
+  // 1. Precise lookup by unique file/folder ID first
+  const byIdConditions: any[] = [
+    eq(files.id, rawId),
+    isNull(files.deletedAt),
+  ];
+  if (orgId) {
+    byIdConditions.push(or(eq(files.organizationId, orgId), isNull(files.organizationId)));
+  }
+  const byId = await db.select().from(files).where(and(...byIdConditions)).limit(1);
+  if (byId.length > 0) {
+    return byId[0];
+  }
+
+  // 2. Lookup by exact unique path or storage path
+  const byPathConditions: any[] = [
+    isNull(files.deletedAt),
+    or(
+      eq(files.path, clean),
+      eq(files.path, rawId),
+      eq(files.storagePath, clean),
+      eq(files.storagePath, rawId),
+      eq(files.path, `org/${clean}`),
+      eq(files.path, `org/${rawId}`)
+    ),
+  ];
+  if (orgId) {
+    byPathConditions.push(or(eq(files.organizationId, orgId), isNull(files.organizationId)));
+  }
+  const byPath = await db.select().from(files).where(and(...byPathConditions)).limit(1);
+  if (byPath.length > 0) {
+    return byPath[0];
+  }
+
+  return null;
+};
+
 export const getFolder = async (id: any, orgId?: string) => {
   if (!id || id === "root") return null;
   let rawId = id;
@@ -891,7 +938,7 @@ export const unsetFavorite = async (userId: string, fileId: string) => {
     .where(and(eq(favorites.userId, userId), eq(favorites.fileId, fileId)));
 };
 export const ensureFile = async (bucketName: string, id: string) => {
-  let file = await getFolder(id);
+  let file = (await getItemById(id)) || (await getFolder(id));
   if (!file) {
     const [byPath] = await useDrizzle()
       .select()
@@ -1265,7 +1312,7 @@ export const getRecent = async (event: any, userId: string) => {
 };
 
 export const setVisibility = async (bucketName: string, data: IFile) => {
-  let file = await getFolder(data.id);
+  let file = (await getItemById(data.id)) || (await getFolder(data.id));
   if (!file) {
     const [byPath] = await useDrizzle()
       .select()
@@ -2040,7 +2087,7 @@ export const getFolderRequestById = async (id: string) => {
 };
 
 export const moveItem = async (bucketName: string, itemId: string, targetParentId: string) => {
-  const item = await getFolder(itemId);
+  const item = (await getItemById(itemId)) || (await getFolder(itemId));
   if (!item || item.bucketName !== bucketName) {
     throw createError({ status: 404, message: "Item not found." });
   }
@@ -2130,7 +2177,7 @@ export const moveItem = async (bucketName: string, itemId: string, targetParentI
 };
 
 export const copyItem = async (bucketName: string, itemId: string, newName: string, userId: string) => {
-  const file = await getFolder(itemId);
+  const file = (await getItemById(itemId)) || (await getFolder(itemId));
   if (!file || file.bucketName !== bucketName) {
     throw createError({ status: 404, message: "File not found." });
   }
@@ -2203,7 +2250,7 @@ export const copyItem = async (bucketName: string, itemId: string, newName: stri
 };
 
 export const renameItem = async (bucketName: string, itemId: string, newName: string) => {
-  const item = await getFolder(itemId);
+  const item = (await getItemById(itemId)) || (await getFolder(itemId));
   if (!item || item.bucketName !== bucketName) {
     throw createError({ status: 404, message: "Item not found." });
   }

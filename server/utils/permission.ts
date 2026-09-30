@@ -1,4 +1,4 @@
-import { getBucket, getFolder, getOrgDepartments, isOrganizationSuspended, getUser } from "./db";
+import { getBucket, getFolder, getItemById, getOrgDepartments, isOrganizationSuspended, getUser } from "./db";
 import { hasMinRole, ORG_BUCKET_NAME } from "~~/shared/constants/roles";
 import type { UserRole } from "~~/shared/constants/roles";
 import type { FilePermissionKey } from "~~/shared/utils/access-control";
@@ -22,7 +22,7 @@ export const getFileDepartmentId = async (fileId: string, orgId: string) => {
     if (currentId.startsWith("dept_")) return currentId.substring(5);
     const departmentId = byFolderId.get(currentId);
     if (departmentId) return departmentId;
-    const item = await getFolder(currentId, orgId);
+    const item = (await getItemById(currentId, orgId)) || (await getFolder(currentId, orgId));
     currentId = item?.parentId || null;
   }
   return null;

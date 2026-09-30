@@ -1,4 +1,4 @@
-import { getFile, getFolder, isParentPublic } from "~~/server/utils/db";
+import { getFile, getFolder, getItemById, isParentPublic } from "~~/server/utils/db";
 import { localBlob } from "~~/server/utils/localBlob";
 import { useDrizzle } from "~~/server/utils/drizzle";
 import { files } from "~~/server/database/schema";
@@ -17,7 +17,7 @@ export default defineEventHandler(async (event) => {
   const fullPath = params.bucket + "/" + rawPath;
 
   // Resolve file by ID first, then by full path (bucket/path), then by path, then by name
-  let file = await getFolder(rawPath);
+  let file = (await getItemById(rawPath)) || (await getFolder(rawPath));
   if (!file) {
     file = await getFile(params.bucket, fullPath);
   }

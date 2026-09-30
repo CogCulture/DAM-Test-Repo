@@ -1,5 +1,5 @@
 import { requireFileDepartmentAccess, verifyBucket } from "~~/server/utils/permission";
-import { getFolder } from "~~/server/utils/db";
+import { getFolder, getItemById } from "~~/server/utils/db";
 import { localBlob } from "~~/server/utils/localBlob";
 
 export default defineEventHandler(async (event) => {
@@ -11,8 +11,8 @@ export default defineEventHandler(async (event) => {
 
   if (id) {
     // @ts-ignore
-    const item = await getFolder(id, user.organizationId);
-    if (item && item.bucketName === bucket.name) {
+    const item = (await getItemById(id, user.organizationId)) || (await getFolder(id, user.organizationId));
+    if (item && (item.bucketName === bucket.name || item.bucketName === "org")) {
       await requireFileDepartmentAccess(user, item.id);
       if (isInline) {
         setHeader(
