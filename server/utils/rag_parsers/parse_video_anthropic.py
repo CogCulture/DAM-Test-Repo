@@ -60,30 +60,42 @@ def detect_scenes(video_path: str, threshold: float = 27.0):
 # =============================================================================
 # Frame Extraction
 # =============================================================================
+def _encode_frame_b64(frame) -> str:
+    """Resize a cv2 frame to max 768px on the longest side and return base64 JPEG."""
+    height, width = frame.shape[:2]
+    max_dim = 768
+    if max(height, width) > max_dim:
+        scale = max_dim / max(height, width)
+        frame = cv2.resize(frame, (int(width * scale), int(height * scale)))
+    _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    return base64.b64encode(buffer).decode("utf-8")
+
+
 def extract_scene_frames(video_path: str, start_sec: float, end_sec: float, target_fps: int = 4):
+    """Extract exactly 3 keyframes per scene: first, middle, and last frame.
+    
+    ``target_fps`` is kept in the signature for API compatibility but is no
+    longer used — we always return exactly 3 frames to minimise token cost.
+    """
     cap = cv2.VideoCapture(video_path)
     video_fps = cap.get(cv2.CAP_PROP_FPS)
     if video_fps == 0:
         video_fps = 30.0
 
+    duration = max(end_sec - start_sec, 0.0)
+    # Three keyframe timestamps: start, middle, end (clamp end slightly back to avoid overrun)
+    mid_sec = start_sec + duration / 2.0
+    # Keep end frame 1 frame before the true end so we don't overshoot the scene boundary
+    end_frame_sec = max(end_sec - (1.0 / video_fps), start_sec)
+    timestamps = [start_sec, mid_sec, end_frame_sec]
+
     frames_b64 = []
-    current_sec = start_sec
-    while current_sec < end_sec:
-        frame_num = int(current_sec * video_fps)
+    for ts in timestamps:
+        frame_num = int(ts * video_fps)
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
         ret, frame = cap.read()
         if ret:
-            # Resize frame to max dimension of 768 to save tokens
-            height, width = frame.shape[:2]
-            max_dim = 768
-            if max(height, width) > max_dim:
-                scale = max_dim / max(height, width)
-                frame = cv2.resize(frame, (int(width * scale), int(height * scale)))
-                
-            _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            frames_b64.append(base64.b64encode(buffer).decode("utf-8"))
-            
-        current_sec += (1.0 / target_fps)
+            frames_b64.append(_encode_frame_b64(frame))
 
     cap.release()
     return frames_b64
@@ -174,6 +186,20 @@ def process_video_anthropic(video_path, anthropic_key, model="claude-sonnet-4-6"
     mode_str = "BATCH" if use_batch else "REAL-TIME"
     print(f"\n--- Starting Video Parsing Pipeline (Anthropic - {mode_str} Mode) on: {os.path.basename(video_path)} ---")
     
+    # Check for audio transcription support
+    _whisper_model = None
+    try:
+        from faster_whisper import WhisperModel
+        print("    -> [INFO] faster-whisper available. Audio transcription enabled.")
+        _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+    except ImportError:
+        try:
+            import whisper as _whisper_lib
+            print("    -> [INFO] openai-whisper available. Audio transcription enabled.")
+            _whisper_model = _whisper_lib.load_model("base")
+        except ImportError:
+            print("    -> [WARNING] No whisper library found. Audio transcription disabled. Install faster-whisper or openai-whisper.")
+
     client = anthropic.Anthropic(api_key=anthropic_key)
     if LANGSMITH_AVAILABLE and os.environ.get("LANGCHAIN_TRACING_V2", "").lower() == "true":
         print(f"    -> [INFO] LangSmith tracing is ENABLED.")
@@ -318,7 +344,28 @@ def process_video_anthropic(video_path, anthropic_key, model="claude-sonnet-4-6"
         print(f"[ERROR] Failed to generate overall summary: {e}")
         overall_summary = "Failed to generate overall summary."
 
+    # 3b. Audio Transcription
+    audio_transcript = ""
+    if _whisper_model is not None:
+        print("\n[PHASE 3] Transcribing audio with Whisper...")
+        try:
+            # faster-whisper API
+            if hasattr(_whisper_model, "transcribe") and "WhisperModel" in type(_whisper_model).__name__:
+                segments, _ = _whisper_model.transcribe(video_path, beam_size=5)
+                audio_transcript = " ".join(seg.text.strip() for seg in segments)
+            else:
+                # openai-whisper API
+                result = _whisper_model.transcribe(video_path)
+                audio_transcript = result.get("text", "").strip()
+            print(f"    -> Transcription complete ({len(audio_transcript)} chars).")
+        except Exception as e:
+            print(f"    -> [WARNING] Audio transcription failed: {e}")
+            audio_transcript = ""
+    else:
+        print("\n[PHASE 3] Skipping audio transcription (no whisper library installed).")
+
     # 4. Save to Markdown
+
     print("\n[FINISHING] Compiling final Markdown report...")
     base_name = os.path.splitext(os.path.basename(video_path))[0]
     out_dir = os.path.dirname(os.path.abspath(video_path))
@@ -335,13 +382,18 @@ def process_video_anthropic(video_path, anthropic_key, model="claude-sonnet-4-6"
         f.write(f"# Video Analysis Report (Anthropic)\n")
         f.write(f"**File:** {os.path.basename(video_path)}\n")
         f.write(f"**Model Used:** {model}\n")
-        f.write(f"**Extraction Rate:** {target_fps} FPS per scene\n")
+        f.write(f"**Frame Strategy:** 3 keyframes per scene (first / middle / last)\n")
         f.write(f"**Processing Mode:** {mode_str}\n\n")
         f.write("---\n\n")
         
         f.write(f"## Overall Video Summary\n")
         f.write(f"{overall_summary}\n\n")
         f.write("---\n\n")
+
+        if audio_transcript:
+            f.write(f"## Audio Transcript\n")
+            f.write(f"{audio_transcript}\n\n")
+            f.write("---\n\n")
         
         f.write(f"## Per-Scene Breakdown\n")
         for s in sorted_scenes:

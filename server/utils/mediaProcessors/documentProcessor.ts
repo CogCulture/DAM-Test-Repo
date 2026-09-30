@@ -22,7 +22,8 @@ export async function processDocumentFile(
   ext: string,
   orgId: string,
   userId: string,
-  departmentId: string = "global"
+  departmentId: string = "global",
+  clientName: string = "Unknown"
 ): Promise<DocumentProcessingResult> {
   const scriptPath = join(RAGPUSH_DIR, "rag_parsers", "run_pipeline.py");
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -39,7 +40,7 @@ export async function processDocumentFile(
     fileId,
     fileName,
     ext,
-    "Unknown",
+    clientName || "Unknown",
     orgId || "org_default",
     userId || "system",
     "user",
@@ -54,7 +55,7 @@ export async function processDocumentFile(
       env: {
         ...process.env,
         PYTHONUNBUFFERED: "1",
-        RAG_USE_BATCH: process.env.RAG_USE_BATCH || "false",
+        RAG_USE_BATCH: process.env.RAG_USE_BATCH || "true",
         ...(apiKey ? { ANTHROPIC_API_KEY: apiKey } : {}),
         PINECONE_API_KEY: pineconeKey,
       },
@@ -78,10 +79,11 @@ export async function processDocumentFile(
       try {
         let outputPath = "";
         let cost = 0;
+        let jsonRes: Record<string, any> = {};
         try {
           const lines = stdoutData.trim().split("\n");
           const lastLine = lines[lines.length - 1];
-          const jsonRes = JSON.parse(lastLine);
+          jsonRes = JSON.parse(lastLine);
           if (jsonRes.cost) cost = jsonRes.cost;
           if (jsonRes.output_path) outputPath = jsonRes.output_path;
         } catch {
@@ -111,6 +113,14 @@ export async function processDocumentFile(
             parsedMarkdownPath: outputPath || undefined,
             textCharacterCount: extractedText.length,
             usedOcrFallback,
+            executiveSummary: jsonRes.executive_summary || undefined,
+            primaryThemes: jsonRes.primary_themes?.length ? jsonRes.primary_themes : undefined,
+            extractedEntities: jsonRes.entities?.length ? jsonRes.entities : undefined,
+            audioTranscript: jsonRes.audio_transcript || undefined,
+            vectorChunkCount: jsonRes.total_chunks || jsonRes.chunks || undefined,
+            pageCount: jsonRes.page_count || undefined,
+            slideCount: jsonRes.slide_count || undefined,
+            sceneCount: jsonRes.scene_count || undefined,
           },
           extractedText,
           outputPath,
@@ -122,3 +132,4 @@ export async function processDocumentFile(
     });
   });
 }
+

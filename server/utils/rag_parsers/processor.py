@@ -16,7 +16,7 @@ import job_store as js
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
-USE_BATCH_API = os.environ.get("RAG_USE_BATCH", "false").strip().lower() in {
+USE_BATCH_API = os.environ.get("RAG_USE_BATCH", "true").strip().lower() in {
     "1", "true", "yes", "on"
 }
 
@@ -118,8 +118,8 @@ def route_file(file_path: str, file_type: str = "") -> dict:
         return result if result else {"output_path": None, "input_tokens": 0, "output_tokens": 0, "cost": 0.0}
 
     elif ext in (".jpg", ".jpeg", ".png", ".webp"):
-        # Single image — use a quick Claude vision call
-        return _process_image_single(file_path)
+        # Image — Claude vision call with batch option for 50% cost savings
+        return _process_image_single(file_path, use_batch=USE_BATCH_API)
 
     else:
         raise ValueError(f"Unsupported file type: {ext}")
@@ -257,28 +257,69 @@ def _encode_image_b64(image_path: str, max_dim: int = 768) -> tuple[str, str]:
         return base64.b64encode(f.read()).decode("utf-8"), m_type
 
 
-def _process_image_single(image_path: str) -> dict:
-    """Sends a single image to Claude Vision for a quick analysis (Synchronous)."""
+def _process_image_single(image_path: str, use_batch: bool = False) -> dict:
+    """Sends an image to Claude Vision for analysis, supporting Message Batches for 50% cost discount."""
     import os
+    import time
     from anthropic import Anthropic
     client = Anthropic(api_key=ANTHROPIC_API_KEY)
     
     b64, m_type = _encode_image_b64(image_path, max_dim=768)
 
-    resp = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=2048,
-        messages=[{"role": "user", "content": [
-            {"type": "image", "source": {"type": "base64", "media_type": m_type, "data": b64}},
-            {"type": "text", "text": "Describe and analyze this image in detail. Extract all visible text, data, and visual insights."}
-        ]}]
+    prompt = (
+        "You are an expert visual analyst. Analyze this image in detail:\n"
+        "1. **Visual Description**: Describe properly and thoroughly what is in the image (subject, composition, visual elements, setting, colors, aesthetic).\n"
+        "2. **Text & Content**: Transcribe and extract all visible text, numbers, headings, slogans, or branding present in the image. If there is no text, state 'No text detected'.\n"
+        "3. **Summary & Tags**: Provide a concise summary and list of key entities/tags."
     )
+
+    content = [
+        {"type": "image", "source": {"type": "base64", "media_type": m_type, "data": b64}},
+        {"type": "text", "text": prompt}
+    ]
+
+    in_tokens = 0
+    out_tokens = 0
+    analysis_text = ""
+
+    if use_batch:
+        req = [{
+            "custom_id": "img_0",
+            "params": {
+                "model": CLAUDE_MODEL,
+                "max_tokens": 2048,
+                "messages": [{"role": "user", "content": content}]
+            }
+        }]
+        batch = client.beta.messages.batches.create(requests=req)
+        while True:
+            b_status = client.beta.messages.batches.retrieve(batch.id)
+            if b_status.processing_status in ["ended", "canceled", "expired"]:
+                break
+            time.sleep(5)
+        for result in client.beta.messages.batches.results(batch.id):
+            if result.result.type == "succeeded":
+                analysis_text = result.result.message.content[0].text
+                in_tokens = result.result.message.usage.input_tokens
+                out_tokens = result.result.message.usage.output_tokens
+            else:
+                raise RuntimeError(f"Batch analysis failed: {result.result}")
+    else:
+        resp = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=2048,
+            messages=[{"role": "user", "content": content}]
+        )
+        analysis_text = resp.content[0].text
+        in_tokens = resp.usage.input_tokens
+        out_tokens = resp.usage.output_tokens
+
     out_path = os.path.splitext(image_path)[0] + "_parsed.md"
     with open(out_path, "w", encoding="utf-8") as f:
-        f.write(f"# Image Analysis\n\n{resp.content[0].text}")
-    in_tokens = resp.usage.input_tokens
-    out_tokens = resp.usage.output_tokens
-    cost = (in_tokens * 3.0 + out_tokens * 15.0) / 1_000_000
+        f.write(f"# Image Analysis: {os.path.basename(image_path)}\n\n{analysis_text}")
+
+    cost_multiplier = 0.5 if use_batch else 1.0
+    cost = ((in_tokens * 3.0 + out_tokens * 15.0) / 1_000_000) * cost_multiplier
     return {"output_path": out_path, "input_tokens": in_tokens, "output_tokens": out_tokens, "cost": cost}
 
 

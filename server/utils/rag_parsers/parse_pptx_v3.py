@@ -11,10 +11,10 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 import anthropic
 
 try:
-    import win32com.client
-    WIN32_AVAILABLE = True
+    import fitz  # PyMuPDF
+    PYMUPDF_AVAILABLE = True
 except ImportError:
-    WIN32_AVAILABLE = False
+    PYMUPDF_AVAILABLE = False
 
 try:
     from langsmith.wrappers import wrap_anthropic
@@ -113,27 +113,46 @@ def image_to_base64_media_type(image_path):
     return media_type, b64_data
 
 def export_all_slides_as_images(ppt_path, output_dir):
-    """Exports all slides at once to avoid opening/closing PPT repeatedly."""
-    if not WIN32_AVAILABLE:
-        raise Exception("win32com.client is not available.")
+    """Renders every slide to a JPEG using PyMuPDF (no PowerPoint/COM required).
     
-    powerpoint = win32com.client.Dispatch("PowerPoint.Application")
-    abs_ppt_path = os.path.abspath(ppt_path)
-    abs_out_dir = os.path.abspath(output_dir)
-    
-    os.makedirs(abs_out_dir, exist_ok=True)
-    
-    presentation = powerpoint.Presentations.Open(abs_ppt_path, ReadOnly=True, WithWindow=False)
+    Falls back to win32com if PyMuPDF is not available and PowerPoint is installed.
+    """
+    os.makedirs(output_dir, exist_ok=True)
     slide_paths = {}
+
+    if PYMUPDF_AVAILABLE:
+        print("    -> Using PyMuPDF to render slides...")
+        doc = fitz.open(ppt_path)
+        for i in range(len(doc)):
+            page = doc.load_page(i)
+            # 2× scale for crisp text and charts
+            matrix = fitz.Matrix(2, 2)
+            pix = page.get_pixmap(matrix=matrix)
+            out_path = os.path.join(output_dir, f"slide_{i + 1}.jpg")
+            pix.save(out_path)
+            slide_paths[i + 1] = out_path
+        doc.close()
+        return slide_paths
+
+    # Fallback: win32com (Windows + PowerPoint required)
     try:
-        for i, slide in enumerate(presentation.Slides, start=1):
-            out_path = os.path.join(abs_out_dir, f"slide_{i}.jpg")
-            slide.Export(out_path, "JPG")
-            slide_paths[i] = out_path
-    finally:
-        presentation.Close()
-    
-    return slide_paths
+        import win32com.client
+        powerpoint = win32com.client.Dispatch("PowerPoint.Application")
+        abs_ppt_path = os.path.abspath(ppt_path)
+        abs_out_dir = os.path.abspath(output_dir)
+        presentation = powerpoint.Presentations.Open(abs_ppt_path, ReadOnly=True, WithWindow=False)
+        try:
+            for i, slide in enumerate(presentation.Slides, start=1):
+                out_path = os.path.join(abs_out_dir, f"slide_{i}.jpg")
+                slide.Export(out_path, "JPG")
+                slide_paths[i] = out_path
+        finally:
+            presentation.Close()
+        return slide_paths
+    except Exception as e:
+        raise RuntimeError(
+            f"Slide rendering failed. Install pymupdf (`pip install pymupdf`) or Microsoft PowerPoint. Details: {e}"
+        )
 
 
 # =============================================================================
@@ -255,18 +274,15 @@ def process_pptx(ppt_path, anthropic_key, model, max_workers, use_batch):
         })
         
     print(f"Total slides: {len(slides_data)}")
-    slides_with_visuals = [s["slide_num"] for s in slides_data if s["has_visuals"]]
-    print(f"Slides with visual elements: {len(slides_with_visuals)}")
     
     with tempfile.TemporaryDirectory() as tmpdir:
         slide_image_paths = {}
-        if slides_with_visuals:
-            print("\nExporting visual slides to images using PowerPoint COM...")
-            try:
-                slide_image_paths = export_all_slides_as_images(ppt_path, tmpdir)
-            except Exception as e:
-                print(f"[WARNING] Failed to export images: {e}")
-                
+        print("\nExporting all slides to images using PyMuPDF...")
+        try:
+            slide_image_paths = export_all_slides_as_images(ppt_path, tmpdir)
+        except Exception as e:
+            print(f"[WARNING] Failed to export images: {e}")
+            
         structured_slides = {}
 
         if use_batch:
@@ -277,7 +293,7 @@ def process_pptx(ppt_path, anthropic_key, model, max_workers, use_batch):
                 prompt = get_unified_slide_prompt(s_num, native_text)
                 
                 content = []
-                if s["has_visuals"] and s_num in slide_image_paths and os.path.exists(slide_image_paths[s_num]):
+                if s_num in slide_image_paths and os.path.exists(slide_image_paths[s_num]):
                     m_type, img_b64 = image_to_base64_media_type(slide_image_paths[s_num])
                     content.append({
                         "type": "image",
@@ -321,7 +337,7 @@ def process_pptx(ppt_path, anthropic_key, model, max_workers, use_batch):
                 prompt = get_unified_slide_prompt(s_num, native_text)
                 
                 content = []
-                if slide_dict["has_visuals"] and s_num in slide_image_paths and os.path.exists(slide_image_paths[s_num]):
+                if s_num in slide_image_paths and os.path.exists(slide_image_paths[s_num]):
                     m_type, img_b64 = image_to_base64_media_type(slide_image_paths[s_num])
                     content.append({
                         "type": "image",

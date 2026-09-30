@@ -33,18 +33,20 @@ def main():
         sys.exit(1)
         
     # 2. Embed and upload without putting credentials in process arguments.
+    embed_result = {}
     try:
         print(json.dumps({"type": "stage", "stage": "embedding", "message": "Embedding document for RAG search..."}), flush=True)
         from embed_to_pinecone import embed_markdown
-        embed_markdown(md_path, *sys.argv[2:])
+        embed_result = embed_markdown(md_path, *sys.argv[2:], file_path=file_path)
     except Exception as e:
         import traceback
         traceback.print_exc(file=sys.stderr)
         print(json.dumps({"error": f"Embedding step failed: {str(e)}"}))
         sys.exit(1)
         
-    # Print the final result from the processor so the Node.js server gets the cost and output_path
-    print(json.dumps(result))
+    # Print the merged result so the server gets cost, output_path, executive_summary, themes, entities, and chunk stats
+    final_output = {**result, **(embed_result if isinstance(embed_result, dict) else {})}
+    print(json.dumps(final_output))
     sys.exit(0)
 
 if __name__ == "__main__":

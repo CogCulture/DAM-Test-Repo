@@ -133,6 +133,18 @@ export async function executeFileIngestion(job: IngestionJobPayload): Promise<Pi
         const imgResult = await processImageFile(localFilePath, fileBuffer);
         categoryMetadata = imgResult.metadata;
         if (imgResult.renditions) renditions = imgResult.renditions;
+
+        // If Pinecone is configured, also run visual RAG captioning & text transcription
+        if (process.env.PINECONE_API_KEY && (detected.ext === ".jpg" || detected.ext === ".jpeg" || detected.ext === ".png" || detected.ext === ".webp")) {
+          try {
+            const ragRes = await runRagParsing(file, localFilePath, detected, storageTarget, db);
+            categoryMetadata = { ...categoryMetadata, ...ragRes.metadata };
+            if (ragRes.ragCost) ragCost = ragRes.ragCost;
+            if (ragRes.parsedFileId) parsedFileId = ragRes.parsedFileId;
+          } catch (ragErr: any) {
+            console.warn(`[IngestionPipeline] Image RAG parsing skipped/failed: ${ragErr.message}`);
+          }
+        }
         break;
       }
 
@@ -140,6 +152,18 @@ export async function executeFileIngestion(job: IngestionJobPayload): Promise<Pi
         const vidResult = await processVideoFile(localFilePath, fileBuffer);
         categoryMetadata = vidResult.metadata;
         if (vidResult.renditions) renditions = vidResult.renditions;
+
+        // If Pinecone is configured, also run multimodal video RAG parsing (3 keyframes + whisper)
+        if (process.env.PINECONE_API_KEY && (detected.ext === ".mp4" || detected.ext === ".mov" || detected.ext === ".avi" || detected.ext === ".mkv")) {
+          try {
+            const ragRes = await runRagParsing(file, localFilePath, detected, storageTarget, db);
+            categoryMetadata = { ...categoryMetadata, ...ragRes.metadata };
+            if (ragRes.ragCost) ragCost = ragRes.ragCost;
+            if (ragRes.parsedFileId) parsedFileId = ragRes.parsedFileId;
+          } catch (ragErr: any) {
+            console.warn(`[IngestionPipeline] Video RAG parsing skipped/failed: ${ragErr.message}`);
+          }
+        }
         break;
       }
 
@@ -158,95 +182,10 @@ export async function executeFileIngestion(job: IngestionJobPayload): Promise<Pi
 
       case "document": {
         try {
-          const docResult = await processDocumentFile(
-            localFilePath,
-            file.id,
-            file.name,
-            detected.ext,
-            file.organizationId,
-            file.userId || "system",
-            file.departmentId || "global"
-          );
-          categoryMetadata = docResult.metadata;
-          if (docResult.metadata?.ragCost) ragCost = docResult.metadata.ragCost;
-
-          // Save extracted markdown artifact if available
-          if (docResult.extractedText && docResult.outputPath) {
-            const mdContent = docResult.extractedText;
-            const generatedSuffix = (detected.ext === ".txt" || detected.ext === ".md" || detected.ext === ".markdown") ? "_parsed.md" : "_anthropic_parsed.md";
-            const newName = getRagArtifactName(file.name, generatedSuffix);
-            const targetPath = getRagArtifactPath(file.path, generatedSuffix);
-            const sourceIdentity = {
-              id: file.id,
-              md5: file.md5,
-              name: file.name,
-              path: file.path,
-            };
-
-            const blobData = new Blob([mdContent], { type: "text/markdown" });
-            if (storageTarget === "local") {
-              await localBlob().put(targetPath, mdContent);
-            } else {
-              await hubBlob().put(targetPath, blobData);
-            }
-
-            const siblingFiles = await db.select().from(files).where(and(
-              eq(files.organizationId, file.organizationId),
-              eq(files.bucketName, file.bucketName),
-              eq(files.parentId, file.parentId),
-              eq(files.type, "file"),
-              isNull(files.deletedAt),
-            ));
-
-            const artifactState = resolveRagArtifactState(sourceIdentity, siblingFiles);
-            const now = new Date();
-            const mdMetadata = {
-              ...(artifactState.canonical?.assetMetadata || {}),
-              ...buildRagArtifactMetadata(sourceIdentity),
-              ragGeneratedSuffix: generatedSuffix,
-            };
-
-            parsedFileId = artifactState.canonical?.id || ulid();
-
-            if (artifactState.canonical) {
-              await db.update(files).set({
-                name: newName,
-                path: targetPath,
-                storagePath: targetPath,
-                contentType: "text/markdown",
-                size: Buffer.byteLength(mdContent),
-                visibility: file.visibility,
-                departmentId: file.departmentId,
-                processingStatus: "processed",
-                assetMetadata: mdMetadata,
-                updatedAt: now,
-              }).where(eq(files.id, parsedFileId));
-            } else {
-              await db.insert(files).values({
-                id: parsedFileId,
-                name: newName,
-                path: targetPath,
-                storagePath: targetPath,
-                type: "file",
-                contentType: "text/markdown",
-                size: Buffer.byteLength(mdContent),
-                bucketName: file.bucketName,
-                parentId: file.parentId,
-                organizationId: file.organizationId,
-                departmentId: file.departmentId,
-                processingStatus: "processed",
-                visibility: file.visibility,
-                assetMetadata: mdMetadata,
-                userId: file.userId,
-                createdAt: now,
-                updatedAt: now,
-              });
-            }
-
-            if (artifactState.duplicateIds.length > 0) {
-              await db.delete(files).where(inArray(files.id, artifactState.duplicateIds));
-            }
-          }
+          const ragRes = await runRagParsing(file, localFilePath, detected, storageTarget, db);
+          categoryMetadata = ragRes.metadata;
+          if (ragRes.ragCost) ragCost = ragRes.ragCost;
+          if (ragRes.parsedFileId) parsedFileId = ragRes.parsedFileId;
         } catch (docErr: any) {
           console.warn(`[IngestionPipeline] Document RAG error for ${file.name}:`, docErr?.message);
           categoryMetadata = {
@@ -255,6 +194,7 @@ export async function executeFileIngestion(job: IngestionJobPayload): Promise<Pi
         }
         break;
       }
+
 
       default: {
         categoryMetadata = {
@@ -353,4 +293,127 @@ async function cleanupTempFile(tempDir: string, filePath: string) {
       await fs.rm(filePath, { force: true });
     } catch {}
   }
+}
+
+function resolveClientName(filePath: string, orgId: string): string {
+  const match = filePath.match(/Clients\/([^/]+)/i);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+  return orgId || "Unknown";
+}
+
+async function runRagParsing(
+  file: any,
+  localFilePath: string,
+  detected: any,
+  storageTarget: string,
+  db: any
+): Promise<{ metadata: Record<string, any>; ragCost: number; parsedFileId: string }> {
+  const clientName = resolveClientName(file.path, file.organizationId);
+  const docResult = await processDocumentFile(
+    localFilePath,
+    file.id,
+    file.name,
+    detected.ext,
+    file.organizationId,
+    file.userId || "system",
+    file.departmentId || "global",
+    clientName
+  );
+
+  let ragCost = docResult.metadata?.ragCost || 0;
+  let parsedFileId = "";
+
+  if (docResult.extractedText && docResult.outputPath) {
+    const mdContent = docResult.extractedText;
+    const generatedSuffix = (detected.ext === ".txt" || detected.ext === ".md" || detected.ext === ".markdown") ? "_parsed.md" : "_anthropic_parsed.md";
+    const newName = getRagArtifactName(file.name, generatedSuffix);
+    const targetPath = getRagArtifactPath(file.path, generatedSuffix);
+    const sourceIdentity = {
+      id: file.id,
+      md5: file.md5,
+      name: file.name,
+      path: file.path,
+    };
+
+    const blobData = new Blob([mdContent], { type: "text/markdown" });
+    if (storageTarget === "local") {
+      await localBlob().put(targetPath, mdContent);
+    } else {
+      await hubBlob().put(targetPath, blobData);
+    }
+
+    const siblingFiles = await db.select().from(files).where(and(
+      eq(files.organizationId, file.organizationId),
+      eq(files.bucketName, file.bucketName),
+      eq(files.parentId, file.parentId),
+      eq(files.type, "file"),
+      isNull(files.deletedAt),
+    ));
+
+    const artifactState = resolveRagArtifactState(sourceIdentity, siblingFiles);
+    const now = new Date();
+    const mdMetadata = {
+      ...(artifactState.canonical?.assetMetadata || {}),
+      ...buildRagArtifactMetadata(sourceIdentity),
+      ragGeneratedSuffix: generatedSuffix,
+      client: clientName,
+      executiveSummary: docResult.metadata?.executiveSummary,
+      primaryThemes: docResult.metadata?.primaryThemes,
+      extractedEntities: docResult.metadata?.extractedEntities,
+      audioTranscript: docResult.metadata?.audioTranscript,
+      vectorChunkCount: docResult.metadata?.vectorChunkCount,
+      pageCount: docResult.metadata?.pageCount,
+      slideCount: docResult.metadata?.slideCount,
+      sceneCount: docResult.metadata?.sceneCount,
+    };
+
+    parsedFileId = artifactState.canonical?.id || ulid();
+
+    if (artifactState.canonical) {
+      await db.update(files).set({
+        name: newName,
+        path: targetPath,
+        storagePath: targetPath,
+        contentType: "text/markdown",
+        size: Buffer.byteLength(mdContent),
+        visibility: file.visibility,
+        departmentId: file.departmentId,
+        processingStatus: "processed",
+        assetMetadata: mdMetadata,
+        updatedAt: now,
+      }).where(eq(files.id, parsedFileId));
+    } else {
+      await db.insert(files).values({
+        id: parsedFileId,
+        name: newName,
+        path: targetPath,
+        storagePath: targetPath,
+        type: "file",
+        contentType: "text/markdown",
+        size: Buffer.byteLength(mdContent),
+        bucketName: file.bucketName,
+        parentId: file.parentId,
+        organizationId: file.organizationId,
+        departmentId: file.departmentId,
+        processingStatus: "processed",
+        visibility: file.visibility,
+        assetMetadata: mdMetadata,
+        userId: file.userId,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    if (artifactState.duplicateIds.length > 0) {
+      await db.delete(files).where(inArray(files.id, artifactState.duplicateIds));
+    }
+  }
+
+  return {
+    metadata: docResult.metadata || {},
+    ragCost,
+    parsedFileId,
+  };
 }

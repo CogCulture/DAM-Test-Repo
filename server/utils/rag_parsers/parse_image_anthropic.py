@@ -3,6 +3,7 @@ import sys
 import argparse
 import base64
 import json
+from anthropic import Anthropic
 def _encode_image_b64(image_path: str, max_dim: int = 768) -> tuple[str, str]:
     ext = os.path.splitext(image_path)[1].lower()
     m_type = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")

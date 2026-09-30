@@ -164,7 +164,7 @@ export default defineEventHandler(async (event) => {
       env: {
         ...process.env,
         PYTHONUNBUFFERED: "1",
-        RAG_USE_BATCH: process.env.RAG_USE_BATCH || "false",
+        RAG_USE_BATCH: process.env.RAG_USE_BATCH || "true",
         ...(apiKey ? { ANTHROPIC_API_KEY: apiKey } : {}),
         PINECONE_API_KEY: pineconeKey,
       },

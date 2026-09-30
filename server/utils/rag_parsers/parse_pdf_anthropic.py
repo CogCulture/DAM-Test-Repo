@@ -259,26 +259,10 @@ def process_pdf(pdf_path, anthropic_key, model, max_workers, use_batch):
         def process_page(p_dict):
             p_num = p_dict["page_num"]
             n_text = p_dict["native_text"]
-
-            # Fast path: If PDF has native extractable text, structure it directly in < 5ms per page!
-            if n_text and n_text != "No extractable text on this page." and len(n_text.strip()) > 20:
-                lines = [line.strip() for line in n_text.splitlines() if line.strip()]
-                title = lines[0] if lines else f"Page {p_num}"
-                summary = n_text[:500] if len(n_text) > 500 else n_text
-                key_takeaways = lines[1:5] if len(lines) > 1 else [title]
-                parsed = {
-                    "page_num": p_num,
-                    "title": title,
-                    "summary": summary,
-                    "key_takeaways": key_takeaways,
-                    "entities": [],
-                    "page_theme": "Document Section",
-                    "native_text": n_text
-                }
-                return p_num, parsed, {"input_tokens": 0, "output_tokens": 0}
-
-            # Slow path: Scanned / raster image page -> fallback to Anthropic Vision API
             prompt = get_page_prompt(p_num, n_text)
+
+            # Always send both the rendered image and the native text to Claude Vision.
+            # The image captures charts, layout, and design elements that raw text misses.
             content = [
                 {
                     "type": "image",
