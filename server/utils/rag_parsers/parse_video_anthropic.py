@@ -8,8 +8,12 @@ import cv2
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import anthropic
 
-from scenedetect import open_video, SceneManager
-from scenedetect.detectors import ContentDetector
+try:
+    from scenedetect import open_video, SceneManager
+    from scenedetect.detectors import ContentDetector
+    SCENEDETECT_AVAILABLE = True
+except ImportError:
+    SCENEDETECT_AVAILABLE = False
 
 try:
     from langsmith.wrappers import wrap_anthropic
@@ -27,6 +31,15 @@ except ImportError:
 # PySceneDetect
 # =============================================================================
 def detect_scenes(video_path: str, threshold: float = 27.0):
+    if not SCENEDETECT_AVAILABLE:
+        print("[INFO] scenedetect not available, treating video as one scene.")
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = frame_count / fps if fps else 0
+        cap.release()
+        return [{"scene_num": 1, "start_sec": 0.0, "end_sec": duration, "duration_sec": duration}]
+
     print(f"Running PySceneDetect (threshold={threshold})...")
     try:
         video = open_video(video_path)

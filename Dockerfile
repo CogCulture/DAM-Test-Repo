@@ -20,7 +20,7 @@ RUN npm prune --omit=dev --legacy-peer-deps
 FROM node:22-bookworm-slim AS runtime
 ENV PATH=/opt/dam-python/bin:$PATH
 RUN apt-get update \
-  && apt-get install --no-install-recommends -y ca-certificates curl python3 python3-venv \
+  && apt-get install --no-install-recommends -y ca-certificates curl python3 python3-venv ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

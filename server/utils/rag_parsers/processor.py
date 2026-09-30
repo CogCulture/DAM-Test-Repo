@@ -106,10 +106,8 @@ def route_file(file_path: str, file_type: str = "") -> dict:
         )
 
     elif ext in (".mp3", ".wav", ".m4a"):
-        # transcribe_and_tag.py doesn't use an LLM API (local models), no token cost
-        out_path = os.path.splitext(file_path)[0] + "_transcript.txt"
-        _run_transcribe(file_path, out_path)
-        return {"output_path": out_path, "input_tokens": 0, "output_tokens": 0, "cost": 0.0}
+        from parse_audio import process_audio
+        return process_audio(file_path, ANTHROPIC_API_KEY, CLAUDE_MODEL)
 
     elif ext in (".xlsx", ".xls"):
         # parse_excel.py

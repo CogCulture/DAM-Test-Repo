@@ -203,7 +203,10 @@ def process_excel_fast(file_path, anthropic_key, model_name):
             sheet_samples += f"Metadata/Context: {metadata}\n"
         sheet_samples += f"Columns: {', '.join(str(c) for c in columns)}\n"
         sheet_samples += "Sample Data (first 3 rows):\n"
-        sheet_samples += df.head(3).to_markdown(index=False) + "\n\n"
+        try:
+            sheet_samples += df.head(3).to_markdown(index=False) + "\n\n"
+        except Exception:
+            sheet_samples += df.head(3).to_string(index=False) + "\n\n"
         
         template = templates.get(table_name, " and ".join([f"{{{col}}}" for col in columns]) + ".")
         
