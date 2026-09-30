@@ -40,18 +40,20 @@ def _encode_image_b64(image_path: str, max_dim: int = 768) -> tuple[str, str]:
     with open(image_path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8"), m_type
 
+from llm_client import call_llm_with_fallback
+
 def process_image_single(image_path: str, anthropic_key: str, model: str) -> dict:
-    client = Anthropic(api_key=anthropic_key)
-    
     b64, m_type = _encode_image_b64(image_path, max_dim=768)
 
-    resp = client.messages.create(
-        model=model,
-        max_tokens=2048,
+    resp = call_llm_with_fallback(
         messages=[{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64", "media_type": m_type, "data": b64}},
             {"type": "text", "text": "Describe and analyze this image in detail. Extract all visible text, data, and visual insights."}
-        ]}]
+        ]}],
+        model=model,
+        max_tokens=2048,
+        anthropic_key=anthropic_key,
+        openai_model="gpt-4o"
     )
     
     out_dir = os.path.dirname(os.path.abspath(image_path))

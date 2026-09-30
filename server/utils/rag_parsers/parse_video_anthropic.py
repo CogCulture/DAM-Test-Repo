@@ -105,29 +105,19 @@ def extract_scene_frames(video_path: str, start_sec: float, end_sec: float, targ
 # Anthropic API Helpers
 # =============================================================================
 
-def call_anthropic_with_retry(client, model, messages, max_tokens=4096, temperature=0.1, max_retries=5):
-    for attempt in range(max_retries):
-        try:
-            resp = client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                messages=messages
-            )
-            return resp
-        except Exception as e:
-            err_msg = str(e).lower()
-            if "429" in err_msg or "rate limit" in err_msg or "overloaded" in err_msg:
-                wait_time = (attempt + 1) * 10
-                print(f"    -> [WARNING] Rate limit hit. Attempt {attempt + 1}/{max_retries}. Pausing {wait_time}s...")
-                time.sleep(wait_time)
-            elif "50" in err_msg or "server error" in err_msg:
-                wait_time = (attempt + 1) * 5
-                print(f"    -> [WARNING] Service error. Attempt {attempt + 1}/{max_retries}. Pausing {wait_time}s...")
-                time.sleep(wait_time)
-            else:
-                raise e
-    raise Exception("Max retries exceeded due to persistent API errors.")
+from llm_client import call_llm_with_fallback
+
+def call_anthropic_with_retry(client, model, messages, max_tokens=4096, temperature=0.1, max_retries=3):
+    anthropic_key = getattr(client, "api_key", None)
+    return call_llm_with_fallback(
+        messages=messages,
+        model=model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        anthropic_key=anthropic_key,
+        openai_model="gpt-4o",
+        max_retries=max_retries
+    )
 
 def run_anthropic_batch_task(client, requests_list, poll_interval=30):
     print(f"    -> Creating batch task with {len(requests_list)} requests...")

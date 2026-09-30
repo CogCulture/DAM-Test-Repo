@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
   let folderName = body.folderName;
 
   if (Array.isArray(body.items) && body.items.length > 0) {
-    folderId = JSON.stringify(body.items);
+    folderId = body.items[0].id;
     if (body.items.length === 1) {
       folderName = body.items[0].name;
     } else {

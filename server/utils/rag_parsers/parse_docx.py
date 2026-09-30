@@ -57,9 +57,8 @@ def extract_images_from_docx(docx_path):
     return images
 
 def analyze_with_claude(text_content, images, api_key, model):
-    """Sends text and images to Claude Vision API for insights."""
-    print(f"Sending data to Anthropic API ({model})...")
-    client = Anthropic(api_key=api_key)
+    """Sends text and images to Claude Vision API (or ChatGPT fallback) for insights."""
+    from llm_client import call_llm_with_fallback
     
     content = []
     
@@ -95,78 +94,18 @@ def analyze_with_claude(text_content, images, api_key, model):
     })
     
     try:
-        requests_list = [
-            {
-                "custom_id": "docx_request_1",
-                "params": {
-                    "model": model,
-                    "max_tokens": 4096,
-                    "messages": [
-                        {"role": "user", "content": content}
-                    ]
-                }
-            }
-        ]
-        
-        print(f"Submitting Batch API request (50% cost discount)...")
-        # Note: Using .beta.messages.batches based on typical older SDK versions, 
-        # may need to be .messages.batches in newer SDKs
-        try:
-            batch = client.beta.messages.batches.create(requests=requests_list)
-        except AttributeError:
-            batch = client.messages.batches.create(requests=requests_list)
-            
-        print(f"Batch Task ID: {batch.id}. Polling for completion...")
-        
-        import time
-        while True:
-            try:
-                b_status = client.beta.messages.batches.retrieve(batch.id)
-            except AttributeError:
-                b_status = client.messages.batches.retrieve(batch.id)
-                
-            status = b_status.processing_status
-            if status in ["ended", "canceled", "expired"]:
-                break
-            print(f"Status: {status}... (waiting 15s)")
-            time.sleep(15)
-            
-        if status != "ended":
-            print(f"Batch ended with non-success status: {status}")
-            return None
-            
-        print("Batch complete. Downloading results...")
-        
-        try:
-            results_iter = client.beta.messages.batches.results(batch.id)
-        except AttributeError:
-            results_iter = client.messages.batches.results(batch.id)
-            
-        for result in results_iter:
-            if result.result.type == "succeeded":
-                message = result.result.message
-                
-                # Calculate cost (Claude 3.5 Sonnet Batch pricing)
-                in_tokens = message.usage.input_tokens
-                out_tokens = message.usage.output_tokens
-                # Standard: $3 / 1M in, $15 / 1M out
-                # Batch: $1.50 / 1M in, $7.50 / 1M out
-                cost = (in_tokens * 1.5 + out_tokens * 7.5) / 1_000_000
-                
-                print(f"\n--- Cost Breakdown (Claude 3.5 Sonnet Batch) ---")
-                print(f"Input Tokens: {in_tokens}")
-                print(f"Output Tokens: {out_tokens}")
-                print(f"Total Cost: ${cost:.5f}")
-                print(f"------------------------------------------------\n")
-                
-                return message.content[0].text
-            else:
-                print(f"Batch request failed: {result.result}")
-                return None
-                
+        resp = call_llm_with_fallback(
+            messages=[{"role": "user", "content": content}],
+            model=model,
+            max_tokens=4096,
+            anthropic_key=api_key,
+            openai_model="gpt-4o"
+        )
+        return resp.content[0].text
     except Exception as e:
         print(f"API Error: {e}")
         return None
+
 
 def main():
     parser = argparse.ArgumentParser(description="Extract insights from a DOCX file using Anthropic Claude.")
@@ -180,9 +119,9 @@ def main():
         print(f"Error: File '{docx_path}' not found.")
         return
         
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is required")
+        raise RuntimeError("ANTHROPIC_API_KEY or OPENAI_API_KEY is required")
         
     # Step 1: Extract Text
     text_content = extract_text_from_docx(docx_path)

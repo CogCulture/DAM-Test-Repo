@@ -160,6 +160,29 @@ export async function getGDriveAccessToken(userId: string): Promise<string> {
 }
 
 /**
+ * Normalizes a Google Drive folder ID, extracting the clean ID if stored as a JSON string.
+ */
+export function normalizeGDriveFolderId(folderId?: string | null): string {
+  if (!folderId || folderId === "root") return "root";
+  const trimmed = String(folderId).trim();
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.id) {
+        return String(parsed[0].id).trim();
+      }
+    } catch {}
+  }
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed?.id) return String(parsed.id).trim();
+    } catch {}
+  }
+  return trimmed;
+}
+
+/**
  * Lists the contents of a specific folder in Google Drive.
  */
 export async function listGDriveFolder(
@@ -167,10 +190,11 @@ export async function listGDriveFolder(
   folderId: string
 ): Promise<GDriveItem[]> {
   try {
-    let targetFolderId = folderId;
-    if (folderId && folderId !== "root") {
+    const cleanFolderId = normalizeGDriveFolderId(folderId);
+    let targetFolderId = cleanFolderId;
+    if (cleanFolderId && cleanFolderId !== "root") {
       try {
-        const item = await getGDriveItem(accessToken, folderId);
+        const item = await getGDriveItem(accessToken, cleanFolderId);
         if (item.mimeType === "application/vnd.google-apps.shortcut" && item.shortcutDetails?.targetId) {
           targetFolderId = item.shortcutDetails.targetId;
         }
@@ -328,6 +352,8 @@ export async function getGDriveConnection(userId: string) {
     }
     if (!conn.folderId) {
       conn.folderId = "root";
+    } else {
+      conn.folderId = normalizeGDriveFolderId(conn.folderId);
     }
     return conn;
   }

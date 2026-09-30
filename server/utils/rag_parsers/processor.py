@@ -192,28 +192,51 @@ def run_anthropic_analysis(client, requests_list, use_batch):
 
 
 def analyze_with_claude_with_usage(text_content, images, api_key, model, use_batch=False):
-    """Wrapper around parse_docx's analyze_with_claude that also returns usage."""
+    """Wrapper around docx analysis with Claude/ChatGPT fallback that also returns usage."""
     import base64
-    from anthropic import Anthropic
-    client = Anthropic(api_key=api_key)
+    from llm_client import call_llm_with_fallback
+
     content = []
     if text_content:
-        content.append({"type": "text", "text": f"Document text:\n\n{text_content}\n\n---"})
+        content.append({
+            "type": "text",
+            "text": f"Here is the text extracted from the document:\n\n{text_content}\n\n---"
+        })
     for img in images:
-        b64 = base64.b64encode(img["bytes"]).decode("utf-8")
-        content.append({"type": "image", "source": {"type": "base64", "media_type": img["mime_type"], "data": b64}})
-    content.append({"type": "text", "text": (
-        "You are an expert document analyst. I have provided the raw text and all images from a Word document.\n\n"
-        "Please provide the following EXACT format in Markdown:\n"
-        "1. **Per-Page/Section Summary**: Divide content into logical sections, summarize each with visual insights.\n"
-        "2. **Overall Summary**: At the end, a cohesive overall summary."
-    )})
-    requests_list = [{"custom_id": "docx_1", "params": {"model": model, "max_tokens": 4096, "messages": [{"role": "user", "content": content}]}}]
-    result_text, in_tokens, out_tokens = run_anthropic_analysis(client, requests_list, use_batch)
+        b64_encoded = base64.b64encode(img["bytes"]).decode("utf-8")
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": img.get("mime_type", "image/jpeg"),
+                "data": b64_encoded
+            }
+        })
+    content.append({
+        "type": "text",
+        "text": (
+            "You are an expert document analyst. I have provided the raw text extracted from a Word document, "
+            "along with all the images and charts found inside it. Note that the text was extracted natively, so strict page numbers are missing.\n\n"
+            "Please provide the following EXACT format in Markdown:\n"
+            "1. **Per-Page/Section Summary**: Divide the content conceptually into logical chunks or simulated pages, and provide a detailed summary for each one. Include insights from any relevant images/charts.\n"
+            "2. **Overall Summary**: At the very end, provide a cohesive overall summary of the entire document."
+        )
+    })
 
+    resp = call_llm_with_fallback(
+        messages=[{"role": "user", "content": content}],
+        model=model,
+        max_tokens=4096,
+        anthropic_key=api_key,
+        openai_model="gpt-4o"
+    )
+    result_text = resp.content[0].text
+    in_tokens = getattr(resp.usage, "input_tokens", 0)
+    out_tokens = getattr(resp.usage, "output_tokens", 0)
     cost = (in_tokens * 1.5 + out_tokens * 7.5) / 1_000_000
     out_path_placeholder = None  # Will be set by caller
     return result_text, {"output_path": out_path_placeholder, "input_tokens": in_tokens, "output_tokens": out_tokens, "cost": cost}
+
 
 
 def _encode_image_b64(image_path: str, max_dim: int = 768) -> tuple[str, str]:
@@ -256,34 +279,58 @@ def _encode_image_b64(image_path: str, max_dim: int = 768) -> tuple[str, str]:
 
 
 def _process_image_single(image_path: str) -> dict:
-    """Sends a single image to Claude Vision for a quick analysis (Synchronous)."""
+    """Sends a single image to Claude Vision (or ChatGPT fallback) for analysis."""
     import os
-    from anthropic import Anthropic
-    client = Anthropic(api_key=ANTHROPIC_API_KEY)
+    from llm_client import call_llm_with_fallback
     
     b64, m_type = _encode_image_b64(image_path, max_dim=768)
 
-    resp = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=2048,
+    resp = call_llm_with_fallback(
         messages=[{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64", "media_type": m_type, "data": b64}},
             {"type": "text", "text": "Describe and analyze this image in detail. Extract all visible text, data, and visual insights."}
-        ]}]
+        ]}],
+        model=CLAUDE_MODEL,
+        max_tokens=2048,
+        anthropic_key=ANTHROPIC_API_KEY,
+        openai_model="gpt-4o"
     )
     out_path = os.path.splitext(image_path)[0] + "_parsed.md"
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(f"# Image Analysis\n\n{resp.content[0].text}")
-    in_tokens = resp.usage.input_tokens
-    out_tokens = resp.usage.output_tokens
+    in_tokens = getattr(resp.usage, "input_tokens", 0)
+    out_tokens = getattr(resp.usage, "output_tokens", 0)
     cost = (in_tokens * 3.0 + out_tokens * 15.0) / 1_000_000
     return {"output_path": out_path, "input_tokens": in_tokens, "output_tokens": out_tokens, "cost": cost}
 
 
+def _fallback_image_single_loop(job_id: str, image_files: list, progress_callback):
+    """Processes images sequentially using call_llm_with_fallback (Claude/ChatGPT)."""
+    for f in image_files:
+        file_index = f["index"]
+        curr = js.get_job(job_id)
+        if curr and curr["files"][file_index]["status"] in ("pending", "processing"):
+            try:
+                js.update_file_status(job_id, file_index, "processing")
+                if progress_callback: progress_callback(job_id, f, "processing")
+                res = _process_image_single(f["path"])
+                js.update_file_status(job_id, file_index, "done", **res)
+                if progress_callback: progress_callback(job_id, f, "done", res)
+            except Exception as single_err:
+                js.update_file_status(job_id, file_index, "failed", error=str(single_err))
+                if progress_callback: progress_callback(job_id, f, "failed", {"error": str(single_err)})
+
+
 def _process_image_batch(job_id: str, image_files: list, progress_callback):
-    """Processes multiple images as a single Anthropic batch."""
+    """Processes multiple images as a single Anthropic batch with fallback."""
     import json
     import time
+    
+    if not ANTHROPIC_API_KEY:
+        print(f"[Job {job_id}] Anthropic API key not provided for batch. Using individual processing with fallback...")
+        _fallback_image_single_loop(job_id, image_files, progress_callback)
+        return
+
     from anthropic import Anthropic
     
     print(f"[Job {job_id}] Packing {len(image_files)} images into an Anthropic batch...")
@@ -382,12 +429,9 @@ def _process_image_batch(job_id: str, image_files: list, progress_callback):
                 if progress_callback: progress_callback(job_id, file_item, "failed", {"error": err_msg})
                 
     except Exception as e:
-        print(f"[Job {job_id}] Batch error: {e}")
-        # Mark remaining as failed
-        for f in image_files:
-            if js.get_job(job_id)["files"][f["index"]]["status"] == "processing":
-                js.update_file_status(job_id, f["index"], "failed", error=str(e))
-                if progress_callback: progress_callback(job_id, f, "failed", {"error": str(e)})
+        print(f"[Job {job_id}] Anthropic Batch error: {e}. Falling back to sequential single image processing...")
+        _fallback_image_single_loop(job_id, image_files, progress_callback)
+
 
 
 def run_job(job_id: str, progress_callback=None):

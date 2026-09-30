@@ -109,14 +109,15 @@ export default defineEventHandler(async (event) => {
     // Check API keys
     const scriptPath = join(RAGPUSH_DIR, "rag_parsers", "run_pipeline.py");
     const apiKey = process.env.ANTHROPIC_API_KEY;
+    const openaiKey = process.env.OPENAI_API_KEY;
     const pineconeKey = process.env.PINECONE_API_KEY;
 
     if (!pineconeKey) {
       throw new Error("RAG is not configured. PINECONE_API_KEY is missing in .env.");
     }
 
-    if (ext !== ".txt" && ext !== ".md" && ext !== ".markdown" && !apiKey) {
-      throw new Error("RAG is not configured. ANTHROPIC_API_KEY is missing in .env.");
+    if (ext !== ".txt" && ext !== ".md" && ext !== ".markdown" && !apiKey && !openaiKey) {
+      throw new Error("RAG is not configured. ANTHROPIC_API_KEY or OPENAI_API_KEY is required in .env.");
     }
 
     const orgId = item.organizationId || "org_default";
@@ -152,6 +153,7 @@ export default defineEventHandler(async (event) => {
           PYTHONUNBUFFERED: "1",
           RAG_USE_BATCH: process.env.RAG_USE_BATCH || "false",
           ...(apiKey ? { ANTHROPIC_API_KEY: apiKey } : {}),
+          ...(openaiKey ? { OPENAI_API_KEY: openaiKey } : {}),
           PINECONE_API_KEY: pineconeKey,
         },
       });

@@ -4,11 +4,10 @@ import argparse
 import pandas as pd
 import numpy as np
 import json
-import anthropic
+from llm_client import call_llm_with_fallback
 
 def get_summaries(sheet_summaries, anthropic_key, model_name):
-    print(f"Generating high-level summaries using Anthropic model: {model_name}...")
-    client = anthropic.Anthropic(api_key=anthropic_key)
+    print(f"Generating high-level summaries using model: {model_name}...")
     
     prompt = f"""You are an expert data analyst. I am providing you with a high-level overview and a small sample of data from an Excel file containing multiple sub-tables.
 Please provide exactly TWO sections:
@@ -21,19 +20,20 @@ Here is the data context:
 {sheet_summaries}
 """
     try:
-        response = client.messages.create(
-            model=model_name, 
-            max_tokens=2048,
+        response = call_llm_with_fallback(
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3
+            model=model_name,
+            max_tokens=2048,
+            temperature=0.3,
+            anthropic_key=anthropic_key,
+            openai_model="gpt-4o-mini"
         )
         return response.content[0].text, response.usage.input_tokens, response.usage.output_tokens
     except Exception as e:
         return f"*Error generating summary: {e}*", 0, 0
 
 def get_all_templates(tables_info_dict, anthropic_key, model_name):
-    print("Generating natural language templates for all tables in a single API call...")
-    client = anthropic.Anthropic(api_key=anthropic_key)
+    print("Generating natural language templates for all tables...")
     
     prompt = f"""You are a linguistic expert. I have an Excel file with multiple sub-tables.
 Some tables might be structured as matrices with both vertical and horizontal headers.
@@ -49,11 +49,13 @@ Here is the data:
 {json.dumps(tables_info_dict, indent=2)}
 """
     try:
-        response = client.messages.create(
-            model=model_name, 
-            max_tokens=2048,
+        response = call_llm_with_fallback(
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.1
+            model=model_name,
+            max_tokens=2048,
+            temperature=0.1,
+            anthropic_key=anthropic_key,
+            openai_model="gpt-4o-mini"
         )
         content = response.content[0].text.strip()
         if content.startswith("```json"):
