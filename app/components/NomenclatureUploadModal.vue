@@ -328,16 +328,16 @@ const handleUpload = async () => {
           uploadResult = { success: true, files: [{ id: uploadedFile?.id, finalName: session.finalName }] };
         } catch (err: any) {
           console.error("GDrive upload failed for", finalName, err);
-          errorMessage.value = err?.data?.message || err?.message || "Upload failed.";
+          const errDetail = err?.data?.message || err?.message || "Upload failed.";
           uploadProgress.value[finalName] = 100;
-          uploadProgressTracker.setItemError(finalName, err?.data?.message || err?.message || "Upload failed");
+          uploadProgressTracker.setItemError(finalName, errDetail);
           uploadedCount.value++;
-          throw err;
+          return { success: false, finalName, error: errDetail };
         }
         uploadProgress.value[finalName] = 100;
         uploadProgressTracker.setItemComplete(finalName);
         uploadedCount.value++;
-        return;
+        return { success: true, finalName, result: uploadResult };
       }
 
       const pathForFolder = (file as any).customPath || file.webkitRelativePath;
@@ -347,26 +347,49 @@ const handleUpload = async () => {
         ? `${pathParts.join("/")}/${finalName}`
         : finalName;
 
-      await uploadFileToLocalStorage({
-        file: renamedFile,
-        bucket: String(route.params.bucket || "org"),
-        parentId: props.folder?.id || "root",
-        relativePath,
-        dimensions,
-        onProgress: (value) => {
-          uploadProgress.value[finalName] = value;
-          uploadProgressTracker.updateItemProgress(finalName, value);
-        },
-      });
-      uploadedCount.value++;
-      uploadProgress.value[finalName] = 100;
-      uploadProgressTracker.setItemComplete(finalName);
+      try {
+        const localRes = await uploadFileToLocalStorage({
+          file: renamedFile,
+          bucket: String(route.params.bucket || "org"),
+          parentId: props.folder?.id || "root",
+          relativePath,
+          dimensions,
+          onProgress: (value) => {
+            uploadProgress.value[finalName] = value;
+            uploadProgressTracker.updateItemProgress(finalName, value);
+          },
+        });
+        uploadedCount.value++;
+        uploadProgress.value[finalName] = 100;
+        uploadProgressTracker.setItemComplete(finalName);
+        return { success: true, finalName, result: localRes };
+      } catch (localErr: any) {
+        console.error("Local upload failed for", finalName, localErr);
+        const errDetail = localErr?.data?.message || localErr?.message || "Upload failed.";
+        uploadProgress.value[finalName] = 100;
+        uploadProgressTracker.setItemError(finalName, errDetail);
+        uploadedCount.value++;
+        return { success: false, finalName, error: errDetail };
+      }
     });
 
-    await Promise.all(uploadPromises);
-    uploadProgressTracker.completeUpload();
-    emit("success", uploadResult);
-    emit("update:open", false);
+    const fileOutcomes = await Promise.all(uploadPromises);
+    const successful = fileOutcomes.filter((o) => o?.success);
+    const failed = fileOutcomes.filter((o) => o && !o.success);
+
+    if (successful.length > 0) {
+      uploadProgressTracker.completeUpload();
+      emit("success", uploadResult);
+      if (failed.length === 0) {
+        emit("update:open", false);
+      } else {
+        errorMessage.value = `${successful.length} file(s) uploaded successfully. ${failed.length} file(s) failed: ${failed.map((f) => `${f.finalName} (${f.error})`).join(", ")}`;
+      }
+    } else if (failed.length > 0) {
+      const first = failed[0];
+      uploadProgressTracker.failUpload(first.error);
+      errorMessage.value = `Upload failed for all files. ${first.finalName}: ${first.error}`;
+    }
   } catch (error: any) {
     console.error("Upload failed:", error);
     uploadProgressTracker.failUpload(error?.message);

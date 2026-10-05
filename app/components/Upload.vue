@@ -282,6 +282,7 @@ const processSelection = async (selection: DirectoryUploadSelection) => {
 
   try {
     const results: any[] = [];
+    const failedFiles: { name: string; error: string }[] = [];
     const abortSignal = uploadProgressTracker.getAbortSignal();
 
     for (const file of filesList) {
@@ -301,7 +302,12 @@ const processSelection = async (selection: DirectoryUploadSelection) => {
           console.warn("Upload stopped by user for:", file.name);
           break;
         }
-        throw fileErr;
+
+        // Graceful non-blocking error handling: record error and continue remaining files
+        const errorMsg = fileErr?.data?.message || fileErr?.message || "Upload failed";
+        console.error(`[Upload] File "${file.name}" failed: ${errorMsg}. Continuing queue...`);
+        failedFiles.push({ name: file.name, error: errorMsg });
+        uploadProgressTracker.setItemError(file.name, errorMsg);
       }
     }
 
@@ -318,34 +324,58 @@ const processSelection = async (selection: DirectoryUploadSelection) => {
       return;
     }
 
-    const localResult = results.find((result) => result?.storage?.type === "local");
-    const verifiedLocation = localResult?.storage?.relativePath
-      ? ` Verified on disk at local dam storage/${localResult.storage.relativePath}.`
-      : "";
-    const outcomes = results.flatMap((result) => result?.files || (result?.storage ? [result.storage] : []));
-    const renamed = outcomes.filter((outcome) => outcome?.renamed);
-    const duplicates = outcomes.filter((outcome) => outcome?.duplicate);
-    const organizationNotes = [
-      renamed.length ? `${renamed.length} name collision(s) were numbered automatically.` : "",
-      duplicates.length ? `${duplicates.length} byte-identical file(s) reuse existing content.` : "",
-    ].filter(Boolean).join(" ");
-    toast.add({
-      title: "Upload Complete",
-      description: `Successfully uploaded ${filesList.length} file(s). ${organizationNotes}${verifiedLocation}`.trim(),
-      color: "green",
-    });
-    uploadPhase.value = "syncing";
-    uploadProgressTracker.setPhase("syncing");
-    uploadProgressTracker.completeUpload();
-    filesRefreshTrigger.value++;
-    emit("success");
-    setTimeout(() => {
+    // Always process and show successful uploads even if some failed
+    if (results.length > 0) {
+      const localResult = results.find((result) => result?.storage?.type === "local");
+      const verifiedLocation = localResult?.storage?.relativePath
+        ? ` Verified on disk at local dam storage/${localResult.storage.relativePath}.`
+        : "";
+      const outcomes = results.flatMap((result) => result?.files || (result?.storage ? [result.storage] : []));
+      const renamed = outcomes.filter((outcome) => outcome?.renamed);
+      const duplicates = outcomes.filter((outcome) => outcome?.duplicate);
+      const organizationNotes = [
+        renamed.length ? `${renamed.length} name collision(s) were numbered automatically.` : "",
+        duplicates.length ? `${duplicates.length} byte-identical file(s) reuse existing content.` : "",
+      ].filter(Boolean).join(" ");
+
+      if (failedFiles.length === 0) {
+        toast.add({
+          title: "Upload Complete",
+          description: `Successfully uploaded ${results.length} file(s). ${organizationNotes}${verifiedLocation}`.trim(),
+          color: "green",
+        });
+      } else {
+        const failedNames = failedFiles.map((f) => f.name).slice(0, 3).join(", ");
+        const moreCount = failedFiles.length > 3 ? ` (+${failedFiles.length - 3} more)` : "";
+        toast.add({
+          title: "Upload Completed with Warnings",
+          description: `Uploaded ${results.length} file(s) successfully. ${failedFiles.length} file(s) skipped: ${failedNames}${moreCount}`,
+          color: "amber",
+        });
+      }
+
+      uploadPhase.value = "syncing";
+      uploadProgressTracker.setPhase("syncing");
+      uploadProgressTracker.completeUpload();
       filesRefreshTrigger.value++;
       emit("success");
-    }, 300);
-    const responseDestination = results.find((result) => result?.destination)?.destination;
-    if (responseDestination?.route && selectedFolderId.value !== "root") {
-      await navigateTo(responseDestination.route);
+      setTimeout(() => {
+        filesRefreshTrigger.value++;
+        emit("success");
+      }, 300);
+      const responseDestination = results.find((result) => result?.destination)?.destination;
+      if (responseDestination?.route && selectedFolderId.value !== "root") {
+        await navigateTo(responseDestination.route);
+      }
+    } else if (failedFiles.length > 0) {
+      // If every single file in the batch failed
+      const firstErr = failedFiles[0];
+      uploadProgressTracker.failUpload(firstErr.error);
+      toast.add({
+        title: "Upload Failed",
+        description: `All ${failedFiles.length} file(s) failed. ${firstErr.name}: ${firstErr.error}`,
+        color: "red",
+      });
     }
   } catch (err: any) {
     if (
