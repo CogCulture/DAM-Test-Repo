@@ -19,7 +19,10 @@ export const usePostgresDrizzle = (databaseUrl: string) => {
   pgClient = postgres(databaseUrl, {
     ssl: "require",
     prepare: false, // Essential for Supabase transaction poolers
-    max: 5,
+    max: 10,
+    idle_timeout: 20, // Closes idle sockets after 20s to avoid stale pooler connections
+    connect_timeout: 10, // 10s connection timeout
+    max_lifetime: 60 * 30, // Recycle connection after 30 minutes
   });
 
   activeDatabaseUrl = databaseUrl;
