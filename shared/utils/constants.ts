@@ -63,6 +63,13 @@ export const allowedExtensions: Record<string, string> = {
   bin: "application/octet-stream",
   iso: "application/x-iso9660-image",
   apk: "application/vnd.android.package-archive",
+  // Design & Professional Creative Formats
+  psd: "image/vnd.adobe.photoshop",
+  ai: "application/illustrator",
+  indd: "application/x-indesign",
+  eps: "application/postscript",
+  tiff: "image/tiff",
+  tif: "image/tiff",
   appimage: "application/x-executable",
 };
 
@@ -142,6 +149,12 @@ export const fileTypes: Record<string, string> = {
   "application/vnd.android.package-archive": "executable",
   "application/x-executable": "executable",
   "application/octet-stream": "binary",
+  // Creative design formats
+  "image/vnd.adobe.photoshop": "psd",
+  "application/illustrator": "ai",
+  "application/x-indesign": "indd",
+  "application/postscript": "ai",
+  "image/tiff": "image",
 };
 export const fileIcons = {
   folder: "lucide:folder",
@@ -157,6 +170,9 @@ export const fileIcons = {
   js: "vscode-icons:file-type-js-official",
   ts: "vscode-icons:file-type-typescript-official",
   archive: "vscode-icons:file-type-zip",
+  psd: "vscode-icons:file-type-photoshop",
+  ai: "vscode-icons:file-type-ai",
+  indd: "vscode-icons:file-type-indesign",
   text: "vscode-icons:file-type-text",
   markdown: "vscode-icons:file-type-markdown",
   json: "vscode-icons:file-type-json",

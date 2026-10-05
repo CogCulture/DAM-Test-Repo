@@ -608,7 +608,8 @@ const uploadFile = async (file: File) => {
 
   const fileType = file.type.split("/")[0];
   let dimensions: string | null = null;
-  if (fileType === "image") {
+  const isDesignFile = /\.(psd|ai|eps|indd|raw|cr2|nef)$/i.test(file.name);
+  if (fileType === "image" && !isDesignFile) {
     const image = new Image();
     const objectUrl = URL.createObjectURL(file);
     image.src = objectUrl;

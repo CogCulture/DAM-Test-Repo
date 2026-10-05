@@ -179,7 +179,8 @@ const handleUpload = async () => {
       
       let dimensions: string | null = null;
       const fileType = file.type.split("/")[0];
-      if (fileType === "image") {
+      const isDesignFile = /\.(psd|ai|eps|indd|raw|cr2|nef)$/i.test(finalName);
+      if (fileType === "image" && !isDesignFile) {
         const image = new Image();
         image.src = URL.createObjectURL(file);
         await new Promise<void>((resolve) => {
