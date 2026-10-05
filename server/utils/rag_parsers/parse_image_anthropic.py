@@ -5,10 +5,63 @@ import base64
 import json
 from anthropic import Anthropic
 def _encode_image_b64(image_path: str, max_dim: int = 768) -> tuple[str, str]:
+    import io
+    import logging
     ext = os.path.splitext(image_path)[1].lower()
     m_type = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
 
-    # Try cv2 first
+    # Strategy 1: PIL / Pillow (Primary - robust color conversion including CMYK, RGBA, EXIF transposition, and large print design formats)
+    try:
+        from PIL import Image, ImageFile, ImageOps
+        Image.MAX_IMAGE_PIXELS = None  # Prevent DecompressionBombError on high-res design assets
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+        with Image.open(image_path) as img:
+            try:
+                img = ImageOps.exif_transpose(img)
+            except Exception:
+                pass
+
+            # Convert non-RGB/L modes (e.g. CMYK print files, palette P, RGBA to JPEG)
+            if img.mode not in ("RGB", "L") or m_type == "image/jpeg":
+                if img.mode in ("RGBA", "LA", "P"):
+                    bg = Image.new("RGB", img.size, (255, 255, 255))
+                    alpha_img = img.convert("RGBA")
+                    bg.paste(alpha_img, mask=alpha_img.split()[3])
+                    img = bg
+                else:
+                    img = img.convert("RGB")
+                m_type = "image/jpeg"
+                fmt = "JPEG"
+            else:
+                fmt = "PNG" if m_type == "image/png" else ("WEBP" if m_type == "image/webp" else "JPEG")
+
+            img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+
+            # Iterative downscale/compression to guarantee payload never exceeds Anthropic's 10 MB limit
+            quality = 85
+            current_dim = max_dim
+            while True:
+                buf = io.BytesIO()
+                if fmt == "JPEG":
+                    img.save(buf, format="JPEG", quality=quality, optimize=True)
+                elif fmt == "PNG":
+                    img.save(buf, format="PNG", optimize=True)
+                else:
+                    img.save(buf, format=fmt, quality=quality)
+
+                data = buf.getvalue()
+                # 4 MB binary yields ~5.3 MB base64, well under Anthropic's 10 MB (10,485,760 bytes) limit
+                if len(data) <= 4 * 1024 * 1024 or quality <= 25:
+                    return base64.b64encode(data).decode("utf-8"), m_type
+
+                quality -= 20
+                current_dim = int(current_dim * 0.75)
+                img.thumbnail((current_dim, current_dim), Image.Resampling.LANCZOS)
+    except Exception as e:
+        logging.getLogger(__name__).warning("Pillow failed to encode %s: %s", image_path, e)
+
+    # Strategy 2: OpenCV fallback
     try:
         import cv2
         img = cv2.imread(image_path)
@@ -16,29 +69,27 @@ def _encode_image_b64(image_path: str, max_dim: int = 768) -> tuple[str, str]:
             h, w = img.shape[:2]
             if max(h, w) > max_dim:
                 scale = max_dim / max(h, w)
-                img = cv2.resize(img, (int(w * scale), int(h * scale)))
+                img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
             encode_ext = ".jpg" if m_type == "image/jpeg" else ext
-            _, buffer = cv2.imencode(encode_ext, img, [cv2.IMWRITE_JPEG_QUALITY, 85] if encode_ext == ".jpg" else [])
-            return base64.b64encode(buffer).decode("utf-8"), m_type
-    except Exception:
-        pass
+            params = [cv2.IMWRITE_JPEG_QUALITY, 80] if encode_ext == ".jpg" else []
+            _, buffer = cv2.imencode(encode_ext, img, params)
+            data = buffer.tobytes()
+            if len(data) <= 4 * 1024 * 1024:
+                return base64.b64encode(data).decode("utf-8"), m_type
+    except Exception as e:
+        logging.getLogger(__name__).warning("OpenCV failed to encode %s: %s", image_path, e)
 
-    # Try PIL/Pillow next
-    try:
-        from PIL import Image
-        import io
-        with Image.open(image_path) as img:
-            img.thumbnail((max_dim, max_dim))
-            fmt = "PNG" if m_type == "image/png" else ("WEBP" if m_type == "image/webp" else "JPEG")
-            buffer = io.BytesIO()
-            img.convert("RGB" if fmt == "JPEG" else img.mode).save(buffer, format=fmt, quality=85)
-            return base64.b64encode(buffer.getvalue()).decode("utf-8"), m_type
-    except Exception:
-        pass
+    # Strategy 3: Safe binary read ONLY if file is small enough (< 5 MB binary -> < 6.7 MB base64)
+    if os.path.exists(image_path):
+        fsize = os.path.getsize(image_path)
+        if fsize <= 5 * 1024 * 1024:
+            with open(image_path, "rb") as f:
+                return base64.b64encode(f.read()).decode("utf-8"), m_type
+        raise ValueError(
+            f"Image {os.path.basename(image_path)} ({fsize / (1024 * 1024):.2f} MB) could not be resized and exceeds Anthropic's 10 MB limit."
+        )
 
-    # Fallback to direct raw binary file read
-    with open(image_path, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8"), m_type
+    raise FileNotFoundError(f"Image file not found: {image_path}")
 
 from llm_client import call_llm_with_fallback
 
