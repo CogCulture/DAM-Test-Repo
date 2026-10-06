@@ -46,47 +46,83 @@ def call_llm_with_fallback(
     """
     anthropic_key = anthropic_key or os.environ.get("ANTHROPIC_API_KEY")
     openai_key = os.environ.get("OPENAI_API_KEY")
-    claude_model = model or os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
+    configured_claude = (model or os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")).strip()
+    claude_candidates = []
+    if configured_claude:
+        claude_candidates.append(configured_claude)
+    for std_claude in ["claude-sonnet-4-6", "claude-sonnet-5-5", "claude-haiku-4-5-20251001", "claude-3-5-sonnet-20241022"]:
+        if std_claude not in claude_candidates:
+            claude_candidates.append(std_claude)
 
     anthropic_err = None
 
     # 1. Attempt Anthropic Claude if key is provided
     if anthropic_key:
-        for attempt in range(max_retries):
-            try:
-                from anthropic import Anthropic
-                client = Anthropic(api_key=anthropic_key)
-                kwargs = {
-                    "model": claude_model,
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                    "messages": messages,
-                }
-                if system:
-                    kwargs["system"] = system
-                resp = client.messages.create(**kwargs)
-                return resp
-            except Exception as exc:
-                anthropic_err = exc
-                err_msg = str(exc).lower()
-                is_rate_limit = "429" in err_msg or "rate limit" in err_msg or "overloaded" in err_msg
-                is_server_err = "50" in err_msg or "server error" in err_msg
-                if (is_rate_limit or is_server_err) and attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 3
-                    time.sleep(wait_time)
-                    continue
-                break
+        try:
+            from anthropic import Anthropic
+            client = Anthropic(api_key=anthropic_key)
+            for c_model in claude_candidates:
+                model_failed = False
+                for attempt in range(max_retries):
+                    try:
+                        kwargs = {
+                            "model": c_model,
+                            "max_tokens": max_tokens,
+                            "messages": messages,
+                        }
+                        if system:
+                            kwargs["system"] = system
+                        if temperature is not None:
+                            kwargs["temperature"] = temperature
+
+                        try:
+                            resp = client.messages.create(**kwargs)
+                            return resp
+                        except Exception as te:
+                            # Catch both TypeError ('unexpected keyword argument temperature')
+                            # and BadRequestError ('temperature is deprecated for this model')
+                            if "temperature" in str(te).lower() and "temperature" in kwargs:
+                                kwargs.pop("temperature", None)
+                                resp = client.messages.create(**kwargs)
+                                return resp
+                            raise
+                    except Exception as exc:
+                        anthropic_err = exc
+                        err_msg = str(exc).lower()
+                        if "not_found" in err_msg or "model not found" in err_msg or "404" in err_msg:
+                            model_failed = True
+                            break
+                        is_rate_limit = "429" in err_msg or "rate limit" in err_msg or "overloaded" in err_msg
+                        is_server_err = "50" in err_msg or "server error" in err_msg
+                        if (is_rate_limit or is_server_err) and attempt < max_retries - 1:
+                            wait_time = (attempt + 1) * 3
+                            time.sleep(wait_time)
+                            continue
+                        model_failed = True
+                        break
+                if not model_failed:
+                    break
+        except Exception as client_init_err:
+            anthropic_err = client_init_err
 
     # 2. Fallback to OpenAI ChatGPT
     if openai_key:
         try:
             from openai import OpenAI
             client = OpenAI(api_key=openai_key)
-            target_openai_model = os.environ.get("OPENAI_MODEL", openai_model or "gpt-4o")
+            configured_model = (os.environ.get("OPENAI_MODEL") or openai_model or "gpt-4o").strip()
+
+            # Build list of candidate models in priority order, ignoring non-existent/hallucinated names
+            candidates = []
+            if configured_model and not configured_model.lower().startswith("gpt6"):
+                candidates.append(configured_model)
+            for default_candidate in ["gpt-4o", "gpt-4o-mini"]:
+                if default_candidate not in candidates:
+                    candidates.append(default_candidate)
 
             print(json.dumps({
                 "type": "progress",
-                "text": f"[AI Fallback] Claude unavailable ({anthropic_err or 'No key'}). Using ChatGPT ({target_openai_model})...\n"
+                "text": f"[AI Fallback] Claude unavailable ({anthropic_err or 'No key'}). Using ChatGPT ({candidates[0]})...\n"
             }), flush=True)
 
             openai_messages = []
@@ -116,24 +152,36 @@ def call_llm_with_fallback(
                             })
                     openai_messages.append({"role": role, "content": converted_parts})
 
-            chat_kwargs = {
-                "model": target_openai_model,
-                "messages": openai_messages,
-            }
-            if target_openai_model.startswith("o1") or target_openai_model.startswith("o3"):
-                chat_kwargs["max_completion_tokens"] = max_tokens
-            else:
-                chat_kwargs["max_tokens"] = max_tokens
-                chat_kwargs["temperature"] = temperature
+            openai_err = None
+            for target_model in candidates:
+                try:
+                    chat_kwargs = {
+                        "model": target_model,
+                        "messages": openai_messages,
+                    }
+                    if target_model.startswith("o1") or target_model.startswith("o3"):
+                        chat_kwargs["max_completion_tokens"] = max_tokens
+                    else:
+                        chat_kwargs["max_tokens"] = max_tokens
+                        if temperature is not None:
+                            chat_kwargs["temperature"] = temperature
 
-            chat_resp = client.chat.completions.create(**chat_kwargs)
+                    chat_resp = client.chat.completions.create(**chat_kwargs)
 
-            out_text = chat_resp.choices[0].message.content or ""
-            in_tokens = chat_resp.usage.prompt_tokens if chat_resp.usage else 0
-            out_tokens = chat_resp.usage.completion_tokens if chat_resp.usage else 0
+                    out_text = chat_resp.choices[0].message.content or ""
+                    in_tokens = chat_resp.usage.prompt_tokens if chat_resp.usage else 0
+                    out_tokens = chat_resp.usage.completion_tokens if chat_resp.usage else 0
 
-            return UnifiedResponse(out_text, in_tokens, out_tokens)
+                    return UnifiedResponse(out_text, in_tokens, out_tokens)
+                except Exception as m_err:
+                    openai_err = m_err
+                    m_err_str = str(m_err).lower()
+                    if "model_not_found" in m_err_str or "does not exist" in m_err_str or "404" in m_err_str:
+                        continue
+                    raise
 
+            if openai_err:
+                raise openai_err
 
         except Exception as oai_err:
             raise RuntimeError(
